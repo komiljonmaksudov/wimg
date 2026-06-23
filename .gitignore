@@ -5,6 +5,9 @@ libwimg/.zig-cache/
 libwimg/build-ios/
 libwimg/build-android/
 libwimg/ZIG_LEARNING_PLAN.md
+wimg-sync-zig/zig-out/
+wimg-sync-zig/.zig-cache/
+wimg-sync-zig/sync.db*
 
 # SQLite amalgamation (large, downloaded)
 libwimg/vendor/sqlite3.c
@@ -99,3 +102,4 @@ wimg-sync/.dev.vars
 # Generated reports
 scripts/bank-matrix-last.json
 scripts/drift-report*.json
+infra/restic.env
