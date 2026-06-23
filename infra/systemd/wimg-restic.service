@@ -1,0 +1,35 @@
+[Unit]
+Description=wimg daily restic backup to R2
+Documentation=https://restic.readthedocs.io
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=wimg
+Group=wimg
+EnvironmentFile=/etc/wimg/restic.env
+
+# Take a CONSISTENT snapshot first. Copying the live DB + -wal + -shm directly
+# can capture a torn mid-transaction state; SQLite's online `.backup` produces a
+# single coherent file even while the server is writing. It lands in the
+# service-private /tmp (PrivateTmp), so it never pollutes the data dir and is
+# discarded when the unit exits.
+ExecStartPre=/usr/bin/sqlite3 /var/lib/wimg/sync.db ".backup '/tmp/wimg-snapshot.db'"
+
+# Back up the consistent snapshot, then enforce retention in one shot.
+ExecStart=/usr/local/bin/restic backup /tmp/wimg-snapshot.db --tag daily --quiet
+ExecStart=/usr/local/bin/restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune --quiet
+
+# Sandboxing — same as wimg-sync, with R2 network access. The data dir is
+# read-write here (not read-only): opening the WAL database to snapshot it
+# requires touching the -shm index even for a reader.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/wimg /var/cache/restic
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=wimg-restic

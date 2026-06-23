@@ -1,0 +1,50 @@
+[Unit]
+Description=wimg sync server (Zig)
+Documentation=https://github.com/milimyname/wimg
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wimg
+Group=wimg
+WorkingDirectory=/var/lib/wimg
+# Bind loopback only — Caddy (same host) reverse-proxies to it; the box's
+# firewall already blocks :8080 externally, this is belt-and-braces.
+Environment=BIND=127.0.0.1
+ExecStart=/usr/local/bin/wimg-sync
+Restart=on-failure
+RestartSec=5s
+
+# No core dumps — they'd contain in-memory sync keys
+LimitCORE=0
+
+# Sandboxing — kernel restricts the process even if it's compromised
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+
+# Writable paths — only the data dir
+ReadWritePaths=/var/lib/wimg
+
+# Resource caps — one user with three devices doesn't need more than this
+MemoryMax=512M
+TasksMax=256
+
+# Logs to journald, JSON parseable
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=wimg-sync
+
+[Install]
+WantedBy=multi-user.target

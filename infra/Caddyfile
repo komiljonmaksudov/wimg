@@ -1,0 +1,36 @@
+# wimg-sync reverse proxy
+# Caddy handles TLS automatically via Let's Encrypt; just point DNS at this VPS
+# and Caddy fetches a cert on first request. Renews silently.
+#
+# Logs go to journald. The Zig server speaks plain HTTP on :8080 — TLS lives here.
+
+wimg-sync.mili-my.name {
+	encode gzip zstd
+
+	# Headers: HSTS, no sniffing, no framing, strict referrer.
+	# CORS is handled by the Zig server (clients can be on any origin).
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		# Remove the default Caddy server header so we don't leak version info
+		-Server
+	}
+
+	reverse_proxy 127.0.0.1:8080 {
+		# SSE needs long-lived streaming responses — disable buffering on /events
+		flush_interval -1
+
+		# Forward client IP so the Zig server can do per-IP connection caps
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Real-IP {remote_host}
+	}
+
+	log {
+		output stderr
+		format json
+		# Drop request/response bodies from logs — they contain encrypted sync data
+		# and Bearer tokens (sync keys). Keep only metadata.
+	}
+}
