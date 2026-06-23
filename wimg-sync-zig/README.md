@@ -39,8 +39,10 @@ the tool, and — for writes — re-encrypts the changed rows back into the Stor
 - `set_category(transaction_id, category)` — the only write; resolves
   German/English/alias category names and auto-learns a rule.
 
-Code Mode (the Worker's CF-specific sandbox wrapper) is intentionally dropped —
-the tools are exposed directly as standard MCP tools.
+`query` results are PII-scrubbed (IBAN / BIC / card / `EREF+`-style reference
+fields) on description-like columns before they leave the server, matching the
+Worker's `stripPII`. Code Mode (the Worker's CF-specific sandbox wrapper) is
+intentionally dropped — the tools are exposed directly as standard MCP tools.
 
 ## Architecture
 
@@ -95,20 +97,15 @@ VPS=root@<ip> ../infra/scripts/deploy.sh   # builds nothing — expects zig-out/
 
 ## Remaining work (Phase 2)
 
-1. **MCP PII stripping** — the Worker scrubbed IBAN/BIC/card/reference numbers
-   from description-like columns before returning `query` results. Not yet ported
-   (Zig has no regex; needs hand-rolled matchers). Lower risk here than on the
-   shared Worker since it's the user's own data via their own key, but it's a
-   stated security default — see the `TODO` in `toolQuery`.
-2. **MCP write watermark** — `writeBackChanges` calls `wimg_get_changes(0)`, so a
+1. **MCP write watermark** — `writeBackChanges` calls `wimg_get_changes(0)`, so a
    write re-encrypts every row (LWW dedups, so it's correct but wasteful). Track a
    per-key watermark to push only what changed.
-3. **Server-initiated ping** — the Worker pings every 30 s so idle sockets stay
+2. **Server-initiated ping** — the Worker pings every 30 s so idle sockets stay
    alive through proxies. This server replies `pong` to client pings and handles
    `ConnectionClose`, but doesn't ping on its own yet (needs a read timeout or a
    per-connection timer). Clients reconnect on close, so it's not blocking.
-4. **Config** — port/DB path via env or args once the `std.Io` args/env API is wired.
-5. **Cutover** — DNS, client `config.ts`/iOS/Android base URLs, and CLAUDE.md
+3. **Config** — port/DB path via env or args once the `std.Io` args/env API is wired.
+4. **Cutover** — DNS, client `config.ts`/iOS/Android base URLs, and CLAUDE.md
    (still documents sync as CF Durable Objects).
 
 ### WebSocket protocol (implemented, matches `../wimg-sync/src/sync-room.ts`)

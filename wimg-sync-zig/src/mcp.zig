@@ -211,8 +211,205 @@ fn toolQuery(gpa: std.mem.Allocator, id_json: ?[]u8, args: std.json.Value) !RpcR
     const res = (try dupResult(gpa, wimg_query(sql.ptr, @intCast(sql.len)))) orelse
         return toolError(gpa, id_json, "query: failed (check SQL)");
     defer gpa.free(res);
-    // TODO(phase-2): port stripPII() over description-like columns before return.
-    return toolText(gpa, id_json, res);
+    const scrubbed = stripResultPii(gpa, res) catch res;
+    defer if (scrubbed.ptr != res.ptr) gpa.free(scrubbed);
+    return toolText(gpa, id_json, scrubbed);
+}
+
+// --- PII scrubbing (ported from mcp-tools.ts stripPII / PII_COLUMNS) ---
+
+/// Column names (case-insensitive) whose string cells get scrubbed.
+fn isPiiColumn(name: []const u8) bool {
+    const cols = [_][]const u8{ "desc", "description", "raw", "note", "reference", "pattern", "payee", "merchant" };
+    for (cols) |c| if (std.ascii.eqlIgnoreCase(name, c)) return true;
+    return false;
+}
+
+/// Re-run a `{columns,rows,...}` query result, scrubbing PII from string cells
+/// of PII columns. Returns the original slice unchanged when there's nothing to do.
+fn stripResultPii(gpa: std.mem.Allocator, result_json: []const u8) ![]const u8 {
+    const parsed = try std.json.parseFromSlice(std.json.Value, gpa, result_json, .{});
+    defer parsed.deinit();
+    if (parsed.value != .object) return result_json;
+    const cols_v = parsed.value.object.get("columns") orelse return result_json;
+    const rows_v = parsed.value.object.get("rows") orelse return result_json;
+    if (cols_v != .array or rows_v != .array) return result_json;
+
+    // Which column indices are PII?
+    var pii = std.ArrayList(usize).empty;
+    defer pii.deinit(gpa);
+    for (cols_v.array.items, 0..) |col, idx| {
+        if (col == .string and isPiiColumn(col.string)) try pii.append(gpa, idx);
+    }
+    if (pii.items.len == 0) return result_json;
+
+    var owned = std.ArrayList([]u8).empty;
+    defer {
+        for (owned.items) |b| gpa.free(b);
+        owned.deinit(gpa);
+    }
+    for (rows_v.array.items) |row| {
+        if (row != .array) continue;
+        for (pii.items) |idx| {
+            if (idx >= row.array.items.len) continue;
+            const cell = row.array.items[idx];
+            if (cell != .string) continue;
+            const stripped = try stripPii(gpa, cell.string);
+            try owned.append(gpa, stripped);
+            row.array.items[idx] = .{ .string = stripped };
+        }
+    }
+
+    return std.json.Stringify.valueAlloc(gpa, parsed.value, .{});
+}
+
+fn isWord(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_';
+}
+
+/// Hand-rolled port of the Worker's stripPII regex chain: scrub IBANs, BICs,
+/// card numbers, and `EREF+/MREF+/CRED+/KREF+/IBAN+/ABWA+` reference fields, then
+/// collapse whitespace.
+fn stripPii(gpa: std.mem.Allocator, input: []const u8) ![]u8 {
+    var out = std.ArrayList(u8).empty;
+    errdefer out.deinit(gpa);
+
+    var i: usize = 0;
+    while (i < input.len) {
+        const boundary = (i == 0) or !isWord(input[i - 1]);
+
+        // EREF+/MREF+/CRED+/KREF+/IBAN+ <non-space>  → "PREFIX+***"
+        const refs = [_][]const u8{ "EREF+", "MREF+", "CRED+", "KREF+", "IBAN+" };
+        var matched = false;
+        if (boundary) {
+            for (refs) |pre| {
+                if (std.mem.startsWith(u8, input[i..], pre)) {
+                    try out.appendSlice(gpa, pre);
+                    try out.appendSlice(gpa, "***");
+                    i += pre.len;
+                    while (i < input.len and input[i] != ' ' and input[i] != '\t') i += 1;
+                    matched = true;
+                    break;
+                }
+            }
+        }
+        if (matched) continue;
+
+        // ABWA+ <until '+'>  → "ABWA+***"
+        if (boundary and std.mem.startsWith(u8, input[i..], "ABWA+")) {
+            try out.appendSlice(gpa, "ABWA+***");
+            i += "ABWA+".len;
+            while (i < input.len and input[i] != '+') i += 1;
+            continue;
+        }
+
+        // BIC+<8-11 alnum>  → "BIC+***"
+        if (boundary and std.mem.startsWith(u8, input[i..], "BIC+")) {
+            var j = i + "BIC+".len;
+            var n: usize = 0;
+            while (j < input.len and std.ascii.isAlphanumeric(input[j])) : (j += 1) n += 1;
+            if (n >= 8 and n <= 11) {
+                try out.appendSlice(gpa, "BIC+***");
+                i = j;
+                continue;
+            }
+        }
+
+        // IBAN number (2 letters, 2 digits, 4×4 digit groups, optional trailing).
+        if (boundary) {
+            if (matchIban(input, i)) |end| {
+                try out.appendSlice(gpa, "***");
+                i = end;
+                continue;
+            }
+            // Card number (4×4 digit groups).
+            if (matchCard(input, i)) |end| {
+                try out.appendSlice(gpa, "***");
+                i = end;
+                continue;
+            }
+        }
+
+        try out.append(gpa, input[i]);
+        i += 1;
+    }
+
+    // Collapse runs of spaces/tabs and trim.
+    return collapseWhitespace(gpa, try out.toOwnedSlice(gpa));
+}
+
+/// `[A-Z]{2}\d{2}` then four mandatory `\s?\d{4}` groups, then optional trailing
+/// `\s?\d{0,4}\s?\d{0,2}`. Returns the end index, or null if no match.
+fn matchIban(s: []const u8, start: usize) ?usize {
+    if (start + 4 > s.len) return null;
+    if (!std.ascii.isUpper(s[start]) or !std.ascii.isUpper(s[start + 1])) return null;
+    if (!std.ascii.isDigit(s[start + 2]) or !std.ascii.isDigit(s[start + 3])) return null;
+    var p = start + 4;
+    var g: usize = 0;
+    while (g < 4) : (g += 1) {
+        if (p < s.len and s[p] == ' ') p += 1;
+        var k: usize = 0;
+        while (k < 4) : (k += 1) {
+            if (p >= s.len or !std.ascii.isDigit(s[p])) return null;
+            p += 1;
+        }
+    }
+    p = consumeOptDigits(s, p, 4);
+    p = consumeOptDigits(s, p, 2);
+    return p;
+}
+
+/// Optional single space + up to `max` digits (only consumed if at least one
+/// digit follows). Returns the (possibly advanced) index.
+fn consumeOptDigits(s: []const u8, start: usize, max: usize) usize {
+    var p = start;
+    const after_space = if (p < s.len and s[p] == ' ') p + 1 else p;
+    if (after_space >= s.len or !std.ascii.isDigit(s[after_space])) return start;
+    p = after_space;
+    var k: usize = 0;
+    while (k < max and p < s.len and std.ascii.isDigit(s[p])) : (k += 1) p += 1;
+    return p;
+}
+
+/// Four groups of exactly four digits (optional single space between), not
+/// followed by another digit.
+fn matchCard(s: []const u8, start: usize) ?usize {
+    var p = start;
+    var g: usize = 0;
+    while (g < 4) : (g += 1) {
+        if (g > 0 and p < s.len and s[p] == ' ') p += 1;
+        var k: usize = 0;
+        while (k < 4) : (k += 1) {
+            if (p >= s.len or !std.ascii.isDigit(s[p])) return null;
+            p += 1;
+        }
+    }
+    if (p < s.len and std.ascii.isDigit(s[p])) return null; // 17th digit → not a card
+    return p;
+}
+
+/// Collapse runs of spaces/tabs to a single space and trim ends. Frees `in`.
+fn collapseWhitespace(gpa: std.mem.Allocator, in: []u8) ![]u8 {
+    defer gpa.free(in);
+    var out = std.ArrayList(u8).empty;
+    errdefer out.deinit(gpa);
+    var prev_space = false;
+    for (in) |c| {
+        const is_space = c == ' ' or c == '\t';
+        if (is_space) {
+            if (!prev_space) try out.append(gpa, ' ');
+            prev_space = true;
+        } else {
+            try out.append(gpa, c);
+            prev_space = false;
+        }
+    }
+    const slice = try out.toOwnedSlice(gpa);
+    const trimmed = std.mem.trim(u8, slice, " ");
+    if (trimmed.len == slice.len) return slice;
+    const dup = try gpa.dupe(u8, trimmed);
+    gpa.free(slice);
+    return dup;
 }
 
 // --- set_category tool ---
@@ -471,6 +668,23 @@ const TOOLS_LIST =
     \\{"name":"set_category","description":"Set the category of one transaction by id. The only write. Category accepts German canonical, English, or alias (e.g. Lebensmittel/Groceries/Food). Also auto-learns a rule for the merchant.","inputSchema":{"type":"object","properties":{"transaction_id":{"type":"string"},"category":{"type":"string"}},"required":["transaction_id","category"]}}
     \\]}
 ;
+
+test "stripPii scrubs IBAN, card, BIC and reference fields" {
+    const gpa = std.testing.allocator;
+    const cases = [_]struct { in: []const u8, want: []const u8 }{
+        .{ .in = "REWE DE89 3704 0044 0532 0130 00 DANKE", .want = "REWE *** DANKE" },
+        .{ .in = "Karte 1234 5678 9012 3456  end", .want = "Karte *** end" },
+        .{ .in = "EREF+ABC123XYZ Zahlung", .want = "EREF+*** Zahlung" },
+        .{ .in = "BIC+COBADEFFXXX ueberweisung", .want = "BIC+*** ueberweisung" },
+        .{ .in = "ABWA+John Doe+more", .want = "ABWA+***+more" },
+        .{ .in = "SPOTIFY AB", .want = "SPOTIFY AB" }, // nothing to strip
+    };
+    for (cases) |c| {
+        const got = try stripPii(gpa, c.in);
+        defer gpa.free(got);
+        try std.testing.expectEqualStrings(c.want, got);
+    }
+}
 
 test "isReadOnlySql" {
     try std.testing.expect(isReadOnlySql("SELECT * FROM transactions"));
