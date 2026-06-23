@@ -7,7 +7,8 @@ libwimg/build-android/
 libwimg/ZIG_LEARNING_PLAN.md
 wimg-sync-zig/zig-out/
 wimg-sync-zig/.zig-cache/
-wimg-sync-zig/sync.db*
+wimg-sync-zig/*.db
+wimg-sync-zig/*.db-*
 
 # SQLite amalgamation (large, downloaded)
 libwimg/vendor/sqlite3.c

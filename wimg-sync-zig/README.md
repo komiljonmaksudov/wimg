@@ -82,10 +82,12 @@ zig build test         # store + protocol + routing unit tests
 zig build run          # listens on 0.0.0.0:8080, writes ./sync.db
 ```
 
-Config is currently hardcoded: port `8080`, DB `sync.db` (relative to the
-working dir — `/var/lib/wimg` under systemd). Reuses `../libwimg/vendor/sqlite3.c`
-rather than vendoring a second 9 MB copy, so the libwimg amalgamation must be
-present (it's gitignored; `make`/CI fetches it).
+Config via env: `PORT` (default `8080`, matching the Caddyfile) and
+`WIMG_SYNC_DB` (default `sync.db`, relative to the working dir — `/var/lib/wimg`
+under systemd). Local dev: `WIMG_NATIVE_SYNC=1 ./scripts/dev.sh` runs this server
+on `:8787` so the web client's dev URL hits it unchanged. Reuses
+`../libwimg/vendor/sqlite3.c` rather than vendoring a second 9 MB copy, so the
+libwimg amalgamation must be present (it's gitignored; CI fetches it).
 
 ## Deploy
 
@@ -104,8 +106,7 @@ VPS=root@<ip> ../infra/scripts/deploy.sh   # builds nothing — expects zig-out/
    alive through proxies. This server replies `pong` to client pings and handles
    `ConnectionClose`, but doesn't ping on its own yet (needs a read timeout or a
    per-connection timer). Clients reconnect on close, so it's not blocking.
-3. **Config** — port/DB path via env or args once the `std.Io` args/env API is wired.
-4. **Cutover** — DNS, client `config.ts`/iOS/Android base URLs, and CLAUDE.md
+3. **Cutover** — DNS, client `config.ts`/iOS/Android base URLs, and CLAUDE.md
    (still documents sync as CF Durable Objects).
 
 ### WebSocket protocol (implemented, matches `../wimg-sync/src/sync-room.ts`)

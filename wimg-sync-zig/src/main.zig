@@ -23,6 +23,7 @@ const mcp = @import("mcp.zig");
 const Server = std.http.Server;
 
 extern fn arc4random_buf(buf: [*]u8, len: usize) void;
+extern fn getenv(name: [*:0]const u8) ?[*:0]const u8;
 
 const json_headers = [_]std.http.Header{
     .{ .name = "content-type", .value = "application/json" },
@@ -100,11 +101,14 @@ const Context = struct {
 pub fn main() !void {
     const gpa = std.heap.smp_allocator;
 
-    // Matches the Caddyfile (reverse_proxy → :8080) and the systemd unit
-    // (WorkingDirectory=/var/lib/wimg, so "sync.db" lands there).
-    // TODO(phase-2): make these configurable via the std.Io args/env API.
-    const port: u16 = 8080;
-    const db_path: [*:0]const u8 = "sync.db";
+    // Defaults match the Caddyfile (reverse_proxy → :8080) and the systemd unit
+    // (WorkingDirectory=/var/lib/wimg, so "sync.db" lands there). Override with
+    // PORT / WIMG_SYNC_DB env vars (local dev points the web client at :8787).
+    const port: u16 = if (getenv("PORT")) |p|
+        std.fmt.parseInt(u16, std.mem.span(p), 10) catch 8080
+    else
+        8080;
+    const db_path: [*:0]const u8 = getenv("WIMG_SYNC_DB") orelse "sync.db";
 
     var store = try Store.open(db_path);
     defer store.close();
