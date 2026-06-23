@@ -109,6 +109,9 @@ pub fn main() !void {
     else
         8080;
     const db_path: [*:0]const u8 = getenv("WIMG_SYNC_DB") orelse "sync.db";
+    // Bind address. Default 0.0.0.0 (LAN-reachable for phone dev); prod sets
+    // BIND=127.0.0.1 so only Caddy (same host) can reach it.
+    const host: []const u8 = if (getenv("BIND")) |h| std.mem.span(h) else "0.0.0.0";
 
     var store = try Store.open(db_path);
     defer store.close();
@@ -121,11 +124,11 @@ pub fn main() !void {
 
     var ctx = Context{ .io = io, .store = &store, .registry = &registry };
 
-    const addr = try std.Io.net.IpAddress.parseIp4("0.0.0.0", port);
+    const addr = try std.Io.net.IpAddress.parseIp4(host, port);
     var server = try addr.listen(io, .{ .reuse_address = true });
     defer server.deinit(io);
 
-    std.debug.print("wimg-sync listening on 0.0.0.0:{d} (db: {s})\n", .{ port, db_path });
+    std.debug.print("wimg-sync listening on {s}:{d} (db: {s})\n", .{ host, port, db_path });
 
     while (true) {
         const stream = server.accept(io) catch continue;

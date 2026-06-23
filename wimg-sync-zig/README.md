@@ -82,9 +82,10 @@ zig build test         # store + protocol + routing unit tests
 zig build run          # listens on 0.0.0.0:8080, writes ./sync.db
 ```
 
-Config via env: `PORT` (default `8080`, matching the Caddyfile) and
-`WIMG_SYNC_DB` (default `sync.db`, relative to the working dir — `/var/lib/wimg`
-under systemd). Local dev: `WIMG_NATIVE_SYNC=1 ./scripts/dev.sh` runs this server
+Config via env: `PORT` (default `8080`, matching the Caddyfile), `WIMG_SYNC_DB`
+(default `sync.db`, relative to the working dir — `/var/lib/wimg` under systemd),
+and `BIND` (default `0.0.0.0`; the systemd unit sets `127.0.0.1` so only Caddy
+on the same host can reach it). Local dev: `WIMG_NATIVE_SYNC=1 ./scripts/dev.sh` runs this server
 on `:8787` so the web client's dev URL hits it unchanged. Reuses
 `../libwimg/vendor/sqlite3.c` rather than vendoring a second 9 MB copy, so the
 libwimg amalgamation must be present (it's gitignored; CI fetches it).
