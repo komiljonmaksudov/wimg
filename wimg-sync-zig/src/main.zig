@@ -236,6 +236,8 @@ fn handlePush(ctx: *Context, request: *Server.Request, key: []const u8) !void {
     const merged = ctx.store.merge(key, push.rows) catch
         return request.respond("{\"error\":\"merge failed\"}", .{ .status = .internal_server_error, .extra_headers = &json_headers });
 
+    logReq("push", key, @intCast(push.rows.len));
+
     // Fan out to this key's WebSocket listeners. No exclude — the HTTP pusher
     // isn't a socket; clients suppress their own echo via a 2s window.
     broadcastChanges(ctx, gpa, key, push.rows, null);
@@ -326,6 +328,7 @@ fn handlePull(ctx: *Context, request: *Server.Request, key: []const u8, target: 
     defer out.deinit(gpa);
     ctx.store.rowsSinceJson(gpa, key, since, &out) catch
         return request.respond("{\"error\":\"query failed\"}", .{ .status = .internal_server_error, .extra_headers = &json_headers });
+    logReq("pull", key, since);
     return request.respond(out.items, .{ .status = .ok, .extra_headers = &json_headers });
 }
 
@@ -344,7 +347,11 @@ fn handleWebSocket(ctx: *Context, request: *Server.Request, sec_key: []const u8,
 
     var conn = Conn{ .ws = &ws, .key = key };
     ctx.registry.register(&conn) catch return;
-    defer ctx.registry.unregister(&conn);
+    logReq("ws connect", key, 0);
+    defer {
+        ctx.registry.unregister(&conn);
+        logReq("ws disconnect", key, 0);
+    }
 
     while (true) {
         const msg = ws.readSmallMessage() catch return; // ConnectionClose / error → done
@@ -405,6 +412,13 @@ fn broadcastChanges(ctx: *Context, gpa: std.mem.Allocator, key: []const u8, rows
     store_mod.appendRowsArrayJson(gpa, &payload, rows) catch return;
     payload.append(gpa, '}') catch return;
     ctx.registry.broadcast(key, payload.items, exclude);
+}
+
+/// One-line request log to stderr (the dev terminal). The sync key is a secret,
+/// so only its first 8 chars are shown — enough to correlate, not to leak.
+fn logReq(tag: []const u8, key: []const u8, n: i64) void {
+    const kp = key[0..@min(key.len, 8)];
+    std.debug.print("[wimg-sync] {s} key={s}… n={d}\n", .{ tag, kp, n });
 }
 
 /// Path portion of a request target (everything before `?`).
