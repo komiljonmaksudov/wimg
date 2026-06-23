@@ -82,6 +82,12 @@ jobs:
         working-directory: libwimg
         run: zig build test
 
+      - name: wimg-sync-zig fmt + tests
+        working-directory: wimg-sync-zig
+        run: |
+          zig fmt --check src/ build.zig
+          zig build test
+
       - name: Install web dependencies
         working-directory: wimg-web
         run: bun install --frozen-lockfile
@@ -322,6 +328,37 @@ jobs:
           name: libwimg-android
           path: android-artifacts/
 
+  build-sync-server:
+    # Native Zig sync server (self-hosted VPS binary). Built on the Ubuntu
+    # runner whose glibc matches the target Hetzner box (Ubuntu 24.04). Linked
+    # against libwimg, so it needs the SQLite amalgamation present.
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Download SQLite amalgamation
+        working-directory: libwimg/vendor
+        run: |
+          curl -fsSL https://www.sqlite.org/2026/sqlite-amalgamation-3520000.zip -o sqlite.zip
+          unzip -o sqlite.zip
+          cp sqlite-amalgamation-3520000/sqlite3.c sqlite3.c
+          cp sqlite-amalgamation-3520000/sqlite3.h sqlite3.h
+
+      - name: Build sync server
+        working-directory: wimg-sync-zig
+        run: zig build --release=safe
+
+      - name: Upload sync server binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: wimg-sync-server
+          path: wimg-sync-zig/zig-out/bin/wimg-sync
+
   deploy-sync:
     needs: [check, build-and-deploy-web]
     runs-on: ubuntu-latest
@@ -352,7 +389,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
   release:
-    needs: [check, detect-changes, build-and-deploy-web, build-libwimg-ios, build-ios, build-android]
+    needs: [check, detect-changes, build-and-deploy-web, build-libwimg-ios, build-ios, build-android, build-sync-server]
     if: always() && !failure() && !cancelled()
     runs-on: ubuntu-latest
     steps:
@@ -379,6 +416,12 @@ jobs:
         with:
           name: libwimg-android
           path: artifacts/libwimg-android
+
+      - name: Download sync server binary
+        uses: actions/download-artifact@v8
+        with:
+          name: wimg-sync-server
+          path: artifacts/wimg-sync-server
 
       - name: Create GitHub Release
         env:
@@ -418,6 +461,11 @@ jobs:
           [ -f artifacts/libwimg-ios/libwimg.xcframework.zip ] && ASSETS+=(artifacts/libwimg-ios/libwimg.xcframework.zip)
           [ -f artifacts/libwimg-android/libwimg.so ] && ASSETS+=(artifacts/libwimg-android/libwimg.so)
           [ -f artifacts/libwimg-android/wimg.apk ] && ASSETS+=(artifacts/libwimg-android/wimg.apk)
+          # Self-hosted sync server (Linux x86_64), renamed for a clear asset name.
+          if [ -f artifacts/wimg-sync-server/wimg-sync ]; then
+            cp artifacts/wimg-sync-server/wimg-sync wimg-sync-linux-x86_64
+            ASSETS+=(wimg-sync-linux-x86_64)
+          fi
 
           gh release create "$TAG" \
             --title "$TAG" \
