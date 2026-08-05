@@ -13,8 +13,12 @@ android {
         applicationId = "com.wimg.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.7.0"
+        // Bumped by scripts/release.sh alongside package.json and project.yml.
+        // Play requires a strictly increasing versionCode for every upload, so
+        // CI overrides it with a timestamp (-PwimgVersionCode), the same trick
+        // the iOS job uses for CURRENT_PROJECT_VERSION.
+        versionCode = (project.findProperty("wimgVersionCode") as String?)?.toInt() ?: 1
+        versionName = "0.9.5"
 
         ndk {
             abiFilters += "arm64-v8a"
@@ -22,10 +26,32 @@ android {
         ndkVersion = "30.0.14904198"
     }
 
+    // Play upload signing. Credentials come from the environment so nothing
+    // secret lands in the repo; CI supplies them from GitHub secrets and a
+    // local build can export the same four vars. When they're absent the
+    // release build simply stays unsigned (fine for `assembleDebug`).
+    val keystorePath = System.getenv("WIMG_KEYSTORE_FILE")
+    signingConfigs {
+        if (keystorePath != null) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("WIMG_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("WIMG_KEY_ALIAS")
+                keyPassword = System.getenv("WIMG_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            if (keystorePath != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
