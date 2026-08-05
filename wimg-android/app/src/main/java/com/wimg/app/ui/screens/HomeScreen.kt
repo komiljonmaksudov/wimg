@@ -27,7 +27,6 @@ import com.wimg.app.models.CategoryBreakdown
 import com.wimg.app.models.MonthlySummary
 import com.wimg.app.models.WimgCategory
 import com.wimg.app.services.DemoDataService
-import com.wimg.app.services.UpdateChecker
 import com.wimg.app.ui.components.MonthPicker
 import com.wimg.app.ui.components.formatAmountShort
 import com.wimg.app.ui.theme.WimgColors
@@ -46,18 +45,11 @@ fun HomeScreen(
     var year by remember { mutableIntStateOf(calendar.get(Calendar.YEAR)) }
     var month by remember { mutableIntStateOf(calendar.get(Calendar.MONTH) + 1) }
     var summary by remember { mutableStateOf<MonthlySummary?>(null) }
-    var updateInfo by remember { mutableStateOf<UpdateChecker.UpdateInfo?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
 
     LaunchedEffect(year, month, selectedAccount) {
         summary = LibWimg.getSummaryFiltered(year, month, selectedAccount)
         com.wimg.app.services.WidgetDataWriter.writeSummary(context)
-    }
-
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            updateInfo = UpdateChecker.check(context)
-        }
     }
 
     LazyColumn(
@@ -67,97 +59,6 @@ fun HomeScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // Update banner
-        val update = updateInfo
-        if (update != null && update.hasUpdate) {
-            item {
-                var expanded by remember { mutableStateOf(false) }
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = WimgShapes.medium,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(L("Neue Version verfügbar"),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                                Text(
-                                    "v${update.latestVersion}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            Button(
-                                onClick = { UpdateChecker.openDownload(context) },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = WimgColors.accent,
-                                    contentColor = WimgColors.heroText,
-                                ),
-                                shape = WimgShapes.small,
-                            ) {
-                                Text("Update", fontWeight = FontWeight.Bold)
-                            }
-                        }
-
-                        // Changelog toggle
-                        if (update.releaseNotes.isNotBlank()) {
-                            Spacer(Modifier.height(8.dp))
-                            TextButton(onClick = { expanded = !expanded }) {
-                                Text(
-                                    if (expanded) "Änderungen ausblenden" else "Was ist neu?",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            if (expanded) {
-                                Spacer(Modifier.height(4.dp))
-                                val changes = update.releaseNotes.lines()
-                                    .map { it.trim() }
-                                    .filter { it.startsWith("- ") }
-                                    .map { it.removePrefix("- ") }
-                                    .filter { !it.startsWith("release:") && !it.startsWith("chore:") && !it.startsWith("ci:") && !it.startsWith("build:") }
-
-                                changes.forEach { change ->
-                                    val badge = when {
-                                        change.startsWith("feat:") -> "Feature" to MaterialTheme.colorScheme.primary
-                                        change.startsWith("fix:") -> "Fix" to MaterialTheme.colorScheme.error
-                                        change.startsWith("refactor:") -> "Refactor" to MaterialTheme.colorScheme.tertiary
-                                        change.startsWith("perf:") -> "Perf" to MaterialTheme.colorScheme.secondary
-                                        else -> null
-                                    }
-                                    val text = change.replace(Regex("^(feat|fix|refactor|perf|docs):\\s*"), "")
-
-                                    Row(
-                                        modifier = Modifier.padding(vertical = 2.dp),
-                                        verticalAlignment = Alignment.Top,
-                                    ) {
-                                        if (badge != null) {
-                                            Text(
-                                                badge.first,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                color = badge.second,
-                                                modifier = Modifier.width(60.dp),
-                                            )
-                                        }
-                                        Text(
-                                            text,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         // Month picker
         item {
             MonthPicker(year = year, month = month, onChanged = { y, m -> year = y; month = m })
