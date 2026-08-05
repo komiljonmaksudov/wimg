@@ -25,7 +25,7 @@ Inspired by libghostty: the library is the product. The UIs are just renderers.
 | Web persistence | OPFS (offline SQLite in browser)                   |
 | iOS UI          | SwiftUI + C ABI (libwimg.a)                        |
 | Android UI      | Kotlin + Jetpack Compose + JNI (libwimg.so)        |
-| Sync            | CF Durable Objects + WebSocket + LWW               |
+| Sync            | Self-hosted Zig server (Hetzner) + WebSocket + LWW |
 | Categorization  | Keyword rules (~80%) + learned rules + MCP (long tail) |
 | Search          | SQL LIKE (planned: FTS5 if needed at scale)        |
 | FinTS           | Pure Zig (native-only, iOS + Android)              |
@@ -129,11 +129,16 @@ z-index from stack depth, CSS-driven indent when nested (custom properties
 wraps page content for scale-down effect when any drawer opens. Sonner-style
 stacked toasts (multiple simultaneous, hover-to-pause, swipe-to-dismiss).
 
-In-app feedback system: `POST /feedback` on wimg-sync creates GitHub Issues
-with `user-feedback` label. Rate limited (5/hour per IP). FeedbackSheet
-stacks on top of Command Palette. Feedback history persisted in
-localStorage (web) / UserDefaults (iOS). Claude Code Action auto-triages
-feedback issues.
+Hosting (Aug 2026): wimg no longer runs on Cloudflare. `wimg-sync.mili-my.name`
+is the native Zig server (`wimg-sync-zig/`) on a Hetzner VPS behind Caddy, and
+`wimg.mili-my.name` is the static SPA (`adapter-static`) served from
+`/var/www/wimg` on the same box. See `.claude/rules/sync.md` and `infra/`.
+The old Cloudflare Worker in `wimg-sync/` is kept as a rollback path only.
+Everything else on the `mili-my.name` zone still uses Cloudflare DNS.
+
+There is no in-app feedback system. An earlier `POST /feedback` endpoint on
+wimg-sync is gone — no route in any server and no client calls it. The
+`feedback-triage.yml` workflow still triages manually-filed GitHub issues.
 
 Simplification pass (2026-05-14): tax, goals, and debts UI surface removed on
 all three platforms. Tax was purely derived (no schema/C ABI) and is fully
@@ -225,11 +230,24 @@ Each receiver registered separately in AndroidManifest with its own
 JSON, calls `updateAll(context)` on all three Glance widgets after
 every dashboard reload. iOS uses `WidgetCenter.shared.reloadAllTimelines()`.
 
-Planned: Phase 6.9 v2 — weekly background FinTS refresh (`BGAppRefreshTask` on
-iOS, WorkManager on Android) + notifications (`UNUserNotificationCenter` /
-`NotificationCompat`) for fetch results and price-change alerts on recurring
-payments. Absorbs the previously-deferred Phase 5.2 (Notifications) and
-replaces Phase 7.3 (Vertragsmanagement, dropped).
+Phase 6.9 v2 (background FinTS refresh + notifications) is **done on iOS and
+Android**. iOS: `BackgroundRefresh.swift` — `BGAppRefreshTask` registered in
+`App.init()`, 24h floor, silent connect + 14-day fetch with the Keychain PIN,
+local notification via `UNUserNotificationCenter`. Android:
+`services/BackgroundRefresh.kt` — WorkManager `PeriodicWorkRequest` (1 day, 6h
+flex, network + battery-not-low constraints) running the same flow against the
+SharedPreferences PIN, notification via `NotificationCompat`.
+
+Both dedupe "TAN erforderlich" inside a 24h cooldown, skip scheduling entirely
+when no PIN is stored, cancel on auth failure, and stay silent when nothing was
+imported. Permission is requested in context after a successful Schnellabfrage,
+never at launch. Opt-out toggle in Settings (`wimg_bg_refresh_enabled`).
+Platform difference: iOS lets the system learn a cadence; WorkManager has no
+equivalent, so Android asks for daily and Doze may defer it.
+
+Price-change alerts on recurring payments are still unbuilt — the original
+Phase 6.9 v2 scope included them. Absorbs the deferred Phase 5.2
+(Notifications) and replaces Phase 7.3 (Vertragsmanagement, dropped).
 
 ---
 
