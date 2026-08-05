@@ -73,5 +73,8 @@ dependencies {
     // Biometric auth (Face / Fingerprint / device credential)
     implementation("androidx.biometric:biometric:1.2.0-alpha05")
 
+    // WorkManager — periodic background FinTS refresh (BackgroundRefresh.kt)
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

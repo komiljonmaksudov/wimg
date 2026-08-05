@@ -815,6 +815,14 @@ export const en: Record<string, string> = {
   // Background refresh
   "Automatische Bank-Aktualisierung": "Automatic bank refresh",
   "Holt im Hintergrund neue Umsätze": "Fetches new transactions in the background",
+  "Erst verfügbar, wenn die PIN für die Schnellabfrage gespeichert ist.":
+    "Only available once the quick refresh PIN is saved.",
+  "Hintergrund-Aktualisierung": "Background refresh",
+  "Neue Umsätze und TAN-Hinweise": "New transactions and TAN prompts",
+  "1 neuer Umsatz": "1 new transaction",
+  "%d neue Umsätze": "%d new transactions",
+  "TAN erforderlich — App öffnen": "TAN required — open the app",
+  "Anmeldung abgelaufen — bitte erneut anmelden": "Sign-in expired — please sign in again",
   "Schnellabfrage im Hintergrund": "Background quick refresh",
   "Verbinde zuerst eine Bank und speichere die PIN, um die automatische Aktualisierung zu aktivieren.":
     "Connect a bank and save the PIN first to enable automatic refresh.",

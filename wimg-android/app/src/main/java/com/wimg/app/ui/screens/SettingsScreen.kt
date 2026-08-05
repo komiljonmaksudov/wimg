@@ -373,6 +373,44 @@ private fun SecuritySection() {
                     },
                 )
             }
+
+            Spacer(Modifier.height(12.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(12.dp))
+
+            // Background FinTS refresh — mirrors iOS "Schnellabfrage im Hintergrund".
+            var bgRefresh by remember {
+                mutableStateOf(com.wimg.app.services.BackgroundRefresh.isEnabled(context))
+            }
+            val hasFintsPin = remember {
+                com.wimg.app.services.BackgroundRefresh.hasCredentials(context)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(L("Schnellabfrage im Hintergrund"), fontWeight = FontWeight.Bold)
+                    Text(
+                        L("Holt im Hintergrund neue Umsätze"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = bgRefresh,
+                    enabled = hasFintsPin,
+                    onCheckedChange = { newValue ->
+                        bgRefresh = newValue
+                        com.wimg.app.services.BackgroundRefresh.setEnabled(context, newValue)
+                    },
+                )
+            }
+            if (!hasFintsPin) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    L("Erst verfügbar, wenn die PIN für die Schnellabfrage gespeichert ist."),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

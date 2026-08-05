@@ -98,6 +98,23 @@ fun FinTSScreen() {
 
     val scope = rememberCoroutineScope()
 
+    // Notification permission for the background refresh. Asked for here rather
+    // than at launch: a system prompt out of nowhere gets denied. The result is
+    // irrelevant to scheduling — the refresh still runs, it just stays silent.
+    val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { }
+
+    /** Called after a successful Schnellabfrage — mirrors iOS. */
+    fun armBackgroundRefresh() {
+        com.wimg.app.services.BackgroundRefresh.enqueue(context)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+            !com.wimg.app.services.BackgroundRefresh.hasNotificationPermission(context)
+        ) {
+            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     // Load banks + restore saved credentials
     LaunchedEffect(Unit) {
         WimgJni.nativeSetHttpCallback(FintsHttpCallback())
@@ -203,12 +220,15 @@ fun FinTSScreen() {
                                                     challengeText = fetchResult.challenge ?: ""; photoTanB64 = fetchResult.phototan; isDecoupled = fetchResult.decoupled ?: false; tanInput = ""; stage = "tan"
                                                 } else {
                                                     importedCount = fetchResult?.imported ?: 0; duplicateCount = fetchResult?.duplicates ?: 0; stage = "result"
+                                                    armBackgroundRefresh()
                                                 }
                                             } else if (result?.status == "tan_required") {
                                                 refreshing = false; challengeText = result.challenge ?: ""; photoTanB64 = result.phototan; isDecoupled = result.decoupled ?: false; tanInput = ""; stage = "tan"
                                             } else {
                                                 refreshing = false
                                                 fintsPrefs.edit().remove(KEY_PIN).apply(); rememberPIN = false; pin = ""
+                                                // No stored PIN left — nothing for the background job to do.
+                                                com.wimg.app.services.BackgroundRefresh.cancel(context)
                                                 errorMessage = result?.message ?: "Anmeldung fehlgeschlagen"
                                             }
                                         }
@@ -219,7 +239,10 @@ fun FinTSScreen() {
                                 ) {
                                     Text(if (refreshing) "Verbinde..." else "Aktualisieren", fontWeight = FontWeight.Bold)
                                 }
-                                TextButton(onClick = { fintsPrefs.edit().remove(KEY_PIN).apply(); rememberPIN = false; pin = "" }) {
+                                TextButton(onClick = {
+                                    fintsPrefs.edit().remove(KEY_PIN).apply(); rememberPIN = false; pin = ""
+                                    com.wimg.app.services.BackgroundRefresh.cancel(context)
+                                }) {
                                     Text("Manuell anmelden", color = WimgColors.heroText.copy(alpha = 0.7f))
                                 }
                             }

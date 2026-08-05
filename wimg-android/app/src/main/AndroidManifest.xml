@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Android 13+ requires an explicit grant before local notifications can be
+         posted. Asked for in context after a successful Schnellabfrage, never at
+         launch. See services/BackgroundRefresh.kt. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".WimgApp"
