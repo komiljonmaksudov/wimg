@@ -1,0 +1,20 @@
+# Cloudflare Pages headers file.
+#
+# Only meaningful while the app is still hosted on Pages. Under adapter-static
+# there is no Worker, so src/hooks.server.ts no longer runs and these headers
+# would otherwise disappear — taking OPFS/SharedArrayBuffer with them.
+#
+# The VPS equivalent lives in infra/wimg-web.caddy. Delete this file once
+# Cloudflare Pages is decommissioned; Caddy ignores it either way.
+
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+
+/_app/immutable/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/service-worker.js
+  Cache-Control: no-cache

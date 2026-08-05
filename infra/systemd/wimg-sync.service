@@ -10,8 +10,11 @@ User=wimg
 Group=wimg
 WorkingDirectory=/var/lib/wimg
 # Bind loopback only — Caddy (same host) reverse-proxies to it; the box's
-# firewall already blocks :8080 externally, this is belt-and-braces.
+# firewall already blocks the port externally, this is belt-and-braces.
 Environment=BIND=127.0.0.1
+# Not the :8080 default — Vaultwarden's docker-proxy holds :8080 on this host.
+# Must match the reverse_proxy upstream in infra/wimg-sync.caddy.
+Environment=PORT=8091
 ExecStart=/usr/local/bin/wimg-sync
 Restart=on-failure
 RestartSec=5s

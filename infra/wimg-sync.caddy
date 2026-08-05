@@ -1,0 +1,45 @@
+# wimg-sync reverse proxy — a *fragment*, not a whole Caddyfile.
+#
+# Installs to /etc/caddy/conf.d/wimg-sync.caddy and is pulled in by an
+# `import conf.d/*.caddy` line in the main /etc/caddy/Caddyfile. The VPS is a
+# shared host (eigenheim.dev, packsil.com, relay.eigenheim.dev) and its main
+# Caddyfile carries a `default_bind` global that keeps Caddy off the Tailscale
+# IPs where tailscaled owns :443 — so it must never be overwritten wholesale.
+#
+# Caddy handles TLS automatically via Let's Encrypt; point DNS at this VPS and
+# Caddy fetches a cert on first request. Renews silently.
+#
+# Logs go to journald. The Zig server speaks plain HTTP on :8091 — TLS lives
+# here. Not :8080: that's Vaultwarden's docker-proxy on this box. The port comes
+# from `Environment=PORT=` in infra/systemd/wimg-sync.service; the two must agree.
+
+wimg-sync.mili-my.name {
+	encode gzip zstd
+
+	# Headers: HSTS, no sniffing, no framing, strict referrer.
+	# CORS is handled by the Zig server (clients can be on any origin).
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		# Remove the default Caddy server header so we don't leak version info
+		-Server
+	}
+
+	reverse_proxy 127.0.0.1:8091 {
+		# WebSocket sync holds connections open indefinitely — no buffering
+		flush_interval -1
+
+		# Forward client IP so the Zig server can do per-IP connection caps
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Real-IP {remote_host}
+	}
+
+	log {
+		output stderr
+		format json
+		# Drop request/response bodies from logs — they contain encrypted sync data
+		# and Bearer tokens (sync keys). Keep only metadata.
+	}
+}

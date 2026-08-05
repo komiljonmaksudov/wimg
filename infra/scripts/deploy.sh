@@ -22,8 +22,18 @@ fi
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
-echo "==> Uploading Caddyfile"
-scp infra/Caddyfile "$VPS:/etc/caddy/Caddyfile"
+# The VPS is a shared host — its /etc/caddy/Caddyfile serves other sites and
+# carries a `default_bind` global. Never overwrite it; drop a fragment into
+# conf.d and make sure the main file imports it.
+echo "==> Uploading Caddy fragments"
+ssh "$VPS" 'mkdir -p /etc/caddy/conf.d'
+scp infra/wimg-sync.caddy "$VPS:/etc/caddy/conf.d/wimg-sync.caddy"
+scp infra/wimg-web.caddy "$VPS:/etc/caddy/conf.d/wimg-web.caddy"
+ssh "$VPS" 'grep -qF "import conf.d/*.caddy" /etc/caddy/Caddyfile ||
+	printf "\n# Per-service fragments (wimg-sync et al)\nimport conf.d/*.caddy\n" >> /etc/caddy/Caddyfile'
+
+echo "==> Validating Caddy config"
+ssh "$VPS" 'caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile'
 
 echo "==> Uploading systemd units"
 scp infra/systemd/wimg-sync.service "$VPS:/etc/systemd/system/wimg-sync.service"
