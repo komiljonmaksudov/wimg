@@ -13,6 +13,9 @@ wimg-sync-zig/*.db-*
 # SQLite amalgamation (large, downloaded)
 libwimg/vendor/sqlite3.c
 libwimg/vendor/sqlite3.h
+# Download artifacts from fetching the amalgamation (see release.yml)
+libwimg/vendor/sqlite.zip
+libwimg/vendor/sqlite-amalgamation-*/
 
 # WASM build artifact (generated from zig build)
 wimg-web/static/libwimg.wasm
