@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.9.5 (2026-08-05)
+
+- docs: correct stale claims in CLAUDE.md
+- feat: background FinTS refresh and notifications on Android
+- docs: mark restic backups as an opt-in nice-to-have
+- feat: self-host wimg-sync and the web app on Hetzner
+- feat: add an app icon to the Android app
+- feat: log sync requests to the terminal (key masked)
+- feat: self-hosting infra for wimg-sync (Caddy + systemd + restic)
+- feat: BIND env to bind the sync server to a specific address
+- feat: env-configurable sync server port + native dev mode
+- feat: PII scrubbing for MCP query results
+- feat: native Zig sync server (HTTP + WebSocket + MCP)
+
 ## v0.9.4 (2026-06-23)
 
 - Version bump
