@@ -159,12 +159,36 @@ jobs:
         working-directory: wimg-web
         run: bun run build
 
-      - name: Deploy to Cloudflare Pages
+      # wimg.mili-my.name now serves from the Hetzner VPS (Caddy, /var/www/wimg)
+      # instead of Cloudflare Pages. adapter-static writes plain files to
+      # wimg-web/build; this is the same rsync infra/scripts/deploy-web.sh does
+      # locally. Requires secrets VPS_HOST, VPS_USER, VPS_SSH_KEY.
+      - name: Deploy web to VPS
         working-directory: wimg-web
-        run: bunx wrangler pages deploy .svelte-kit/cloudflare --project-name wimg-web --branch main
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          test -f build/index.html || { echo "build/index.html missing"; exit 1; }
+          ls build/*.wasm >/dev/null || { echo "no .wasm in build/"; exit 1; }
+
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Pin the host key if provided (ssh-keyscan output of the VPS);
+          # otherwise fall back to trust-on-first-use for this run.
+          if [ -n "$VPS_KNOWN_HOSTS" ]; then
+            printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          fi
+          chmod 600 ~/.ssh/known_hosts
+
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes" \
+            build/ "$VPS_USER@$VPS_HOST:/var/www/wimg/"
 
   build-libwimg-ios:
     # Historical: Zig 0.15.2's build runner couldn't link on macos-26
