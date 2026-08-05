@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- wimg brand blue, sampled from wimg-web/static/icon-512.png -->
+    <color name="ic_launcher_background">#4361EE</color>
+</resources>
