@@ -1,5 +1,9 @@
 [Unit]
-Description=wimg daily restic backup to R2
+# OPTIONAL / not enabled — see infra/restic.env.example. deploy.sh installs this
+# unit but never enables it; it does nothing until you set up a repository and
+# run `systemctl enable --now wimg-restic.timer`. Needs `restic` and `sqlite3`
+# installed, neither of which is on the box by default.
+Description=wimg daily restic backup
 Documentation=https://restic.readthedocs.io
 After=network-online.target
 Wants=network-online.target
