@@ -383,34 +383,15 @@ jobs:
           name: wimg-sync-server
           path: wimg-sync-zig/zig-out/bin/wimg-sync
 
-  deploy-sync:
-    needs: [check, build-and-deploy-web]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: oven-sh/setup-bun@v2
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Download compact WASM
-        uses: actions/download-artifact@v8
-        with:
-          name: libwimg-wasm
-          path: .
-
-      - name: Install dependencies
-        working-directory: wimg-sync
-        run: bun install --frozen-lockfile
-
-      - name: Deploy Worker
-        working-directory: wimg-sync
-        run: bunx wrangler deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  # The deploy-sync job is gone. wimg-sync.mili-my.name is served by the native
+  # Zig server on the VPS (wimg-sync-zig/, deployed with infra/scripts/deploy.sh),
+  # so redeploying the Cloudflare Worker every release shipped nothing anyone
+  # used — and failed anyway: Code Mode's LOADER binding needs a paid Workers
+  # plan (error 10195), which is what broke v0.9.4 and v0.9.5.
+  #
+  # wimg-sync/ stays in the tree as a rollback path, and its last deployed
+  # version is still live on Cloudflare. Deploy it by hand if ever needed:
+  #   cd wimg-sync && bunx wrangler deploy
 
   release:
     needs: [check, detect-changes, build-and-deploy-web, build-libwimg-ios, build-ios, build-android, build-sync-server]
