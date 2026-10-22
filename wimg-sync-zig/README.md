@@ -21,7 +21,7 @@ waiting for this binary at `zig-out/bin/wimg-sync`.
 | `GET /sync/:key?since=` (pull) | ✅ done |
 | CORS preflight (`OPTIONS`) | ✅ done |
 | `GET /ws/:key` (real-time WebSocket) | ✅ done |
-| `GET/POST/DELETE /mcp` (MCP over HTTP) | ✅ done (2 tools) |
+| `POST /mcp` (MCP 2026-07-28, stateless) | ✅ done (2 tools) |
 
 The HTTP and WebSocket sync paths are **wire-compatible** with the Worker, so no
 client changes are needed. Clients pull on open, push on every mutation (HTTP or
@@ -44,16 +44,15 @@ fields) on description-like columns before they leave the server, matching the
 Worker's `stripPII`. Code Mode (the Worker's CF-specific sandbox wrapper) is
 intentionally dropped — the tools are exposed directly as standard MCP tools.
 
-Two protocol eras share the endpoint, chosen per request:
-
-- **2026-07-28 (stateless)** — the request has
-  `params._meta["io.modelcontextprotocol/protocolVersion"]`. No handshake, no
-  `Mcp-Session-Id`; `server/discover` replaces `initialize`; results carry
-  `resultType` + `_meta` serverInfo, lists carry `ttlMs`/`cacheScope`. The
-  `MCP-Protocol-Version` / `Mcp-Method` / `Mcp-Name` headers must mirror the body
-  (`-32020`, HTTP 400); an unknown version gets `-32022` with the supported list.
-- **2025-03-26 (legacy)** — everything else: `initialize` → `tools/list` →
-  `tools/call` with a minted session id, as Claude Desktop via `mcp-remote` sends.
+Protocol: **MCP 2026-07-28 only** (stateless). Every request carries
+`params._meta["io.modelcontextprotocol/protocolVersion"]`. No handshake, no
+`Mcp-Session-Id`; `server/discover` replaces `initialize`; results carry
+`resultType` + `_meta` serverInfo, lists carry `ttlMs`/`cacheScope`. The
+`MCP-Protocol-Version` / `Mcp-Method` / `Mcp-Name` headers must mirror the body
+(`-32020`, HTTP 400). A request without the version `_meta` (the 2025-03-26
+`initialize` flow) or with another version gets `-32022` (HTTP 400) listing
+`["2026-07-28"]`; `initialize`/`ping` get `-32601` (404). Only `POST /mcp`
+exists — `GET`/`DELETE` answer 405.
 
 ## Architecture
 

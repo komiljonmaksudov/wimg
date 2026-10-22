@@ -18,8 +18,7 @@ with WebSocket Hibernation API. Hono router. Last-write-wins per row. No CRDTs.
 POST /sync/:key          — push changed rows (HTTP → DO merges + WS broadcast)
 GET  /sync/:key?since=ts — pull rows newer than timestamp
 GET  /ws/:key            — WebSocket upgrade → real-time sync via DO
-POST /mcp                — MCP JSON-RPC endpoint (Bearer: sync-key)
-DELETE /mcp              — Evict MCP session (clear WASM instance)
+POST /mcp                — MCP 2026-07-28 JSON-RPC, stateless (Bearer: sync-key); no GET/DELETE
 ```
 
 ## E2E Encryption
