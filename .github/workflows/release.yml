@@ -239,7 +239,25 @@ jobs:
       - name: Generate Xcode project
         run: ./scripts/gen-xcodeproj.sh
 
+      # Without the ASC_* secrets the upload can't work; skip it with a warning
+      # instead of failing the job, which would also block the GitHub Release.
+      # (Secrets can't be read in `if:` directly, hence this step's output.)
+      - name: Check App Store Connect secrets
+        id: asc
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+        run: |
+          if [ -n "$ASC_KEY_ID" ] && [ -n "$ASC_ISSUER_ID" ] && [ -n "$ASC_KEY_CONTENT" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::ASC_* secrets missing, skipping the TestFlight upload"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install App Store Connect API key
+        if: steps.asc.outputs.ok == 'true'
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
@@ -249,6 +267,7 @@ jobs:
           chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
 
       - name: Archive
+        if: steps.asc.outputs.ok == 'true'
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -265,6 +284,7 @@ jobs:
             -quiet
 
       - name: Export and upload to TestFlight
+        if: steps.asc.outputs.ok == 'true'
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
