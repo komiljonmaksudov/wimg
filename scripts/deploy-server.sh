@@ -7,14 +7,16 @@
 #   ./scripts/deploy-server.sh web      # web app only  (wimg.mili-my.name)
 #   ./scripts/deploy-server.sh sync     # sync server only (wimg-sync.mili-my.name)
 #
-# VPS defaults to the `hetzner` alias in ~/.ssh/config; override with VPS=root@<ip>.
+# VPS defaults to the `wimg-vps` alias in ~/.ssh/config (Host wimg-vps →
+# 91.98.69.226, the box that also serves packsil — NOT the `hetzner` alias,
+# which is a different server). Override with VPS=root@<ip>.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-export VPS="${VPS:-hetzner}"
+export VPS="${VPS:-wimg-vps}"
 WHAT="${1:-all}"
 # The VPS runs Ubuntu 24.04 on x86_64 (glibc 2.39). Cross-compiling from macOS
 # needs the target spelled out, or zig builds a Mac binary.

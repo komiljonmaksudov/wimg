@@ -48,6 +48,6 @@ ssh "$VPS" 'chown -R caddy:caddy /var/www/wimg 2>/dev/null || chown -R www-data:
 # only (tailscaled owns :443 on the Tailscale IPs), so loopback never answers.
 # -k because until DNS points here, Caddy has no valid cert for the name yet.
 echo "==> Done. Serving check (bypasses DNS):"
-IP="${VPS##*@}"
+IP="$(ssh -G "$VPS" | awk '/^hostname /{print $2}')"  # works for aliases and user@ip
 curl -sSk -o /dev/null -m10 -w "index.html -> HTTP %{http_code}\n" \
 	--resolve "wimg.mili-my.name:443:$IP" https://wimg.mili-my.name/ || true
