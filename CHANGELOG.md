@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.9.6 (2026-10-22)
+
+- refactor: serve MCP 2026-07-28 only and drop the old session flow
+- feat: Claude and other MCP clients can use the 2026-07-28 protocol
+- fix: large syncs no longer land under a corrupted sync key
+- docs: add AGENTS.md with verified build prerequisites and conventions
+- feat: remove the update banner from the Android app
+
 ## v0.9.5 (2026-08-05)
 
 - docs: correct stale claims in CLAUDE.md

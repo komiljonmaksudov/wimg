@@ -18,7 +18,7 @@ android {
         // CI overrides it with a timestamp (-PwimgVersionCode), the same trick
         // the iOS job uses for CURRENT_PROJECT_VERSION.
         versionCode = (project.findProperty("wimgVersionCode") as String?)?.toInt() ?: 1
-        versionName = "0.9.5"
+        versionName = "0.9.6"
 
         ndk {
             abiFilters += "arm64-v8a"
