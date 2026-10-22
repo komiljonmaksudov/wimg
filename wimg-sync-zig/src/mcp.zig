@@ -11,6 +11,13 @@
 //! writes) re-encrypt the changed rows back into our own Store so they persist
 //! and fan out over WebSocket.
 //!
+//! Dual-era transport: a request carrying modern per-request `_meta`
+//! (`io.modelcontextprotocol/protocolVersion`) is served under MCP 2026-07-28 —
+//! no handshake, no session, `server/discover`, mirrored-header validation,
+//! `resultType` + cache hints. Anything else gets the 2025-03-26 behavior the
+//! Worker had (initialize → tools/list → tools/call), which is what Claude
+//! Desktop via `mcp-remote` still speaks.
+//!
 //! Natively we share libwimg's address space, so strings are passed by
 //! (ptr, len) directly — no `wimg_alloc` bounce needed. Every libwimg call that
 //! returns a length-prefixed buffer allocates from libwimg's arena, which
@@ -52,6 +59,11 @@ const SpinLock = struct {
 };
 
 pub const RpcResult = struct {
+    /// HTTP status. Modern requests use 400/404 for protocol errors.
+    status: std.http.Status = .ok,
+    /// False for modern requests: 2026-07-28 has no sessions, so the caller
+    /// must not mint or echo `Mcp-Session-Id`.
+    session: bool = true,
     /// JSON-RPC response body. Empty slice → it was a notification (caller
     /// replies 202 with no body).
     body: []u8,
@@ -60,7 +72,24 @@ pub const RpcResult = struct {
     broadcast: ?[]u8 = null,
 };
 
+/// Legacy (initialize-handshake) revision the Worker spoke.
 const PROTOCOL_VERSION = "2025-03-26";
+/// Modern stateless revision.
+const MODERN_VERSION = "2026-07-28";
+const SUPPORTED_VERSIONS_JSON = "[\"" ++ MODERN_VERSION ++ "\",\"2025-11-25\",\"2025-06-18\",\"" ++ PROTOCOL_VERSION ++ "\"]";
+const SERVER_INFO_JSON = "{\"name\":\"wimg\",\"version\":\"0.3.0\"}";
+/// Tool list and discovery never vary per user, so shared caches may keep them.
+const CACHE_HINTS_JSON = "\"ttlMs\":3600000,\"cacheScope\":\"public\"";
+const INSTRUCTIONS = "wimg personal finance (amounts in integer cents, negative = expense). " ++
+    "Read anything with query (read-only SQL; its description lists the tables and category ids). " ++
+    "set_category is the only write.";
+
+/// The MCP request headers the HTTP layer captured (empty when absent).
+pub const Headers = struct {
+    protocol_version: []const u8 = "",
+    method: []const u8 = "",
+    name: []const u8 = "",
+};
 
 // --- length-prefixed helpers ---
 
@@ -80,7 +109,7 @@ fn dupResult(gpa: std.mem.Allocator, ptr: ?[*]const u8) !?[]u8 {
 
 /// Handle one JSON-RPC request body. Caller holds nothing; this serializes on
 /// the libwimg lock internally. Returned slices are owned by `gpa`.
-pub fn handleRpc(gpa: std.mem.Allocator, store: *Store, key: []const u8, body: []const u8) !RpcResult {
+pub fn handleRpc(gpa: std.mem.Allocator, store: *Store, key: []const u8, body: []const u8, headers: Headers) !RpcResult {
     const parsed = std.json.parseFromSlice(std.json.Value, gpa, body, .{}) catch
         return errorResponse(gpa, null, -32700, "Parse error");
     defer parsed.deinit();
@@ -97,10 +126,16 @@ pub fn handleRpc(gpa: std.mem.Allocator, store: *Store, key: []const u8, body: [
         try std.json.Stringify.valueAlloc(gpa, v, .{})
     else
         null;
+    defer if (id_json) |id| gpa.free(id);
+
+    const params = obj.get("params");
+    if (modernVersion(params)) |version| {
+        return handleModern(gpa, store, key, id_json, method, params, version, headers);
+    }
 
     if (std.mem.eql(u8, method, "initialize")) {
         return .{ .body = try result(gpa, id_json, "{\"protocolVersion\":\"" ++ PROTOCOL_VERSION ++
-            "\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"wimg\",\"version\":\"0.3.0\"}}") };
+            "\",\"capabilities\":{\"tools\":{}},\"serverInfo\":" ++ SERVER_INFO_JSON ++ "}") };
     }
     if (std.mem.startsWith(u8, method, "notifications/")) {
         return .{ .body = "" }; // notification — no response
@@ -112,10 +147,105 @@ pub fn handleRpc(gpa: std.mem.Allocator, store: *Store, key: []const u8, body: [
         return .{ .body = try result(gpa, id_json, TOOLS_LIST) };
     }
     if (std.mem.eql(u8, method, "tools/call")) {
-        return handleToolCall(gpa, store, key, id_json, obj.get("params"));
+        return handleToolCall(gpa, store, key, id_json, params);
     }
 
     return errorResponse(gpa, id_json, -32601, "Method not found");
+}
+
+/// `params._meta["io.modelcontextprotocol/protocolVersion"]`, present only on
+/// modern (2026-07-28+) requests.
+fn modernVersion(params: ?std.json.Value) ?[]const u8 {
+    const p = params orelse return null;
+    if (p != .object) return null;
+    const meta = p.object.get("_meta") orelse return null;
+    if (meta != .object) return null;
+    return switch (meta.object.get("io.modelcontextprotocol/protocolVersion") orelse return null) {
+        .string => |v| v,
+        else => null,
+    };
+}
+
+/// Serve one stateless 2026-07-28 request.
+fn handleModern(
+    gpa: std.mem.Allocator,
+    store: *Store,
+    key: []const u8,
+    id_json: ?[]u8,
+    method: []const u8,
+    params: ?std.json.Value,
+    version: []const u8,
+    headers: Headers,
+) !RpcResult {
+    if (!std.mem.eql(u8, version, MODERN_VERSION)) {
+        var data: std.ArrayList(u8) = .empty;
+        defer data.deinit(gpa);
+        try data.appendSlice(gpa, "{\"supported\":" ++ SUPPORTED_VERSIONS_JSON ++ ",\"requested\":");
+        try appendJsonString(gpa, &data, version);
+        try data.append(gpa, '}');
+        return modernError(gpa, id_json, .bad_request, -32022, "Unsupported protocol version", data.items);
+    }
+
+    // Mirrored headers must be present and match the body, so a gateway that
+    // routes on headers can't be steered apart from what we execute.
+    if (!std.mem.eql(u8, headers.protocol_version, version))
+        return modernError(gpa, id_json, .bad_request, -32020, "Header mismatch: MCP-Protocol-Version", null);
+    if (!std.mem.eql(u8, headers.method, method))
+        return modernError(gpa, id_json, .bad_request, -32020, "Header mismatch: Mcp-Method", null);
+    if (std.mem.eql(u8, method, "tools/call")) {
+        const body_name = if (params) |p| (if (p == .object) strField(p.object, "name") else null) else null;
+        var name_buf: [256]u8 = undefined;
+        const header_name = decodeHeaderValue(headers.name, &name_buf) orelse
+            return modernError(gpa, id_json, .bad_request, -32020, "Header mismatch: Mcp-Name malformed", null);
+        if (body_name == null or !std.mem.eql(u8, header_name, body_name.?))
+            return modernError(gpa, id_json, .bad_request, -32020, "Header mismatch: Mcp-Name", null);
+    }
+
+    if (std.mem.eql(u8, method, "server/discover")) {
+        return .{ .session = false, .body = try modernResult(gpa, id_json, "{\"supportedVersions\":" ++ SUPPORTED_VERSIONS_JSON ++
+            ",\"capabilities\":{\"tools\":{}},\"instructions\":\"" ++ INSTRUCTIONS ++ "\"," ++ CACHE_HINTS_JSON ++ "}") };
+    }
+    if (std.mem.eql(u8, method, "tools/list")) {
+        // TOOLS_LIST is `{"tools":[...]}` — splice the cache hints in before its closing brace.
+        const with_hints = TOOLS_LIST[0 .. TOOLS_LIST.len - 1] ++ "," ++ CACHE_HINTS_JSON ++ "}";
+        return .{ .session = false, .body = try modernResult(gpa, id_json, with_hints) };
+    }
+    if (std.mem.eql(u8, method, "tools/call")) {
+        return modernize(gpa, try handleToolCall(gpa, store, key, id_json, params));
+    }
+    // initialize, ping and the rest don't exist in 2026-07-28.
+    return modernError(gpa, id_json, .not_found, -32601, "Method not found", null);
+}
+
+/// Rewrap a legacy tool reply for 2026-07-28: a `result` gains `resultType` +
+/// serverInfo `_meta`; JSON-RPC errors pass through. The tool code builds
+/// replies in one place for both eras, so converting here keeps it unchanged.
+fn modernize(gpa: std.mem.Allocator, legacy: RpcResult) !RpcResult {
+    var r = legacy;
+    r.session = false;
+    const parsed = try std.json.parseFromSlice(std.json.Value, gpa, legacy.body, .{});
+    defer parsed.deinit();
+    const res = parsed.value.object.get("result") orelse return r;
+    const id_json = try std.json.Stringify.valueAlloc(gpa, parsed.value.object.get("id") orelse .null, .{});
+    defer gpa.free(id_json);
+    const res_json = try std.json.Stringify.valueAlloc(gpa, res, .{});
+    defer gpa.free(res_json);
+    r.body = try modernResult(gpa, id_json, res_json);
+    gpa.free(legacy.body);
+    return r;
+}
+
+/// Decode an `Mcp-Name` value: plain ASCII, or the `=?base64?…?=` sentinel.
+fn decodeHeaderValue(value: []const u8, buf: []u8) ?[]const u8 {
+    const prefix = "=?base64?";
+    const suffix = "?=";
+    if (!(std.mem.startsWith(u8, value, prefix) and std.mem.endsWith(u8, value, suffix) and value.len >= prefix.len + suffix.len))
+        return value;
+    const enc = value[prefix.len .. value.len - suffix.len];
+    const n = std.base64.standard.Decoder.calcSizeForSlice(enc) catch return null;
+    if (n > buf.len) return null;
+    std.base64.standard.Decoder.decode(buf[0..n], enc) catch return null;
+    return buf[0..n];
 }
 
 fn handleToolCall(gpa: std.mem.Allocator, store: *Store, key: []const u8, id_json: ?[]u8, params: ?std.json.Value) !RpcResult {
@@ -590,6 +720,22 @@ fn result(gpa: std.mem.Allocator, id_json: ?[]u8, result_json: []const u8) ![]u8
     return std.fmt.allocPrint(gpa, "{{\"jsonrpc\":\"2.0\",\"id\":{s},\"result\":{s}}}", .{ id, result_json });
 }
 
+/// 2026-07-28 result: `resultType` and the server's identity in `_meta` are
+/// spliced into `result_json`, which must be a non-empty object.
+fn modernResult(gpa: std.mem.Allocator, id_json: ?[]const u8, result_json: []const u8) ![]u8 {
+    const id = id_json orelse "null";
+    return std.fmt.allocPrint(gpa, "{{\"jsonrpc\":\"2.0\",\"id\":{s},\"result\":{{\"resultType\":\"complete\",\"_meta\":{{\"io.modelcontextprotocol/serverInfo\":{s}}},{s}}}", .{ id, SERVER_INFO_JSON, result_json[1..] });
+}
+
+fn modernError(gpa: std.mem.Allocator, id_json: ?[]u8, status: std.http.Status, code: i32, message: []const u8, data: ?[]const u8) !RpcResult {
+    const id = id_json orelse "null";
+    const body = if (data) |d|
+        try std.fmt.allocPrint(gpa, "{{\"jsonrpc\":\"2.0\",\"id\":{s},\"error\":{{\"code\":{d},\"message\":\"{s}\",\"data\":{s}}}}}", .{ id, code, message, d })
+    else
+        try std.fmt.allocPrint(gpa, "{{\"jsonrpc\":\"2.0\",\"id\":{s},\"error\":{{\"code\":{d},\"message\":\"{s}\"}}}}", .{ id, code, message });
+    return .{ .body = body, .status = status, .session = false };
+}
+
 fn errorResponse(gpa: std.mem.Allocator, id_json: ?[]u8, code: i32, message: []const u8) !RpcResult {
     const id = id_json orelse "null";
     const body = try std.fmt.allocPrint(gpa, "{{\"jsonrpc\":\"2.0\",\"id\":{s},\"error\":{{\"code\":{d},\"message\":\"{s}\"}}}}", .{ id, code, message });
@@ -684,6 +830,87 @@ test "stripPii scrubs IBAN, card, BIC and reference fields" {
         defer gpa.free(got);
         try std.testing.expectEqualStrings(c.want, got);
     }
+}
+
+fn modernBody(comptime method: []const u8, comptime extra_params: []const u8) []const u8 {
+    return "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"" ++ method ++ "\",\"params\":{" ++ extra_params ++
+        "\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"" ++ MODERN_VERSION ++ "\"}}}";
+}
+
+test "modern server/discover and tools/list carry resultType, serverInfo and cache hints" {
+    const gpa = std.testing.allocator;
+    // Neither method touches the store.
+    const discover = try handleRpc(gpa, undefined, "k", modernBody("server/discover", ""), .{ .protocol_version = MODERN_VERSION, .method = "server/discover" });
+    defer gpa.free(discover.body);
+    try std.testing.expect(!discover.session);
+    try std.testing.expectEqual(std.http.Status.ok, discover.status);
+    for ([_][]const u8{ "\"id\":7", "\"resultType\":\"complete\"", "\"io.modelcontextprotocol/serverInfo\":{\"name\":\"wimg\"", "\"supportedVersions\":[\"2026-07-28\"", "\"ttlMs\":3600000", "\"cacheScope\":\"public\"" }) |want|
+        try std.testing.expect(std.mem.indexOf(u8, discover.body, want) != null);
+
+    const list = try handleRpc(gpa, undefined, "k", modernBody("tools/list", ""), .{ .protocol_version = MODERN_VERSION, .method = "tools/list" });
+    defer gpa.free(list.body);
+    const parsed = try std.json.parseFromSlice(std.json.Value, gpa, list.body, .{});
+    defer parsed.deinit();
+    const res = parsed.value.object.get("result").?.object;
+    try std.testing.expectEqual(@as(usize, 2), res.get("tools").?.array.items.len);
+    try std.testing.expectEqualStrings("public", res.get("cacheScope").?.string);
+}
+
+test "modern requests: version, header and method errors" {
+    const gpa = std.testing.allocator;
+    const Case = struct { body: []const u8, headers: Headers, status: std.http.Status, code: []const u8 };
+    const cases = [_]Case{
+        // Unknown version → 400 / -32022 listing what we support.
+        .{ .body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{\"_meta\":{\"io.modelcontextprotocol/protocolVersion\":\"2099-01-01\"}}}", .headers = .{ .protocol_version = "2099-01-01", .method = "tools/list" }, .status = .bad_request, .code = "-32022" },
+        // Missing / mismatched mirrored headers → -32020.
+        .{ .body = modernBody("tools/list", ""), .headers = .{}, .status = .bad_request, .code = "-32020" },
+        .{ .body = modernBody("tools/list", ""), .headers = .{ .protocol_version = MODERN_VERSION, .method = "tools/call" }, .status = .bad_request, .code = "-32020" },
+        .{ .body = modernBody("tools/call", "\"name\":\"query\","), .headers = .{ .protocol_version = MODERN_VERSION, .method = "tools/call", .name = "set_category" }, .status = .bad_request, .code = "-32020" },
+        .{ .body = modernBody("tools/call", "\"name\":\"query\","), .headers = .{ .protocol_version = MODERN_VERSION, .method = "tools/call", .name = "=?base64?!!!?=" }, .status = .bad_request, .code = "-32020" },
+        // initialize doesn't exist in 2026-07-28 → 404 / -32601.
+        .{ .body = modernBody("initialize", ""), .headers = .{ .protocol_version = MODERN_VERSION, .method = "initialize" }, .status = .not_found, .code = "-32601" },
+    };
+    for (cases) |c| {
+        const r = try handleRpc(gpa, undefined, "k", c.body, c.headers);
+        defer gpa.free(r.body);
+        try std.testing.expectEqual(c.status, r.status);
+        try std.testing.expect(!r.session);
+        try std.testing.expect(std.mem.indexOf(u8, r.body, c.code) != null);
+    }
+}
+
+test "legacy initialize keeps the session flow" {
+    const gpa = std.testing.allocator;
+    const r = try handleRpc(gpa, undefined, "k", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}", .{});
+    defer gpa.free(r.body);
+    try std.testing.expect(r.session);
+    try std.testing.expect(std.mem.indexOf(u8, r.body, "\"protocolVersion\":\"2025-03-26\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, r.body, "resultType") == null);
+}
+
+test "decodeHeaderValue: plain and base64 sentinel" {
+    var buf: [64]u8 = undefined;
+    try std.testing.expectEqualStrings("query", decodeHeaderValue("query", &buf).?);
+    try std.testing.expectEqualStrings("set_category", decodeHeaderValue("=?base64?c2V0X2NhdGVnb3J5?=", &buf).?);
+    try std.testing.expect(decodeHeaderValue("=?base64?!!!?=", &buf) == null);
+}
+
+test "modernize rewraps a tool result and passes errors through" {
+    const gpa = std.testing.allocator;
+    const ok = try modernize(gpa, .{ .body = try gpa.dupe(u8, "{\"jsonrpc\":\"2.0\",\"id\":\"a\\\"b\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"hi\"}]}}") });
+    defer gpa.free(ok.body);
+    try std.testing.expect(!ok.session);
+    const parsed = try std.json.parseFromSlice(std.json.Value, gpa, ok.body, .{});
+    defer parsed.deinit();
+    try std.testing.expectEqualStrings("a\"b", parsed.value.object.get("id").?.string);
+    const res = parsed.value.object.get("result").?.object;
+    try std.testing.expectEqualStrings("complete", res.get("resultType").?.string);
+    try std.testing.expectEqualStrings("hi", res.get("content").?.array.items[0].object.get("text").?.string);
+
+    const err_body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"Unknown tool\"}}";
+    const err = try modernize(gpa, .{ .body = try gpa.dupe(u8, err_body) });
+    defer gpa.free(err.body);
+    try std.testing.expectEqualStrings(err_body, err.body);
 }
 
 test "isReadOnlySql" {

@@ -44,6 +44,17 @@ fields) on description-like columns before they leave the server, matching the
 Worker's `stripPII`. Code Mode (the Worker's CF-specific sandbox wrapper) is
 intentionally dropped — the tools are exposed directly as standard MCP tools.
 
+Two protocol eras share the endpoint, chosen per request:
+
+- **2026-07-28 (stateless)** — the request has
+  `params._meta["io.modelcontextprotocol/protocolVersion"]`. No handshake, no
+  `Mcp-Session-Id`; `server/discover` replaces `initialize`; results carry
+  `resultType` + `_meta` serverInfo, lists carry `ttlMs`/`cacheScope`. The
+  `MCP-Protocol-Version` / `Mcp-Method` / `Mcp-Name` headers must mirror the body
+  (`-32020`, HTTP 400); an unknown version gets `-32022` with the supported list.
+- **2025-03-26 (legacy)** — everything else: `initialize` → `tools/list` →
+  `tools/call` with a minted session id, as Claude Desktop via `mcp-remote` sends.
+
 ## Architecture
 
 ```
