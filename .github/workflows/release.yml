@@ -28,7 +28,7 @@ jobs:
       ios: ${{ steps.filter.outputs.ios }}
       android: ${{ steps.filter.outputs.android }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -59,16 +59,16 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
           fetch-tags: true
 
-      - uses: mlugg/setup-zig@v2
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: ${{ env.ZIG_VERSION }}
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
       - name: Download SQLite amalgamation
         working-directory: libwimg/vendor
@@ -124,15 +124,15 @@ jobs:
     needs: check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - uses: mlugg/setup-zig@v2
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: ${{ env.ZIG_VERSION }}
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
@@ -148,7 +148,7 @@ jobs:
         run: ./scripts/build-wasm.sh
 
       - name: Upload WASM artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: libwimg-wasm
           path: |
@@ -175,9 +175,9 @@ jobs:
     if: needs.detect-changes.outputs.ios == 'true'
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - uses: mlugg/setup-zig@v2
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: ${{ env.ZIG_VERSION }}
 
@@ -197,7 +197,7 @@ jobs:
         run: zip -r libwimg.xcframework.zip libwimg.xcframework
 
       - name: Upload iOS artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: libwimg-ios
           path: libwimg/build-ios/libwimg.xcframework.zip
@@ -207,7 +207,7 @@ jobs:
     if: needs.detect-changes.outputs.ios == 'true'
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -219,7 +219,7 @@ jobs:
           xcrun --show-sdk-version --sdk iphoneos
 
       - name: Download XCFramework
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: libwimg-ios
           path: artifacts
@@ -303,14 +303,14 @@ jobs:
     if: needs.detect-changes.outputs.android == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - uses: mlugg/setup-zig@v2
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: ${{ env.ZIG_VERSION }}
 
       - name: Setup Android NDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           packages: ndk;27.2.12479018
 
@@ -326,7 +326,7 @@ jobs:
         run: ./scripts/build-android.sh
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: 17
@@ -361,7 +361,7 @@ jobs:
       # Play Console upload. Download it from the workflow run's artifacts.
       - name: Upload Play bundle
         if: hashFiles('wimg-android/app/build/outputs/bundle/release/app-release.aab') != ''
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: wimg-android-play
           path: wimg-android/app/build/outputs/bundle/release/app-release.aab
@@ -373,7 +373,7 @@ jobs:
           cp wimg-android/app/build/outputs/apk/debug/app-debug.apk android-artifacts/wimg.apk
 
       - name: Upload Android artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: libwimg-android
           path: android-artifacts/
@@ -385,9 +385,9 @@ jobs:
     needs: check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - uses: mlugg/setup-zig@v2
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: ${{ env.ZIG_VERSION }}
 
@@ -404,7 +404,7 @@ jobs:
         run: zig build --release=safe
 
       - name: Upload sync server binary
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: wimg-sync-server
           path: wimg-sync-zig/zig-out/bin/wimg-sync
@@ -424,32 +424,32 @@ jobs:
     if: always() && !failure() && !cancelled()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
 
       - name: Download WASM artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: libwimg-wasm
           path: artifacts/libwimg-wasm
 
       - name: Download iOS artifacts
         if: needs.detect-changes.outputs.ios == 'true'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: libwimg-ios
           path: artifacts/libwimg-ios
 
       - name: Download Android artifacts
         if: needs.detect-changes.outputs.android == 'true'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: libwimg-android
           path: artifacts/libwimg-android
 
       - name: Download sync server binary
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: wimg-sync-server
           path: artifacts/wimg-sync-server
