@@ -139,6 +139,13 @@ pub fn build(b: *std.Build) void {
         });
         lib.root_module.addOptions("config", options);
 
+        // Android: the NDK libc goes on this artifact only. The global `--libc`
+        // flag also applies to the build runner on Zig 0.17, which then looks
+        // for macOS libSystem inside the NDK sysroot.
+        if (b.option([]const u8, "libc", "libc paths file for the target (Android NDK)")) |libc| {
+            lib.setLibCFile(.{ .cwd_relative = libc });
+        }
+
         lib.root_module.addCSourceFile(.{
             .file = b.path("vendor/sqlite3.c"),
             .flags = native_sqlite_flags,

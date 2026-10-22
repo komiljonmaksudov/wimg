@@ -117,7 +117,7 @@ Search (Phase 5.7 — planned):
 
 | Layer           | Choice                                    | Why                                                   |
 | --------------- | ----------------------------------------- | ----------------------------------------------------- |
-| Shared core     | Zig 0.16.0                                | Single source of truth for all logic                  |
+| Shared core     | Zig 0.17.0                                | Single source of truth for all logic                  |
 | Storage         | SQLite 3.52.0 (amalgamation, compiled in) | Local, queryable, no deps                             |
 | Web UI          | Svelte 5 + TailwindCSS + LayerChart       | Reactive, lightweight, Svelte-native charts           |
 | Web persistence | OPFS                                      | SQLite-on-browser, offline, no server                 |

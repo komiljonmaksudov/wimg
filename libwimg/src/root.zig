@@ -1,4 +1,5 @@
 const std = @import("std");
+const dbg = @import("dbg.zig");
 const builtin = @import("builtin");
 const config = @import("config");
 const types = @import("types.zig");
@@ -281,7 +282,7 @@ export fn wimg_parse_csv(data: [*]const u8, len: u32) ?[*]const u8 {
             txn.descriptionSlice(),
             txn.amount_cents,
             &txn.currency,
-            @intFromEnum(txn.category),
+            @backingInt(txn.category),
             txn.accountSlice(),
         ) orelse {
             setError("wimg_parse_csv: buffer overflow at transaction {d}", .{i});
@@ -1112,7 +1113,7 @@ export fn wimg_get_categories() ?[*]const u8 {
         const p1 = "{\"id\":";
         @memcpy(buf[pos .. pos + p1.len], p1);
         pos += p1.len;
-        pos += db_mod.formatInt(buf[pos..], @as(u32, @intFromEnum(cat))) orelse return null;
+        pos += db_mod.formatInt(buf[pos..], @as(u32, @backingInt(cat))) orelse return null;
 
         const p2 = ",\"name\":\"";
         @memcpy(buf[pos .. pos + p2.len], p2);
@@ -1739,7 +1740,7 @@ fn wimg_fints_connect(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     fints_session.product_id_len = @intCast(prod_len);
 
     if (!is_wasm) {
-        std.debug.print("[FinTS Zig] bank_family={s} for BLZ {s}\n", .{
+        dbg.print("[FinTS Zig] bank_family={s} for BLZ {s}\n", .{
             @tagName(fints_session.bank_family),
             blz,
         });
@@ -1771,22 +1772,22 @@ fn wimg_fints_connect(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
 
     // Debug: log what parseResponse extracted (native uses stderr, visible in Xcode console)
     if (!is_wasm) {
-        std.debug.print("[FinTS Zig] sync resp_len={d}, codes={d}, has_tan={}\n", .{
+        dbg.print("[FinTS Zig] sync resp_len={d}, codes={d}, has_tan={}\n", .{
             sync_resp_len,
             sync_resp.code_count,
             fints_session.has_pending_tan,
         });
-        std.debug.print("[FinTS Zig] dialog_id='{s}' (len={d})\n", .{
+        dbg.print("[FinTS Zig] dialog_id='{s}' (len={d})\n", .{
             fints_session.dialogIdSlice(),
             fints_session.dialog_id_len,
         });
-        std.debug.print("[FinTS Zig] system_id='{s}' (len={d})\n", .{
+        dbg.print("[FinTS Zig] system_id='{s}' (len={d})\n", .{
             fints_session.systemIdSlice(),
             fints_session.system_id_len,
         });
         // First 200 bytes of response to see HNHBK
         const preview_len = @min(sync_resp_len, 200);
-        std.debug.print("[FinTS Zig] resp[0..{d}]='{s}'\n", .{ preview_len, resp_buf[0..preview_len] });
+        dbg.print("[FinTS Zig] resp[0..{d}]='{s}'\n", .{ preview_len, resp_buf[0..preview_len] });
     }
 
     // End sync dialog and reset for next dialog
@@ -1845,12 +1846,12 @@ fn wimg_fints_send_tan(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
             return null;
         };
         if (!is_wasm) {
-            std.debug.print("[FinTS Zig] send tan: task_reference='{s}' (len={d})\n", .{
+            dbg.print("[FinTS Zig] send tan: task_reference='{s}' (len={d})\n", .{
                 fints_session.challenge_ref[0..fints_session.challenge_ref_len],
                 fints_session.challenge_ref_len,
             });
             const req_preview = @min(msg_len, 280);
-            std.debug.print("[FinTS Zig] send tan msg[0..{d}]='{s}'\n", .{ req_preview, msg_buf[0..req_preview] });
+            dbg.print("[FinTS Zig] send tan msg[0..{d}]='{s}'\n", .{ req_preview, msg_buf[0..req_preview] });
         }
 
         const resp_len = fints_http_mod.sendFintsMessage(
@@ -1868,26 +1869,26 @@ fn wimg_fints_send_tan(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         fints_session.msg_num += 1;
 
         if (!is_wasm) {
-            std.debug.print("[FinTS Zig] fetch hkkaz: resp_len={d}, codes={d}, mt940_len={d}, has_tan={}\n", .{
+            dbg.print("[FinTS Zig] fetch hkkaz: resp_len={d}, codes={d}, mt940_len={d}, has_tan={}\n", .{
                 resp_len,
                 resp.code_count,
                 resp.mt940_len,
                 fints_session.has_pending_tan,
             });
             for (resp.codes[0..resp.code_count]) |*c| {
-                std.debug.print("[FinTS Zig] fetch hkkaz code: {s} '{s}'\n", .{ c.codeSlice(), c.textSlice() });
+                dbg.print("[FinTS Zig] fetch hkkaz code: {s} '{s}'\n", .{ c.codeSlice(), c.textSlice() });
             }
             if (resp.mt940_len == 0) {
                 const p_len = @min(resp_len, 260);
-                std.debug.print("[FinTS Zig] fetch hkkaz resp[0..{d}]='{s}'\n", .{ p_len, resp_buf[0..p_len] });
+                dbg.print("[FinTS Zig] fetch hkkaz resp[0..{d}]='{s}'\n", .{ p_len, resp_buf[0..p_len] });
             } else {
                 const p_len = @min(@as(usize, resp.mt940_len), 120);
-                std.debug.print("[FinTS Zig] fetch hkkaz mt940[0..{d}]='{s}'\n", .{ p_len, resp.mt940_data[0..p_len] });
+                dbg.print("[FinTS Zig] fetch hkkaz mt940[0..{d}]='{s}'\n", .{ p_len, resp.mt940_data[0..p_len] });
             }
         }
 
         if (!is_wasm) {
-            std.debug.print("[FinTS Zig] send tan: resp_len={d}, codes={d}, has_tan={}, challenge_len={d}, hhduc_len={d}\n", .{
+            dbg.print("[FinTS Zig] send tan: resp_len={d}, codes={d}, has_tan={}, challenge_len={d}, hhduc_len={d}\n", .{
                 resp_len,
                 resp.code_count,
                 fints_session.has_pending_tan,
@@ -1895,10 +1896,10 @@ fn wimg_fints_send_tan(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                 fints_session.challenge_hhduc_len,
             });
             for (resp.codes[0..resp.code_count]) |*c| {
-                std.debug.print("[FinTS Zig] send tan code: {s} '{s}'\n", .{ c.codeSlice(), c.textSlice() });
+                dbg.print("[FinTS Zig] send tan code: {s} '{s}'\n", .{ c.codeSlice(), c.textSlice() });
             }
             const p_len = @min(resp_len, 300);
-            std.debug.print("[FinTS Zig] send tan resp[0..{d}]='{s}'\n", .{ p_len, resp_buf[0..p_len] });
+            dbg.print("[FinTS Zig] send tan resp[0..{d}]='{s}'\n", .{ p_len, resp_buf[0..p_len] });
         }
 
         if (resp.hasError()) {
@@ -2037,8 +2038,8 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         // Debug: log auth init raw message
         if (!is_wasm) {
             const req_preview = @min(auth_len, 450);
-            std.debug.print("[FinTS Zig] auth init msg[0..{d}]='{s}'\n", .{ req_preview, msg_buf[0..req_preview] });
-            std.debug.print("[FinTS Zig] auth init total_len={d}\n", .{auth_len});
+            dbg.print("[FinTS Zig] auth init msg[0..{d}]='{s}'\n", .{ req_preview, msg_buf[0..req_preview] });
+            dbg.print("[FinTS Zig] auth init total_len={d}\n", .{auth_len});
         }
 
         const auth_resp_len = fints_http_mod.sendFintsMessage(
@@ -2057,13 +2058,13 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         fints_session.msg_num += 1;
 
         if (!is_wasm) {
-            std.debug.print("[FinTS Zig] fetch auth: resp_len={d}, codes={d}, has_tan={}, dialog_id='{s}'\n", .{
+            dbg.print("[FinTS Zig] fetch auth: resp_len={d}, codes={d}, has_tan={}, dialog_id='{s}'\n", .{
                 auth_resp_len,
                 auth_resp.code_count,
                 fints_session.has_pending_tan,
                 fints_session.dialogIdSlice(),
             });
-            std.debug.print("[FinTS Zig] fetch auth: challenge_len={d}, hhduc_len={d}\n", .{
+            dbg.print("[FinTS Zig] fetch auth: challenge_len={d}, hhduc_len={d}\n", .{
                 fints_session.challenge_len,
                 fints_session.challenge_hhduc_len,
             });
@@ -2073,7 +2074,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                 const p1: u8 = if (hh.len > 1) hh[1] else 0;
                 const p2: u8 = if (hh.len > 2) hh[2] else 0;
                 const p3: u8 = if (hh.len > 3) hh[3] else 0;
-                std.debug.print("[FinTS Zig] fetch auth: hhduc kind={s}, first4={x:0>2} {x:0>2} {x:0>2} {x:0>2}\n", .{
+                dbg.print("[FinTS Zig] fetch auth: hhduc kind={s}, first4={x:0>2} {x:0>2} {x:0>2} {x:0>2}\n", .{
                     classifyHhduc(hh),
                     p0,
                     p1,
@@ -2085,17 +2086,17 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                     if (type_len > 0 and 2 + type_len <= hh.len) {
                         const mime = hh[2 .. 2 + type_len];
                         if (std.mem.startsWith(u8, mime, "image/")) {
-                            std.debug.print("[FinTS Zig] fetch auth: hhduc mime={s}\n", .{mime});
+                            dbg.print("[FinTS Zig] fetch auth: hhduc mime={s}\n", .{mime});
                         }
                     }
                 }
             }
             // Show response codes
             for (auth_resp.codes[0..auth_resp.code_count]) |*c| {
-                std.debug.print("[FinTS Zig] fetch auth code: {s} '{s}'\n", .{ c.codeSlice(), c.textSlice() });
+                dbg.print("[FinTS Zig] fetch auth code: {s} '{s}'\n", .{ c.codeSlice(), c.textSlice() });
             }
             const p_len = @min(auth_resp_len, 450);
-            std.debug.print("[FinTS Zig] fetch auth resp[0..{d}]='{s}'\n", .{ p_len, resp_buf[0..p_len] });
+            dbg.print("[FinTS Zig] fetch auth resp[0..{d}]='{s}'\n", .{ p_len, resp_buf[0..p_len] });
         }
 
         if (auth_resp.hasError()) {
@@ -2159,7 +2160,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                     var decoded_hhduc_buf: [8192]u8 = undefined;
                     const normalized_hhduc = normalizePhotoTanPayload(hhduc, &decoded_hhduc_buf);
                     if (!is_wasm) {
-                        std.debug.print("[FinTS Zig] fetch auth: normalized phototan kind={s}, len={d}\n", .{
+                        dbg.print("[FinTS Zig] fetch auth: normalized phototan kind={s}, len={d}\n", .{
                             classifyHhduc(normalized_hhduc),
                             normalized_hhduc.len,
                         });
@@ -2167,9 +2168,9 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                         const n1: u8 = if (normalized_hhduc.len > 1) normalized_hhduc[1] else 0;
                         const n2: u8 = if (normalized_hhduc.len > 2) normalized_hhduc[2] else 0;
                         const n3: u8 = if (normalized_hhduc.len > 3) normalized_hhduc[3] else 0;
-                        std.debug.print("[FinTS Zig] fetch auth: normalized first4={x:0>2} {x:0>2} {x:0>2} {x:0>2}\n", .{ n0, n1, n2, n3 });
+                        dbg.print("[FinTS Zig] fetch auth: normalized first4={x:0>2} {x:0>2} {x:0>2} {x:0>2}\n", .{ n0, n1, n2, n3 });
                         if (normalized_hhduc.len >= 4 and normalized_hhduc[0] == 0x89 and normalized_hhduc[1] == 'P' and normalized_hhduc[2] == 'N' and normalized_hhduc[3] == 'G') {
-                            std.debug.print("[FinTS Zig] fetch auth: normalized png has_iend={}\n", .{pngHasIend(normalized_hhduc)});
+                            dbg.print("[FinTS Zig] fetch auth: normalized png has_iend={}\n", .{pngHasIend(normalized_hhduc)});
                         }
                     }
                     const b64_encoder = std.base64.standard.Encoder;
@@ -2225,22 +2226,22 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         if (!is_wasm) {
             const req_preview = @min(msg_len, 450);
             if (fetch_mode == .mt940) {
-                std.debug.print("[FinTS Zig] fetch hkkaz negotiated_ver={d}\n", .{fints_session.hikaz_version});
+                dbg.print("[FinTS Zig] fetch hkkaz negotiated_ver={d}\n", .{fints_session.hikaz_version});
             } else {
-                std.debug.print("[FinTS Zig] fetch hkcaz camt_format='{s}'\n", .{fints_session.camtFormatSlice()});
+                dbg.print("[FinTS Zig] fetch hkcaz camt_format='{s}'\n", .{fints_session.camtFormatSlice()});
             }
-            std.debug.print("[FinTS Zig] fetch mode={s} msg[0..{d}]='{s}'\n", .{
+            dbg.print("[FinTS Zig] fetch mode={s} msg[0..{d}]='{s}'\n", .{
                 if (fetch_mode == .mt940) "mt940" else "camt",
                 req_preview,
                 msg_buf[0..req_preview],
             });
             if (fints_session.account_ktv_len > 0) {
-                std.debug.print("[FinTS Zig] fetch account_ktv='{s}'\n", .{fints_session.accountKtvSlice()});
+                dbg.print("[FinTS Zig] fetch account_ktv='{s}'\n", .{fints_session.accountKtvSlice()});
             } else {
-                std.debug.print("[FinTS Zig] fetch account_ktv missing, fallback user_id='{s}'\n", .{fints_session.userIdSlice()});
+                dbg.print("[FinTS Zig] fetch account_ktv missing, fallback user_id='{s}'\n", .{fints_session.userIdSlice()});
             }
             if (touchdown.len > 0) {
-                std.debug.print("[FinTS Zig] fetch touchdown='{s}'\n", .{touchdown});
+                dbg.print("[FinTS Zig] fetch touchdown='{s}'\n", .{touchdown});
             }
         }
 
@@ -2306,14 +2307,14 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
             }
 
             if (!is_wasm) {
-                std.debug.print("[FinTS Zig] fetch hkkaz mt940 parsed count={d}, errors={d}, mt940_len={d}\n", .{
+                dbg.print("[FinTS Zig] fetch hkkaz mt940 parsed count={d}, errors={d}, mt940_len={d}\n", .{
                     mt940_result.count,
                     mt940_result.errors,
                     resp.mt940_len,
                 });
                 const preview_len = @min(@as(usize, resp.mt940_len), 180);
                 if (preview_len > 0) {
-                    std.debug.print("[FinTS Zig] fetch hkkaz mt940 preview[0..{d}]='{s}'\n", .{
+                    dbg.print("[FinTS Zig] fetch hkkaz mt940 preview[0..{d}]='{s}'\n", .{
                         preview_len,
                         resp.mt940_data[0..preview_len],
                     });
@@ -2352,14 +2353,14 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
             }
 
             if (!is_wasm) {
-                std.debug.print("[FinTS Zig] fetch hkcaz camt parsed count={d}, errors={d}, camt_len={d}\n", .{
+                dbg.print("[FinTS Zig] fetch hkcaz camt parsed count={d}, errors={d}, camt_len={d}\n", .{
                     camt_result.count,
                     camt_result.errors,
                     resp.camt_len,
                 });
                 const preview_len = @min(@as(usize, resp.camt_len), 180);
                 if (preview_len > 0) {
-                    std.debug.print("[FinTS Zig] fetch hkcaz camt preview[0..{d}]='{s}'\n", .{
+                    dbg.print("[FinTS Zig] fetch hkcaz camt preview[0..{d}]='{s}'\n", .{
                         preview_len,
                         resp.camt_data[0..preview_len],
                     });
@@ -2392,7 +2393,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                 touchdown = "";
                 page_count = 0;
                 if (!is_wasm) {
-                    std.debug.print("[FinTS Zig] fetch fallback: switching from HKKAZ to HKCAZ\n", .{});
+                    dbg.print("[FinTS Zig] fetch fallback: switching from HKKAZ to HKCAZ\n", .{});
                 }
                 continue;
             }
@@ -2464,9 +2465,9 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
 
     if (!is_wasm) {
         if (used_camt_fallback) {
-            std.debug.print("[FinTS Zig] fetch fallback used: HKCAZ/HICAZ path\n", .{});
+            dbg.print("[FinTS Zig] fetch fallback used: HKCAZ/HICAZ path\n", .{});
         }
-        std.debug.print("[FinTS Zig] fetch hkkaz import result imported={d}, duplicates={d}\n", .{ imported, duplicates });
+        dbg.print("[FinTS Zig] fetch hkkaz import result imported={d}, duplicates={d}\n", .{ imported, duplicates });
     }
 
     // Auto-create account entry
@@ -2548,7 +2549,7 @@ fn wimg_fints_get_tan_media() callconv(.c) ?[*]const u8 {
     fints_session.msg_num += 1;
 
     if (!is_wasm) {
-        std.debug.print("[FinTS Zig] HKTAB resp: tan_media_count={d}\n", .{resp.tan_media_count});
+        dbg.print("[FinTS Zig] HKTAB resp: tan_media_count={d}\n", .{resp.tan_media_count});
     }
 
     // Build JSON object with TAN media array
@@ -2604,7 +2605,7 @@ fn wimg_fints_set_tan_medium(data: [*]const u8, len: u32) callconv(.c) ?[*]const
     fints_session.tan_medium_name_len = @intCast(n_len);
 
     if (!is_wasm) {
-        std.debug.print("[FinTS Zig] TAN medium set to '{s}'\n", .{fints_session.tan_medium_name[0..n_len]});
+        dbg.print("[FinTS Zig] TAN medium set to '{s}'\n", .{fints_session.tan_medium_name[0..n_len]});
     }
 
     return makeLengthPrefixed("{\"status\":\"ok\"}");

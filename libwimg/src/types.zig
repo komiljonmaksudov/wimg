@@ -311,7 +311,7 @@ test "Transaction.amountFloat zero" {
 
 test "Transaction: max-length description (256 chars)" {
     var txn: Transaction = undefined;
-    const desc = "X" ** 256;
+    const desc = &@as([256]u8, @splat('X'));
     @memcpy(txn.description[0..256], desc);
     txn.description_len = 256;
     try std.testing.expectEqual(@as(usize, 256), txn.descriptionSlice().len);
@@ -320,7 +320,7 @@ test "Transaction: max-length description (256 chars)" {
 
 test "Transaction: max-length account (64 chars)" {
     var txn: Transaction = undefined;
-    const acct = "A" ** 64;
+    const acct = &@as([64]u8, @splat('A'));
     @memcpy(txn.account[0..64], acct);
     txn.account_len = 64;
     try std.testing.expectEqual(@as(usize, 64), txn.accountSlice().len);
@@ -366,6 +366,6 @@ test "Category.fromInt all valid enum values roundtrip" {
     const all = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 255 };
     for (all) |val| {
         const cat = Category.fromInt(val);
-        try std.testing.expectEqual(val, @intFromEnum(cat));
+        try std.testing.expectEqual(val, @backingInt(cat));
     }
 }

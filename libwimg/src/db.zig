@@ -543,7 +543,7 @@ pub const Db = struct {
         rc = c.sqlite3_bind_text(s, 7, &txn.currency, 3, c.SQLITE_STATIC);
         if (rc != c.SQLITE_OK) return DbError.BindFailed;
 
-        rc = c.sqlite3_bind_int(s, 8, @intCast(@intFromEnum(txn.category)));
+        rc = c.sqlite3_bind_int(s, 8, @intCast(@backingInt(txn.category)));
         if (rc != c.SQLITE_OK) return DbError.BindFailed;
 
         rc = c.sqlite3_bind_text(s, 9, @ptrCast(&txn.account), @intCast(txn.account_len), c.SQLITE_STATIC);
@@ -655,7 +655,7 @@ pub const Db = struct {
         defer _ = c.sqlite3_finalize(stmt.?);
 
         const s = stmt.?;
-        if (c.sqlite3_bind_int(s, 1, @intCast(@intFromEnum(category))) != c.SQLITE_OK) return DbError.BindFailed;
+        if (c.sqlite3_bind_int(s, 1, @intCast(@backingInt(category))) != c.SQLITE_OK) return DbError.BindFailed;
         if (c.sqlite3_bind_text(s, 2, id, 32, c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
         if (c.sqlite3_step(s) != c.SQLITE_DONE) return DbError.StepFailed;
     }
@@ -4193,7 +4193,7 @@ test "jsonEscapeString: buffer too small for escape" {
 test "jsonEscapeString: long string with many escapes" {
     var buf: [2000]u8 = undefined;
     // 100 quotes = 200 bytes output
-    const input = "\"" ** 100;
+    const input = &@as([100]u8, @splat('"'));
     const len = jsonEscapeString(&buf, input).?;
     try std.testing.expectEqual(@as(usize, 200), len);
     // Verify pattern: every pair is \"

@@ -7,7 +7,7 @@ When a rule file conflicts with CLAUDE.md or the code, trust CLAUDE.md + the cod
 
 ## Architecture in one paragraph
 
-`libwimg/` (Zig 0.16.0 + vendored SQLite) **is** the app — all logic, no UI. Three thin shells
+`libwimg/` (Zig 0.17.0 + vendored SQLite) **is** the app — all logic, no UI. Three thin shells
 render it: `wimg-web/` (Svelte 5, loads `libwimg.wasm` via OPFS), `wimg-ios/` (SwiftUI, links
 `libwimg.a` via C ABI), `wimg-android/` (Kotlin/Compose, `libwimg.so` via JNI). `wimg-sync-zig/`
 is the native Zig sync server (production, self-hosted on Hetzner). `wimg-sync/` is the old

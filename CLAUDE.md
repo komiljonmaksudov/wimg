@@ -20,7 +20,7 @@ Inspired by libghostty: the library is the product. The UIs are just renderers.
 
 | Layer           | Choice                                             |
 | --------------- | -------------------------------------------------- |
-| Shared core     | Zig 0.16.0 + SQLite 3.52.0 (amalgamation)          |
+| Shared core     | Zig 0.17.0 + SQLite 3.52.0 (amalgamation)          |
 | Web UI          | Svelte 5 + TailwindCSS + LayerChart                |
 | Web persistence | OPFS (offline SQLite in browser)                   |
 | iOS UI          | SwiftUI + C ABI (libwimg.a)                        |

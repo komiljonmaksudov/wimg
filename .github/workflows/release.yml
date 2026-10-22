@@ -14,6 +14,10 @@ on:
 permissions:
   contents: write
 
+env:
+  # Same Zig as local dev. One place to bump it for every job.
+  ZIG_VERSION: 0.17.0
+
 jobs:
   detect-changes:
     # Decide whether iOS / Android pipelines need to run for this tag.
@@ -62,7 +66,7 @@ jobs:
 
       - uses: mlugg/setup-zig@v2
         with:
-          version: 0.16.0
+          version: ${{ env.ZIG_VERSION }}
 
       - uses: oven-sh/setup-bun@v2
 
@@ -124,7 +128,7 @@ jobs:
 
       - uses: mlugg/setup-zig@v2
         with:
-          version: 0.16.0
+          version: ${{ env.ZIG_VERSION }}
 
       - uses: oven-sh/setup-bun@v2
 
@@ -166,7 +170,7 @@ jobs:
   build-libwimg-ios:
     # Historical: Zig 0.15.2's build runner couldn't link on macos-26
     # (missing __availability_version_check). Keeping macos-15 for now
-    # under 0.16.0 to avoid regressing the iOS build; revisit later.
+    # under Zig 0.16+ to avoid regressing the iOS build; revisit later.
     needs: [check, detect-changes]
     if: needs.detect-changes.outputs.ios == 'true'
     runs-on: macos-15
@@ -175,7 +179,7 @@ jobs:
 
       - uses: mlugg/setup-zig@v2
         with:
-          version: 0.16.0
+          version: ${{ env.ZIG_VERSION }}
 
       - name: Download SQLite amalgamation
         working-directory: libwimg/vendor
@@ -283,7 +287,7 @@ jobs:
 
       - uses: mlugg/setup-zig@v2
         with:
-          version: 0.16.0
+          version: ${{ env.ZIG_VERSION }}
 
       - name: Setup Android NDK
         uses: android-actions/setup-android@v3
@@ -365,7 +369,7 @@ jobs:
 
       - uses: mlugg/setup-zig@v2
         with:
-          version: 0.16.0
+          version: ${{ env.ZIG_VERSION }}
 
       - name: Download SQLite amalgamation
         working-directory: libwimg/vendor

@@ -1,4 +1,5 @@
 const std = @import("std");
+const dbg = @import("dbg.zig");
 const builtin = @import("builtin");
 const is_wasm = builtin.cpu.arch == .wasm32;
 const banks_mod = if (!is_wasm) @import("banks.zig") else struct {
@@ -1098,12 +1099,12 @@ pub fn parseResponse(session: *FintsSession, data: []const u8, out: *ParsedRespo
             if (extractEnvelopeContent(segment)) |inner| {
                 if (!is_wasm) {
                     const plen = @min(inner.len, 120);
-                    std.debug.print("[FinTS Zig] HNVSD inner[0..{d}]='{s}'\n", .{ plen, inner[0..plen] });
-                    std.debug.print("[FinTS Zig] HNVSD inner.len={d}, segment.len={d}\n", .{ inner.len, segment.len });
+                    dbg.print("[FinTS Zig] HNVSD inner[0..{d}]='{s}'\n", .{ plen, inner[0..plen] });
+                    dbg.print("[FinTS Zig] HNVSD inner.len={d}, segment.len={d}\n", .{ inner.len, segment.len });
                 }
                 parseResponse(session, inner, out);
             } else {
-                if (!is_wasm) std.debug.print("[FinTS Zig] HNVSD: extractEnvelopeContent returned null!\n", .{});
+                if (!is_wasm) dbg.print("[FinTS Zig] HNVSD: extractEnvelopeContent returned null!\n", .{});
             }
         } else if (startsWith(segment, "HIRMG") or startsWith(segment, "HIRMS")) {
             // Response codes
@@ -1114,7 +1115,7 @@ pub fn parseResponse(session: *FintsSession, data: []const u8, out: *ParsedRespo
             // System ID response
             if (!is_wasm) {
                 const plen = @min(segment.len, 80);
-                std.debug.print("[FinTS Zig] HISYN segment='{s}'\n", .{segment[0..plen]});
+                dbg.print("[FinTS Zig] HISYN segment='{s}'\n", .{segment[0..plen]});
             }
             extractSystemId(segment, out);
         } else if (startsWith(segment, "HITANS:")) {

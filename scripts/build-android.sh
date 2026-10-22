@@ -44,14 +44,15 @@ sys_include_dir=$SYSROOT/usr/include/aarch64-linux-android
 crt_dir=$SYSROOT/usr/lib/aarch64-linux-android/29
 msvc_lib_dir=
 kernel32_lib_dir=
-gcc_dir=
+cc_dir=$SYSROOT/usr/lib/aarch64-linux-android/29
+darwin_sdk_dir=
 EOF
 
 zig build \
   -Dtarget=aarch64-linux-android \
   -Dshared=true \
   --release=small \
-  --libc "$BUILD_DIR/android-libc.txt"
+  -Dlibc="$BUILD_DIR/android-libc.txt"
 
 cp zig-out/lib/libwimg.so "$BUILD_DIR/arm64-v8a/libwimg.so"
 

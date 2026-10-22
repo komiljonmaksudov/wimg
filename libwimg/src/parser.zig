@@ -1160,11 +1160,20 @@ test "trimCr: no CR unchanged" {
 
 // --- Stress / performance tests ---
 
+/// `s` repeated `n` times, built at comptime (Zig 0.17 dropped the `**` operator).
+fn repeatStr(comptime s: []const u8, comptime n: usize) *const [s.len * n]u8 {
+    @setEvalBranchQuota(n * 10 + 1000);
+    var out: [s.len * n]u8 = undefined;
+    for (0..n) |i| @memcpy(out[i * s.len ..][0..s.len], s);
+    const final = out;
+    return &final;
+}
+
 test "parseComdirectCsv: 1000 rows" {
     // Build a 1000-line CSV at comptime
     const header = "Buchungstag;Wertstellung;Vorgang;Buchungstext;Umsatz in EUR\n";
     const row = "15.01.2026;15.01.2026;Lastschrift;REWE Supermarkt Berlin;-23,99\n";
-    const csv = header ++ row ** 1000;
+    const csv = header ++ comptime repeatStr(row, 1000);
 
     var txns: [1000]Transaction = undefined;
     var result: ImportResult = undefined;
@@ -1183,7 +1192,7 @@ test "parseComdirectCsv: 1000 rows" {
 test "parseTradeRepublicCsv: 1000 rows" {
     const header = "Date,Type,Description,Amount\n";
     const row = "2026-01-15,Purchase,iShares MSCI World,-250.00\n";
-    const csv = header ++ row ** 1000;
+    const csv = header ++ comptime repeatStr(row, 1000);
 
     var txns: [1000]Transaction = undefined;
     var result: ImportResult = undefined;
@@ -1197,7 +1206,7 @@ test "parseTradeRepublicCsv: 1000 rows" {
 test "parseScalableCapitalCsv: 1000 rows" {
     const header = "Buchungsdatum;Typ;Beschreibung;Betrag\n";
     const row = "15.01.2026;Sparplan;ETF World;-100,00\n";
-    const csv = header ++ row ** 1000;
+    const csv = header ++ comptime repeatStr(row, 1000);
 
     var txns: [1000]Transaction = undefined;
     var result: ImportResult = undefined;
@@ -1210,7 +1219,7 @@ test "parseScalableCapitalCsv: 1000 rows" {
 
 test "parseComdirectCsv: 500 rows into buffer of 100 — overflow handled" {
     const row = "01.02.2026;01.02.2026;Lastschrift;ALDI Nord;-15,50\n";
-    const csv = row ** 500;
+    const csv = comptime repeatStr(row, 500);
 
     var txns: [100]Transaction = undefined;
     var result: ImportResult = undefined;
@@ -1228,7 +1237,7 @@ test "parseComdirectCsv: 500 rows into buffer of 100 — overflow handled" {
 
 test "parseComdirectCsv: description truncated at 256 chars" {
     // Description with 300 chars
-    const long_desc = "A" ** 300;
+    const long_desc = &@as([300]u8, @splat('A'));
     const csv = "10.03.2026;10.03.2026;Lastschrift;" ++ long_desc ++ ";-5,00\n";
 
     var txns: [1]Transaction = undefined;
@@ -1237,7 +1246,7 @@ test "parseComdirectCsv: description truncated at 256 chars" {
 
     try std.testing.expectEqual(@as(u32, 1), result.imported);
     try std.testing.expectEqual(@as(u16, 256), txns[0].description_len);
-    try std.testing.expectEqualStrings("A" ** 256, txns[0].descriptionSlice());
+    try std.testing.expectEqualStrings(&@as([256]u8, @splat('A')), txns[0].descriptionSlice());
 }
 
 test "parseComdirectCsv: mixed valid and invalid rows" {
