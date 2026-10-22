@@ -79,6 +79,13 @@ sed -i '' "s/MARKETING_VERSION: \"$OLD\"/MARKETING_VERSION: \"$NEW\"/" "$YML"
 sed -i '' 's/CURRENT_PROJECT_VERSION: [0-9]*/CURRENT_PROJECT_VERSION: 1/' "$YML"
 echo "  updated $YML (version + reset build number)"
 
+# ── update Android build.gradle.kts ──────────────────────────────────────────
+
+GRADLE="$ROOT/wimg-android/app/build.gradle.kts"
+sed -i '' "s/versionName = \"$OLD\"/versionName = \"$NEW\"/" "$GRADLE"
+grep -q "versionName = \"$NEW\"" "$GRADLE" || die "versionName in $GRADLE is not $OLD — fix it by hand"
+echo "  updated $GRADLE"
+
 # ── generate changelog entry ─────────────────────────────────────────────────
 
 PREV_TAG=$(git tag -l --sort=-v:refname | head -1 2>/dev/null || true)
@@ -120,7 +127,7 @@ echo "  updated $CHANGELOG"
 
 # ── commit + tag ─────────────────────────────────────────────────────────────
 
-git add "$PKG" "$YML" "$CHANGELOG"
+git add "$PKG" "$YML" "$GRADLE" "$CHANGELOG"
 git commit -m "release: v${NEW}"
 git tag "v${NEW}"
 

@@ -340,6 +340,35 @@ jobs:
           gradle wrapper
           ./gradlew assembleDebug
 
+      # Signed Play bundle. versionCode is a Unix timestamp so every upload is
+      # strictly higher than the last, like CURRENT_PROJECT_VERSION on iOS.
+      # Skipped (not failed) until the keystore secrets exist.
+      - name: Build signed Play bundle
+        working-directory: wimg-android
+        env:
+          WIMG_KEYSTORE_BASE64: ${{ secrets.WIMG_KEYSTORE_BASE64 }}
+          WIMG_KEYSTORE_PASSWORD: ${{ secrets.WIMG_KEYSTORE_PASSWORD }}
+          WIMG_KEY_ALIAS: ${{ secrets.WIMG_KEY_ALIAS }}
+          WIMG_KEY_PASSWORD: ${{ secrets.WIMG_KEY_PASSWORD }}
+        run: |
+          if [ -z "$WIMG_KEYSTORE_BASE64" ]; then
+            echo "::warning::WIMG_KEYSTORE_BASE64 not set, skipping the signed Play bundle"
+            exit 0
+          fi
+          export WIMG_KEYSTORE_FILE="$RUNNER_TEMP/upload.jks"
+          echo "$WIMG_KEYSTORE_BASE64" | base64 -d > "$WIMG_KEYSTORE_FILE"
+          ./gradlew bundleRelease -PwimgVersionCode=$(date +%s)
+          rm -f "$WIMG_KEYSTORE_FILE"
+
+      # Kept out of the GitHub Release on purpose: the .aab is only for the
+      # Play Console upload. Download it from the workflow run's artifacts.
+      - name: Upload Play bundle
+        if: hashFiles('wimg-android/app/build/outputs/bundle/release/app-release.aab') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: wimg-android-play
+          path: wimg-android/app/build/outputs/bundle/release/app-release.aab
+
       - name: Prepare Android artifacts
         run: |
           mkdir -p android-artifacts
