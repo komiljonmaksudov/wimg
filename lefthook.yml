@@ -16,6 +16,11 @@ pre-commit:
       glob: "*.{ts,svelte,js}"
       run: bunx oxlint
 
+    # Blocks a commit that adds a secret. Skipped (not failed) where gitleaks
+    # isn't installed: `brew install gitleaks`.
+    gitleaks:
+      run: command -v gitleaks >/dev/null || exit 0; gitleaks git --staged --redact --no-banner .
+
 commit-msg:
   commands:
     conventional:

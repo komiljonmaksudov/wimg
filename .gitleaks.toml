@@ -1,0 +1,8 @@
+# gitleaks config — `gitleaks git . --log-opts="--all"` scans full history;
+# the lefthook pre-commit hook scans staged changes.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Vendored SQLite headers: macro names like sqlite3_column_bytes16 trip generic-api-key"
+paths = ['''libwimg/vendor/sqlite3(ext)?\.h''']
