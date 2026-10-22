@@ -38,8 +38,15 @@ wimg-sync.mili-my.name {
 
 	log {
 		output stderr
-		format json
-		# Drop request/response bodies from logs — they contain encrypted sync data
-		# and Bearer tokens (sync keys). Keep only metadata.
+		# Caddy never logs bodies, and redacts Authorization (the MCP Bearer sync
+		# key) by default. The sync key is also in the path of /sync/<key> and
+		# /ws/<key>, and it derives the E2E encryption key, so it is cut from
+		# the logged URI too.
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp "^/(sync|ws)/[^/?]+" "/${1}/REDACTED"
+			}
+		}
 	}
 }
