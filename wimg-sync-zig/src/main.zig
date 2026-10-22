@@ -220,8 +220,17 @@ fn routeRequest(ctx: *Context, request: *Server.Request) !void {
     return request.respond("not found", .{ .status = .not_found });
 }
 
-fn handlePush(ctx: *Context, request: *Server.Request, key: []const u8) !void {
+fn handlePush(ctx: *Context, request: *Server.Request, key_path: []const u8) !void {
     const gpa = ctx.registry.gpa;
+
+    // `key_path` points into the connection's read buffer, which the body
+    // reader reuses: a push over ~64 KB (a first full sync) overwrote it and
+    // stored the rows under a garbage key. Copy it first, like handleMcp does.
+    var key_buf: [256]u8 = undefined;
+    if (key_path.len > key_buf.len) return request.respond("key too long", .{ .status = .bad_request });
+    @memcpy(key_buf[0..key_path.len], key_path);
+    const key = key_buf[0..key_path.len];
+
     var body_buf: [16 * 1024]u8 = undefined;
     const reader = request.readerExpectContinue(&body_buf) catch
         return request.respond("bad request", .{ .status = .bad_request });
