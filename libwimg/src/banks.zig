@@ -982,6 +982,7 @@ pub const banks = blk: {
         makeBank("58520086", "HYVEDEMM437", "UniCredit Bank - HypoVereinsbank AG", "https://hbci-01.hypovereinsbank.de/bank/hbci"),
         makeBank("58540035", "COBADEFFXXX", "Commerzbank", "https://fints.commerzbank.de/fints"),
         makeBank("58550130", "TRISDE55XXX", "Sparkasse Trier", "https://banking-rp1.s-fints-pt-rp.de/fints30"),
+        makeBank("58561771", "GENODED1MLW", "Raiba Mehring-Leiwen eG", "https://fints1.atruvia.de/cgi-bin/hbciservlet"),
         makeBank("58570024", "DEUTDEDB585", "Deutsche Bank Privat und Geschäftskunden", "https://fints.deutsche-bank.de/"),
         makeBank("58570048", "DEUTDE5M585", "Deutsche Bank", "https://fints.deutsche-bank.de/"),
         makeBank("58650030", "MALADE51BIT", "Kreissparkasse Bitburg-Prüm", "https://banking-rp1.s-fints-pt-rp.de/fints30"),
@@ -1281,7 +1282,7 @@ pub const banks = blk: {
         makeBank("68340058", "COBADEFFXXX", "Commerzbank", "https://fints.commerzbank.de/fints"),
         makeBank("68350048", "SKLODE66XXX", "Sparkasse Lörrach-Rheinfelden", "https://banking-bw1.s-fints-pt-bw.de/fints30"),
         makeBank("68351557", "SOLADES1SFH", "Sparkasse Wiesental eG", "https://banking-bw1.s-fints-pt-bw.de/fints30"),
-        makeBank("68351865", "SOLADES1MGL", "Sparkasse Markgräflerland", "https://banking-bw1.s-fints-pt-bw.de/fints30"),
+        makeBank("68351865", "SPKMDE8WXXX", "Sparkasse Markgräflerland", "https://banking-bw1.s-fints-pt-bw.de/fints30"),
         makeBank("68370024", "DEUTDEDB683", "Deutsche Bank Privat und Geschäftskunden", "https://fints.deutsche-bank.de/"),
         makeBank("68370034", "DEUTDE6F683", "Deutsche Bank", "https://fints.deutsche-bank.de/"),
         makeBank("68390000", "VOLODE66XXX", "Volksbank Dreiländereck", "https://fints2.atruvia.de/cgi-bin/hbciservlet"),
@@ -1532,6 +1533,7 @@ pub const banks = blk: {
         makeBank("74369130", "GENODEF1PST", "Raiffeisenbank", "https://fints2.atruvia.de/cgi-bin/hbciservlet"),
         makeBank("74369146", "GENODEF1RZK", "Raiffeisenbank Rattiszell-Konzell", "https://fints2.atruvia.de/cgi-bin/hbciservlet"),
         makeBank("74369662", "GENODEF1EBV", "Raiffeisenbank Buch-Eching", "https://fints2.atruvia.de/cgi-bin/hbciservlet"),
+        makeBank("74390000", "GENODEF1LH1", "VR-Bank Landshut", "https://fints2.atruvia.de/cgi-bin/hbciservlet"),
         makeBank("74392300", "GENODEF1VBV", "VR-Bank Vilsbiburg eG", "https://fints2.atruvia.de/cgi-bin/hbciservlet"),
         makeBank("75020073", "HYVEDEMM447", "UniCredit Bank - HypoVereinsbank AG", "https://hbci-01.hypovereinsbank.de/bank/hbci"),
         makeBank("75021174", "HYVEDEMM804", "UniCredit Bank - HypoVereinsbank AG", "https://hbci-01.hypovereinsbank.de/bank/hbci"),
@@ -1581,6 +1583,7 @@ pub const banks = blk: {
         makeBank("76069369", "GENODEF1AUO", "Raiffeisenbank Auerbach-Freihung", "https://fints2.atruvia.de/cgi-bin/hbciservlet"),
         makeBank("76069372", "GENODEF1WDS", "Raiffeisenbank Bad Windsheim", "https://fints2.atruvia.de/cgi-bin/hbciservlet"),
         makeBank("76069378", "GENODEF1BEH", "Raiffeisenbank", "https://fints2.atruvia.de/cgi-bin/hbciservlet"),
+        makeBank("76069404", "GENODEF1DSB", "Raiffeisenbank Uehlfeld-Dachsbach", "https://fints2.atruvia.de/cgi-bin/hbciservlet"),
         makeBank("76069410", "GENODEF1DIM", "Raiffeisenbank Dietersheim und Umgebung", "https://fints2.atruvia.de/cgi-bin/hbciservlet"),
         makeBank("76069448", "GENODEF1FRD", "Raiffeisenbank -alt-", "https://fints2.atruvia.de/cgi-bin/hbciservlet"),
         makeBank("76069449", "GENODEF1FYS", "Raiffeisenbank Berching-Freystadt-Mühlhausen eG", "https://fints2.atruvia.de/cgi-bin/hbciservlet"),
@@ -1666,6 +1669,7 @@ pub const banks = blk: {
         makeBank("79351010", "BYLADEM1KIS", "Sparkasse Bad Kissingen", "https://banking-by7.s-fints-pt-by.de/fints30"),
         makeBank("79353090", "BYLADEM1NES", "Sparkasse Bad Neustadt a. d. Saale", "https://banking-by7.s-fints-pt-by.de/fints30"),
         makeBank("79362081", "GENODEF1GZH", "VR-MainBank eG", "https://fints2.atruvia.de/cgi-bin/hbciservlet"),
+        makeBank("79363151", "GENODEF1HAS", "Raiffeisen-Volksbank Haßberge", "https://fints2.atruvia.de/cgi-bin/hbciservlet"),
         makeBank("79520070", "HYVEDEMM407", "UniCredit Bank - HypoVereinsbank AG", "https://hbci-01.hypovereinsbank.de/bank/hbci"),
         makeBank("79540049", "COBADEFFXXX", "Commerzbank", "https://fints.commerzbank.de/fints"),
         makeBank("79550000", "BYLADEM1ASA", "Sparkasse Aschaffenburg Miltenberg", "https://banking-by7.s-fints-pt-by.de/fints30"),
@@ -1869,7 +1873,7 @@ test "all bank BLZs are 8 digits" {
 }
 
 test "bank count is correct" {
-    try std.testing.expectEqual(@as(usize, 1715), banks.len);
+    try std.testing.expectEqual(@as(usize, 1719), banks.len);
 }
 
 test "detectBankFamily identifies Deutsche Bank" {

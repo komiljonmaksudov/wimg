@@ -160,7 +160,7 @@ MT940 + CAMT parsing, photoTAN challenge extraction, decoupled TAN polling
 `description_required=2`), touchdown pagination with structured `3040` extraction.
 HTTP transport via C ABI callback (URLSession on iOS). Tested with Comdirect
 (BLZ 20041177). Top-bank matrix script validates 8 major banks (anon init probe).
-Bank catalog drift checker compares official CSV against `banks.zig` (1,715 entries).
+Bank catalog drift checker compares official CSV against `banks.zig` (1,719 entries).
 Key protocol details: bare envelope (no HNVSK/HNVSD) for standard banks,
 HNVSK/HNVSD envelope for Deutsche Bank/Postbank/norisbank family,
 HKTAN v2-v7, contiguous segment numbering, YYYYMMDD dates, DEG colons not
