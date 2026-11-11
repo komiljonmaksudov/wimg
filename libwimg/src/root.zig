@@ -1606,8 +1606,15 @@ fn isNoChallenge(challenge: []const u8) bool {
 }
 
 /// Update selected TAN security function from sync response (python-fints style).
-/// Parse 3920 capability text and pick first advertised two-step method.
+/// Prefers the 3920 parameters; falls back to scanning the 3920 text.
 fn selectTanSecFuncFromSync(sync_resp: *const fints_mod.ParsedResponse, session: *fints_mod.FintsSession) void {
+    defer fints_mod.applySelectedTanMethod(session);
+    if (fints_mod.selectTanMethodFromCodes(sync_resp, session)) |sf| {
+        @memcpy(session.tan_sec_func[0..3], &sf);
+        session.tan_sec_func_len = 3;
+        return;
+    }
+
     var selected_buf: [3]u8 = undefined;
     var has_selected = false;
     for (sync_resp.codes[0..sync_resp.code_count]) |*c| {
@@ -1839,6 +1846,10 @@ fn wimg_fints_send_tan(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     const first_wait: u8 = if (fints_session.wait_before_first_poll > 0) fints_session.wait_before_first_poll else 4;
     const next_wait: u8 = if (fints_session.wait_before_next_poll > 0) fints_session.wait_before_next_poll else 2;
     var poll_count: u8 = 0;
+    var waited_secs: u16 = 0;
+    // One call blocks the caller's thread: stop polling after a minute and let the
+    // user tap "Status prüfen" again (banks allow up to 180 polls).
+    const max_wait_per_call: u16 = 60;
 
     while (true) {
         const msg_len = fints_mod.buildTanResponse(&fints_session, tan_payload, &msg_buf) orelse {
@@ -1922,22 +1933,29 @@ fn wimg_fints_send_tan(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
             fints_session.challenge_hhduc_len = 0;
         }
 
+        // Decoupled status: 3956 = not approved yet (the HITAN of a status reply
+        // usually has no challenge text, so the code decides, not the text).
+        const approval_pending = decoupled_start and resp.hasCode("3956");
+
         // Some flows return another TAN/challenge step.
-        if (fints_session.has_pending_tan and resp.mt940_len == 0) {
+        if ((fints_session.has_pending_tan or approval_pending) and resp.mt940_len == 0) {
             var result_buf: [16384]u8 = undefined;
             const challenge = fints_session.challenge[0..fints_session.challenge_len];
 
             // Bank can return HITAN with "nochallenge" (or empty challenge) to signal
             // that no SCA step is required. Do not surface TAN UI in that case.
-            if (isNoChallenge(challenge)) {
+            if (!approval_pending and isNoChallenge(challenge)) {
                 fints_session.has_pending_tan = false;
                 fints_session.challenge_len = 0;
                 fints_session.challenge_hhduc_len = 0;
+                // Approved in the app: the authenticated dialog stays open for HKKAZ.
+                if (decoupled_start) fints_session.has_active_dialog = true;
                 return makeLengthPrefixed("{\"status\":\"ok\"}");
             }
 
             // Decoupled process: poll status using HKTAN process S until completion or timeout.
-            if (decoupled_start and fints_session.decoupled) {
+            if (approval_pending or (decoupled_start and fints_session.decoupled)) {
+                fints_session.decoupled = true; // keep polling with process S
                 if (!fints_session.automated_polling_allowed) {
                     const result_json = std.fmt.bufPrint(&result_buf, "{{\"status\":\"tan_required\",\"challenge\":\"{s}\",\"decoupled\":{}}}", .{
                         challenge,
@@ -1945,7 +1963,7 @@ fn wimg_fints_send_tan(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                     }) catch return makeLengthPrefixed("{\"status\":\"tan_required\",\"decoupled\":true}");
                     return makeLengthPrefixed(result_json);
                 }
-                if (poll_count >= max_polls) {
+                if (poll_count >= max_polls or waited_secs >= max_wait_per_call) {
                     const result_json = std.fmt.bufPrint(&result_buf, "{{\"status\":\"tan_required\",\"challenge\":\"{s}\",\"decoupled\":{}}}", .{
                         challenge,
                         true,
@@ -1955,6 +1973,7 @@ fn wimg_fints_send_tan(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
 
                 const wait_secs: u8 = if (poll_count == 0) first_wait else next_wait;
                 poll_count += 1;
+                waited_secs += wait_secs;
                 if (wait_secs > 0) {
                     var ts: std.c.timespec = .{ .sec = @intCast(wait_secs), .nsec = 0 };
                     _ = std.c.nanosleep(&ts, null);
@@ -2147,8 +2166,9 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         if (fints_session.has_pending_tan) {
             const challenge = fints_session.challenge[0..fints_session.challenge_len];
 
-            // nochallenge = SCA not required, continue to HKKAZ
-            if (isNoChallenge(challenge)) {
+            // nochallenge = SCA not required, continue to HKKAZ.
+            // A decoupled request (3955) is a real challenge even with empty text.
+            if (!fints_session.decoupled and isNoChallenge(challenge)) {
                 fints_session.has_pending_tan = false;
             } else {
                 // Real TAN challenge (e.g. photoTAN) — return to user for TAN entry
@@ -2264,7 +2284,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         if (fints_session.has_pending_tan and resp.mt940_len == 0 and resp.camt_len == 0) {
             var result_buf: [16384]u8 = undefined;
             const challenge = fints_session.challenge[0..fints_session.challenge_len];
-            if (isNoChallenge(challenge)) {
+            if (!fints_session.decoupled and isNoChallenge(challenge)) {
                 fints_session.has_pending_tan = false;
                 fints_session.challenge_len = 0;
                 fints_session.challenge_hhduc_len = 0;

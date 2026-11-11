@@ -39,7 +39,10 @@ pub const FintsSession = struct {
     bpd_version: u16,
     upd_version: u16,
 
-    hitan_version: u8,
+    hitan_version: u8, // HKTAN version to send (HITANS version defining the selected method)
+    hitans_max_version: u8, // highest HITANS version advertised (fallback when method unknown)
+    tan_methods: [max_tan_methods]TanMethod,
+    tan_method_count: u8,
     hikaz_version: u8,
     supports_camt: bool,
     camt_format: [128]u8,
@@ -107,6 +110,8 @@ pub const FintsSession = struct {
         s.msg_num = 1;
         // 0 = unknown; builders fall back to v6 until HITANS is parsed from BPD.
         s.hitan_version = 0;
+        s.hitans_max_version = 0;
+        s.tan_method_count = 0;
         // HKKAZ defaults to v5 unless bank BPD advertises higher versions.
         s.hikaz_version = 5;
         s.supports_camt = false;
@@ -194,6 +199,23 @@ pub const FintsSession = struct {
     }
 };
 
+/// One two-step TAN method as advertised in a HITANS BPD segment.
+pub const TanMethod = struct {
+    sec_func: [3]u8,
+    hitans_version: u8,
+    tan_process: u8,
+    description_required: u8, // 0=must_not, 1=may, 2=must
+    supported_media_number: u8,
+    response_hhd_uc_required: bool,
+    decoupled: bool,
+    decoupled_max_poll_number: u8,
+    wait_before_first_poll: u8,
+    wait_before_next_poll: u8,
+    automated_polling_allowed: bool,
+};
+
+pub const max_tan_methods = 24;
+
 /// FinTS response code.
 pub const ResponseCode = struct {
     code: [4]u8,
@@ -276,6 +298,13 @@ pub const ParsedResponse = struct {
         @memset(&r.challenge, 0);
         @memset(&r.challenge_ref, 0);
         return r;
+    }
+
+    pub fn hasCode(self: *const ParsedResponse, code: []const u8) bool {
+        for (self.codes[0..self.code_count]) |*c| {
+            if (std.mem.eql(u8, c.codeSlice(), code)) return true;
+        }
+        return false;
     }
 
     pub fn hasError(self: *const ParsedResponse) bool {
@@ -1135,89 +1164,11 @@ pub fn parseResponse(session: *FintsSession, data: []const u8, out: *ParsedRespo
                     }
                 }
             }
-            if (ver >= 2 and ver <= 7 and (session.hitan_version == 0 or ver > session.hitan_version)) {
-                session.hitan_version = ver;
+            if (ver >= 2 and ver <= 7 and ver > session.hitans_max_version) {
+                session.hitans_max_version = ver;
             }
-            // Parse twostep_parameters groups for selected sec_func (e.g. 902) to drive HKTAN optionals.
-            // HITANS payload fields are '+' separated; twostep parameter entries are colon-separated DEGs.
-            var fp: usize = 0;
-            while (fp < segment.len and segment[fp] != '+') : (fp += 1) {}
-            if (fp < segment.len) fp += 1;
-            var field_start = fp;
-            while (fp <= segment.len) : (fp += 1) {
-                if (fp == segment.len or segment[fp] == '+' or segment[fp] == '\'') {
-                    const field = segment[field_start..fp];
-                    // candidate twostep parameter begins with "ddd:p:" where ddd is sec_func and p is tan_process.
-                    if (field.len >= 7 and
-                        field[0] >= '0' and field[0] <= '9' and
-                        field[1] >= '0' and field[1] <= '9' and
-                        field[2] >= '0' and field[2] <= '9' and
-                        field[3] == ':' and field[5] == ':')
-                    {
-                        const sf = field[0..3];
-                        const tp = field[4];
-                        if (std.mem.eql(u8, sf, session.tanSecFuncSlice()) and tp == '2') {
-                            // TwoStepParameters field offsets by HITANS version:
-                            // v5: description_required=19, supported_media_number=20
-                            // v6/v7: description_required=17, response_hhd_uc_required=18, supported_media_number=19
-                            const desc_idx: u8 = if (ver >= 6) 17 else 19;
-                            const hhd_uc_idx: u8 = if (ver >= 6) 18 else 255;
-                            const media_idx: u8 = if (ver >= 6) 19 else 20;
-                            var description_required: u8 = 0;
-                            var supported_media_number: u8 = 0;
-                            var response_hhd_uc_required = false;
-                            var decoupled_max_poll_number: u8 = 0;
-                            var wait_before_first_poll: u8 = 0;
-                            var wait_before_next_poll: u8 = 0;
-                            var automated_polling_allowed = true;
-                            var idx: u8 = 0;
-                            var cp: usize = 0;
-                            var token_start: usize = 0;
-                            while (cp <= field.len) : (cp += 1) {
-                                if (cp == field.len or field[cp] == ':') {
-                                    const tok = field[token_start..cp];
-                                    if (idx == desc_idx and tok.len > 0 and tok[0] >= '0' and tok[0] <= '2') {
-                                        description_required = tok[0] - '0';
-                                    } else if (idx == hhd_uc_idx and tok.len > 0) {
-                                        response_hhd_uc_required = (tok[0] == 'J');
-                                    } else if (idx == media_idx and tok.len > 0 and tok[0] >= '0' and tok[0] <= '9') {
-                                        supported_media_number = std.fmt.parseInt(u8, tok, 10) catch 0;
-                                    } else if (ver >= 7 and tok.len > 0 and tok[0] >= '0' and tok[0] <= '9') {
-                                        // Some banks shift v7 token positions; support both observed layouts:
-                                        // canonical: max=21, first_wait=22, next_wait=23, auto=25
-                                        // shifted:   max=20, first_wait=21, next_wait=22, auto=24
-                                        if (idx == 20 or idx == 21) {
-                                            const parsed = std.fmt.parseInt(u8, tok, 10) catch 0;
-                                            if (parsed > 0 and decoupled_max_poll_number == 0) decoupled_max_poll_number = parsed;
-                                        } else if (idx == 22) {
-                                            const parsed = std.fmt.parseInt(u8, tok, 10) catch 0;
-                                            if (parsed > 0 and wait_before_first_poll == 0) wait_before_first_poll = parsed;
-                                        } else if (idx == 23) {
-                                            const parsed = std.fmt.parseInt(u8, tok, 10) catch 0;
-                                            if (parsed > 0 and wait_before_next_poll == 0) wait_before_next_poll = parsed;
-                                        }
-                                    } else if (ver >= 7 and (idx == 24 or idx == 25) and tok.len > 0) {
-                                        // "J" = automatic polling allowed, "N" = disallow.
-                                        automated_polling_allowed = (tok[0] != 'N');
-                                    }
-                                    token_start = cp + 1;
-                                    idx += 1;
-                                }
-                            }
-                            session.tan_description_required = description_required;
-                            session.tan_supported_media_number = supported_media_number;
-                            session.tan_response_hhd_uc_required = response_hhd_uc_required;
-                            session.tan_medium_required = (supported_media_number > 1 and description_required == 2);
-                            if (decoupled_max_poll_number > 0) session.decoupled_max_poll_number = decoupled_max_poll_number;
-                            if (wait_before_first_poll > 0) session.wait_before_first_poll = wait_before_first_poll;
-                            if (wait_before_next_poll > 0) session.wait_before_next_poll = wait_before_next_poll;
-                            session.automated_polling_allowed = automated_polling_allowed;
-                            break;
-                        }
-                    }
-                    field_start = fp + 1;
-                }
-            }
+            parseHitansMethods(session, segment, ver);
+            applySelectedTanMethod(session);
         } else if (startsWith(segment, "HITAN:")) {
             // TAN challenge / TAN submit feedback segment
             extractTanChallenge(segment, out);
@@ -1307,7 +1258,8 @@ pub fn parseResponse(session: *FintsSession, data: []const u8, out: *ParsedRespo
         // Reset previous TAN payload first, then copy what is present in this response.
         session.challenge_len = 0;
         session.challenge_hhduc_len = 0;
-        session.challenge_ref_len = 0;
+        // Keep the previous task reference when this response has none: decoupled
+        // status polls must keep quoting the reference of the original challenge.
         if (out.challenge_len > 0) {
             @memcpy(session.challenge[0..out.challenge_len], out.challenge[0..out.challenge_len]);
             session.challenge_len = out.challenge_len;
@@ -1751,6 +1703,165 @@ fn isEscaped(data: []const u8, pos: usize) bool {
     return data[pos - 1] == '?';
 }
 
+pub fn findTanMethod(session: *const FintsSession, sec_func: []const u8) ?*const TanMethod {
+    for (session.tan_methods[0..session.tan_method_count]) |*m| {
+        if (std.mem.eql(u8, &m.sec_func, sec_func)) return m;
+    }
+    return null;
+}
+
+/// Pick a TAN method the user is allowed to use from the 3920 parameters
+/// ("3920::text:910:911:923"), checked against the methods the bank defined in
+/// HITANS. App-approval (decoupled) methods win over ones that need a typed TAN:
+/// there is no chipTAN flicker UI, so pushTAN is the one a user can finish.
+pub fn selectTanMethodFromCodes(sync_resp: *const ParsedResponse, session: *const FintsSession) ?[3]u8 {
+    var first: ?[3]u8 = null;
+    for (sync_resp.codes[0..sync_resp.code_count]) |*c| {
+        if (!std.mem.eql(u8, c.codeSlice(), "3920")) continue;
+        var it = std.mem.splitScalar(u8, c.parameterSlice(), ':');
+        while (it.next()) |tok| {
+            if (tok.len != 3 or std.mem.eql(u8, tok, "999")) continue;
+            if (!std.ascii.isDigit(tok[0]) or !std.ascii.isDigit(tok[1]) or !std.ascii.isDigit(tok[2])) continue;
+            if (session.tan_method_count > 0) {
+                const m = findTanMethod(session, tok) orelse continue;
+                if (m.tan_process != '2') continue; // only process variant 2 is implemented
+                if (m.decoupled) return tok[0..3].*;
+            }
+            if (first == null) first = tok[0..3].*;
+        }
+    }
+    return first;
+}
+
+/// Copy the selected method's BPD parameters into the session. The HKTAN version
+/// must be the HITANS version that defines the method (python-fints parity):
+/// a bank may define chipTAN in HITANS v6 and pushTAN in v7.
+pub fn applySelectedTanMethod(session: *FintsSession) void {
+    const m = findTanMethod(session, session.tanSecFuncSlice()) orelse {
+        session.hitan_version = session.hitans_max_version;
+        return;
+    };
+    session.hitan_version = m.hitans_version;
+    session.tan_description_required = m.description_required;
+    session.tan_supported_media_number = m.supported_media_number;
+    session.tan_response_hhd_uc_required = m.response_hhd_uc_required;
+    // App-approval methods go to the user's registered app; Sparkasse accepts an empty
+    // medium name there (python-fints note), and HKTAB outside a dialog is unproven.
+    // So only typed-TAN methods (e.g. smsTAN with several phones) ask the user to pick.
+    session.tan_medium_required = (m.supported_media_number > 1 and m.description_required == 2 and !m.decoupled);
+    if (m.decoupled_max_poll_number > 0) session.decoupled_max_poll_number = m.decoupled_max_poll_number;
+    if (m.wait_before_first_poll > 0) session.wait_before_first_poll = m.wait_before_first_poll;
+    if (m.wait_before_next_poll > 0) session.wait_before_next_poll = m.wait_before_next_poll;
+    session.automated_polling_allowed = m.automated_polling_allowed;
+}
+
+/// Parse the TwoStepParameters entries of one HITANS segment into session.tan_methods.
+/// Layout: HITANS:n:v:ref+max+min+class+<J:N:0:> then fixed-width entries, colon separated.
+fn parseHitansMethods(session: *FintsSession, segment: []const u8, ver: u8) void {
+    // Tokens per entry and positions inside one entry, per HITANS version (python-fints formals).
+    const Layout = struct { width: u8, desc: u8, hhd_uc: u8, media: u8 };
+    const none: u8 = 255;
+    const layout: Layout = switch (ver) {
+        2 => .{ .width = 15, .desc = none, .hhd_uc = none, .media = none },
+        3 => .{ .width = 18, .desc = 16, .hhd_uc = none, .media = 17 },
+        5 => .{ .width = 22, .desc = 20, .hhd_uc = none, .media = 21 },
+        6 => .{ .width = 21, .desc = 18, .hhd_uc = 19, .media = 20 },
+        7 => .{ .width = 26, .desc = 18, .hhd_uc = 19, .media = 20 },
+        else => return, // v1/v4: no HKTAN builder for them
+    };
+
+    // The parameter DEG is the 4th data element after the segment header.
+    var pos: usize = 0;
+    var plus_seen: u8 = 0;
+    while (pos < segment.len and plus_seen < 4) : (pos += 1) {
+        if (segment[pos] == '+' and !isEscaped(segment, pos)) plus_seen += 1;
+    }
+    if (plus_seen < 4) return;
+    var end = pos;
+    while (end < segment.len) : (end += 1) {
+        if ((segment[end] == '+' or segment[end] == '\'') and !isEscaped(segment, end)) break;
+    }
+    const deg = segment[pos..end];
+
+    const prefix_tokens: usize = 3; // onestep_allowed : multiple_tasks : hash_algorithm
+    var tok_index: usize = 0;
+    var tok_start: usize = 0;
+    var m: TanMethod = undefined;
+    var i: usize = 0;
+    while (i <= deg.len) : (i += 1) {
+        if (i < deg.len and !(deg[i] == ':' and !isEscaped(deg, i))) continue;
+        const tok = deg[tok_start..i];
+        tok_start = i + 1;
+        defer tok_index += 1;
+        if (tok_index < prefix_tokens) continue;
+
+        const idx: u8 = @intCast((tok_index - prefix_tokens) % layout.width);
+        if (idx == 0) {
+            m = .{
+                .sec_func = "000".*,
+                .hitans_version = ver,
+                .tan_process = 0,
+                .description_required = 0,
+                .supported_media_number = 0,
+                .response_hhd_uc_required = false,
+                .decoupled = false,
+                .decoupled_max_poll_number = 0,
+                .wait_before_first_poll = 0,
+                .wait_before_next_poll = 0,
+                .automated_polling_allowed = true,
+            };
+            if (tok.len == 3) @memcpy(&m.sec_func, tok);
+        } else if (idx == 1) {
+            if (tok.len > 0) m.tan_process = tok[0];
+        } else if (idx == 3 and ver == 7) {
+            // DK TAN-Verfahren: "Decoupled" / "DecoupledPush"
+            if (std.ascii.startsWithIgnoreCase(tok, "decoupled")) m.decoupled = true;
+        } else if (idx == layout.desc) {
+            if (tok.len > 0 and tok[0] >= '0' and tok[0] <= '2') m.description_required = tok[0] - '0';
+        } else if (idx == layout.hhd_uc) {
+            m.response_hhd_uc_required = (tok.len > 0 and tok[0] == 'J');
+        } else if (idx == layout.media) {
+            m.supported_media_number = parseSmallUint(tok);
+        } else if (ver == 7 and idx == 21) {
+            m.decoupled_max_poll_number = parseSmallUint(tok);
+            if (m.decoupled_max_poll_number > 0) m.decoupled = true;
+        } else if (ver == 7 and idx == 22) {
+            m.wait_before_first_poll = parseSmallUint(tok);
+        } else if (ver == 7 and idx == 23) {
+            m.wait_before_next_poll = parseSmallUint(tok);
+        } else if (ver == 7 and idx == 25) {
+            m.automated_polling_allowed = !(tok.len > 0 and tok[0] == 'N');
+        }
+
+        // Entry complete (or input ended inside the last entry): store it.
+        const last_of_entry = idx == layout.width - 1;
+        if ((last_of_entry or i == deg.len) and idx >= 1 and !std.mem.eql(u8, &m.sec_func, "000")) {
+            storeTanMethod(session, m);
+            m.sec_func = "000".*;
+        }
+    }
+}
+
+fn storeTanMethod(session: *FintsSession, m: TanMethod) void {
+    for (session.tan_methods[0..session.tan_method_count]) |*existing| {
+        if (std.mem.eql(u8, &existing.sec_func, &m.sec_func)) {
+            // Same method in several HITANS versions: the highest version wins.
+            if (m.hitans_version >= existing.hitans_version) existing.* = m;
+            return;
+        }
+    }
+    if (session.tan_method_count >= max_tan_methods) return;
+    session.tan_methods[session.tan_method_count] = m;
+    session.tan_method_count += 1;
+}
+
+/// Parse a small decimal, clamped to 255 (BPD poll counts go up to 999).
+fn parseSmallUint(tok: []const u8) u8 {
+    if (tok.len == 0) return 0;
+    const v = std.fmt.parseInt(u16, tok, 10) catch return 0;
+    return @intCast(@min(v, 255));
+}
+
 fn parseResponseCodes(segment: []const u8, out: *ParsedResponse) void {
     // Format: HIRMG:2:2+CODE:TEXT+CODE:TEXT+...
     // or HIRMS:3:2:REF+CODE:TEXT+...
@@ -1793,7 +1904,9 @@ fn parseResponseCodes(segment: []const u8, out: *ParsedResponse) void {
         var gp: usize = 0;
         while (gp <= group.len and part_count < 4) : (gp += 1) {
             if (gp == group.len or (group[gp] == ':' and !isEscaped(group, gp))) {
-                parts[part_count] = group[part_start..gp];
+                // 4th part = all remaining parameters ("910:911:923"), not just the first.
+                const end = if (part_count == 3) group.len else gp;
+                parts[part_count] = group[part_start..end];
                 part_count += 1;
                 part_start = gp + 1;
             }
@@ -1829,6 +1942,12 @@ fn parseResponseCodes(segment: []const u8, out: *ParsedResponse) void {
         }
 
         out.code_count += 1;
+
+        // 3955 = "approve in your app" (decoupled SCA), 3956 = approval still pending.
+        // The accompanying HITAN echoes the request's TAN process, so the code is the signal.
+        if (std.mem.eql(u8, &code.code, "3955") or std.mem.eql(u8, &code.code, "3956")) {
+            out.decoupled = true;
+        }
 
         // Check for dialog_id in certain response codes
         if (std.mem.eql(u8, &code.code, "0020")) {
@@ -2589,6 +2708,158 @@ test "parseResponse extracts TAN challenge" {
     try std.testing.expect(resp.has_tan_request);
     try std.testing.expect(s.has_pending_tan);
     try std.testing.expectEqualStrings("REF123", s.challenge_ref[0..s.challenge_ref_len]);
+}
+
+// Real HITANS segments from anonymous BPD probes (Nov 2026). Public bank parameters.
+const test_hitans_sparkasse =
+    "HITANS:139:6:3+1+1+1+J:N:0:910:2:HHD1.3.0:::chipTAN manuell:6:1:TAN-Nummer:3:J:2:N:0:0:N:N:00:0:N:1:" ++
+    "911:2:HHD1.3.2OPT:HHDOPT1:1.3.2:chipTAN optisch:6:1:TAN-Nummer:3:J:2:N:0:0:N:N:00:0:N:1:912:2:HHD1.3" ++
+    ".2USB:HHDUSB1:1.3.2:chipTAN-USB:6:1:TAN-Nummer:3:J:2:N:0:0:N:N:00:0:N:1:913:2:Q1S:Secoder_UC:1.2.0:c" ++
+    "hipTAN-QR:6:1:TAN-Nummer:3:J:2:N:0:0:N:N:00:0:N:1'" ++
+    "HITANS:140:7:3+1+1+1+N:N:0:923:2:pushTAN-cas:Decoupled::pushTAN 2.0:::Aufforderung:2048:J:2:N:0:0:N:" ++
+    "N:00:2:N:5:180:1:1:J:J'";
+const test_hitans_comdirect =
+    "HITANS:36:6:3+1+1+1+N:N:0:901:2:TechnicalId901:::mobileTAN-Verfahren:6:1:Freigabe durch mobileTAN:1:" ++
+    "N:4:N:0:0:N:N:00:0:N::902:2:MS1.0.0:::photoTAN-Verfahren:7:1:Freigabe durch photoTAN:1:N:4:N:0:0:N:N" ++
+    ":00:0:N:'";
+const test_hitans_subsembly =
+    "HITANS:62:6:3+1+1+0+N:N:0:930:2:smsTAN:mobileTAN::Mobile TAN per SMS:6:1:Challenge:128:N:1:N:0:0:J:N" ++
+    ":00:2:N::931:2:pushTAN:::Push-TAN per App:6:1:Challenge:128:N:1:N:0:0:J:N:00:1:N::932:2:MS1.0.0:::Ph" ++
+    "oto-TAN:6:1:Challenge:128:N:1:N:0:0:J:N:00:1:N::910:2:HHD1.3.2:HHD:1.3.2:Chip-TAN manuell HHD 1.3.2:" ++
+    "6:1:Challenge:128:N:1:N:0:0:J:N:00:1:N::911:2:HHD1.3.2OPT:HHDOPT1:1.3.2:Chip-TAN optisch HHD 1.3.2:6" ++
+    ":1:Challenge:128:N:1:N:0:0:J:N:00:1:N::921:2:HHD1.4OPT:HHDOPT1:1.4:Chip-TAN optisch HHD 1.4:6:1:Chal" ++
+    "lenge:128:N:1:N:0:0:J:N:00:1:N::913:2:HHD1.3.2QR:HHDUC:1.3.2:Chip-TAN QR:6:1:Challenge:128:N:1:N:0:0" ++
+    ":J:N:00:1:N::912:2:HHD1.3.2USB:HHDUC:1.3.2:Chip-TAN USB:6:1:Challenge:128:N:1:N:0:0:J:N:00:1:N'" ++
+    "HITANS:63:7:3+1+1+0+N:N:0:940:2:Decoupled:Decoupled::Decoupled:::Challenge:128:N:1:N:0:0:J:N:00:1:N:" ++
+    ":999:1:1:J:J:930:2:smsTAN:mobileTAN::Mobile TAN per SMS:6:1:Challenge:128:N:1:N:0:0:J:N:00:2:N::::::" ++
+    ":931:2:pushTAN:::Push-TAN per App:6:1:Challenge:128:N:1:N:0:0:J:N:00:1:N:::::::932:2:MS1.0.0:::Photo" ++
+    "-TAN:6:1:Challenge:128:N:1:N:0:0:J:N:00:1:N:::::::910:2:HHD1.3.2:HHD:1.3.2:Chip-TAN manuell HHD 1.3." ++
+    "2:6:1:Challenge:128:N:1:N:0:0:J:N:00:1:N:::::::911:2:HHD1.3.2OPT:HHDOPT1:1.3.2:Chip-TAN optisch HHD " ++
+    "1.3.2:6:1:Challenge:128:N:1:N:0:0:J:N:00:1:N:::::::921:2:HHD1.4OPT:HHDOPT1:1.4:Chip-TAN optisch HHD " ++
+    "1.4:6:1:Challenge:128:N:1:N:0:0:J:N:00:1:N:::::::913:2:HHD1.3.2QR:HHDUC:1.3.2:Chip-TAN QR:6:1:Challe" ++
+    "nge:128:N:1:N:0:0:J:N:00:1:N:::::::912:2:HHD1.3.2USB:HHDUC:1.3.2:Chip-TAN USB:6:1:Challenge:128:N:1:" ++
+    "N:0:0:J:N:00:1:N::::::'";
+
+fn testSessionWithBpd(sec_func: []const u8, bpd: []const u8) FintsSession {
+    var s = FintsSession.init("10050000", "https://x.de/f", "u", "p");
+    @memcpy(s.tan_sec_func[0..3], sec_func);
+    s.tan_sec_func_len = 3;
+    var resp = ParsedResponse.init();
+    parseResponse(&s, bpd, &resp);
+    return s;
+}
+
+test "HITANS: Sparkasse pushTAN 2.0 is decoupled, uses HKTAN v7, no medium picker" {
+    const s = testSessionWithBpd("923", test_hitans_sparkasse);
+    try std.testing.expectEqual(@as(u8, 5), s.tan_method_count);
+    try std.testing.expectEqual(@as(u8, 7), s.hitan_version);
+    try std.testing.expectEqual(@as(u8, 2), s.tan_description_required);
+    try std.testing.expectEqual(@as(u8, 5), s.tan_supported_media_number);
+    try std.testing.expect(!s.tan_medium_required); // decoupled: no picker
+    try std.testing.expectEqual(@as(u8, 180), s.decoupled_max_poll_number);
+    try std.testing.expectEqual(@as(u8, 1), s.wait_before_first_poll);
+    try std.testing.expectEqual(@as(u8, 1), s.wait_before_next_poll);
+    try std.testing.expect(s.automated_polling_allowed);
+    try std.testing.expect(findTanMethod(&s, "923").?.decoupled);
+}
+
+test "HITANS: Sparkasse chipTAN is defined in v6, so HKTAN goes out as v6" {
+    const s = testSessionWithBpd("911", test_hitans_sparkasse);
+    try std.testing.expectEqual(@as(u8, 6), s.hitan_version);
+    try std.testing.expect(!s.tan_medium_required);
+    try std.testing.expect(!findTanMethod(&s, "911").?.decoupled);
+
+    var buf: [4096]u8 = undefined;
+    const n = buildAuthInit(&s, &buf) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..n], "HKTAN:5:6+4+HKIDN") != null);
+}
+
+test "HITANS: Comdirect photoTAN stays HKTAN v6 without a TAN medium" {
+    const s = testSessionWithBpd("902", test_hitans_comdirect);
+    try std.testing.expectEqual(@as(u8, 2), s.tan_method_count);
+    try std.testing.expectEqual(@as(u8, 6), s.hitan_version);
+    try std.testing.expect(!s.tan_medium_required);
+    try std.testing.expectEqual(@as(u8, 10), s.decoupled_max_poll_number); // defaults untouched
+}
+
+test "HITANS: method listed in v6 and v7 uses the higher version; poll count clamps" {
+    const s = testSessionWithBpd("940", test_hitans_subsembly);
+    try std.testing.expectEqual(@as(u8, 7), s.hitan_version);
+    try std.testing.expect(findTanMethod(&s, "940").?.decoupled);
+    try std.testing.expectEqual(@as(u8, 255), s.decoupled_max_poll_number); // bank says 999
+    const sms = findTanMethod(&s, "930").?;
+    try std.testing.expectEqual(@as(u8, 7), sms.hitans_version);
+    try std.testing.expectEqual(@as(u8, 2), sms.description_required);
+    try std.testing.expect(!sms.decoupled);
+}
+
+test "HITANS: typed-TAN method with several media requires the medium picker" {
+    const s = testSessionWithBpd("920", "HITANS:1:6:3+1+1+1+J:N:0:920:2:smsTAN:mobileTAN::smsTAN:6:1:TAN:3:J:2:N:0:0:N:N:00:2:N:2'");
+    try std.testing.expectEqual(@as(u8, 2), s.tan_supported_media_number);
+    try std.testing.expect(s.tan_medium_required);
+}
+
+test "HITANS: unknown method falls back to the highest advertised version" {
+    const s = testSessionWithBpd("555", test_hitans_sparkasse);
+    try std.testing.expectEqual(@as(u8, 7), s.hitan_version);
+}
+
+test "parseResponse keeps every 3920 parameter" {
+    var s = FintsSession.init("10050000", "https://x.de/f", "u", "p");
+    var resp = ParsedResponse.init();
+    parseResponse(&s, "HIRMS:4:2:4+3920::Zugelassene Zwei-Schritt-Verfahren.:910:911:923'", &resp);
+    try std.testing.expectEqualStrings("910:911:923", resp.codes[0].parameterSlice());
+}
+
+test "parseResponse treats 3955 as a decoupled (app approval) challenge" {
+    var s = FintsSession.init("10050000", "https://x.de/f", "u", "p");
+    var resp = ParsedResponse.init();
+    parseResponse(&s, "HIRMS:4:2:5+3955::Bitte Auftrag in Ihrer App freigeben.'HITAN:5:7:5+4++REF123+Bitte freigeben'", &resp);
+    try std.testing.expect(s.has_pending_tan);
+    try std.testing.expect(s.decoupled);
+    try std.testing.expectEqualStrings("REF123", s.challenge_ref[0..s.challenge_ref_len]);
+
+    // Status reply without a reference: still pending, original reference kept.
+    var poll = ParsedResponse.init();
+    parseResponse(&s, "HIRMS:4:2:3+3956::Starke Kundenauthentifizierung noch ausstehend.'HITAN:5:7:3+S'", &poll);
+    try std.testing.expect(poll.hasCode("3956"));
+    try std.testing.expect(s.decoupled);
+    try std.testing.expectEqualStrings("REF123", s.challenge_ref[0..s.challenge_ref_len]);
+}
+
+fn testResp3920(params: []const u8) ParsedResponse {
+    var resp = ParsedResponse.init();
+    resp.code_count = 1;
+    @memcpy(resp.codes[0].code[0..4], "3920");
+    @memcpy(resp.codes[0].parameter[0..params.len], params);
+    resp.codes[0].parameter_len = @intCast(params.len);
+    return resp;
+}
+
+test "selectTanMethodFromCodes prefers app approval over a typed TAN" {
+    const s = testSessionWithBpd("999", test_hitans_sparkasse);
+    const resp = testResp3920("910:911:923");
+    try std.testing.expectEqualStrings("923", &selectTanMethodFromCodes(&resp, &s).?);
+}
+
+test "selectTanMethodFromCodes takes the first allowed method otherwise" {
+    const s = testSessionWithBpd("999", test_hitans_sparkasse);
+    const resp = testResp3920("911:912");
+    try std.testing.expectEqualStrings("911", &selectTanMethodFromCodes(&resp, &s).?);
+}
+
+test "selectTanMethodFromCodes skips one-step and methods the bank did not define" {
+    const s = testSessionWithBpd("999", test_hitans_sparkasse);
+    const resp = testResp3920("999:555:913");
+    try std.testing.expectEqualStrings("913", &selectTanMethodFromCodes(&resp, &s).?);
+}
+
+test "selectTanMethodFromCodes works without HITANS and returns null without parameters" {
+    const s = FintsSession.init("20041177", "https://x.de/f", "u", "p");
+    const resp = testResp3920("902");
+    try std.testing.expectEqualStrings("902", &selectTanMethodFromCodes(&resp, &s).?);
+    const empty = testResp3920("");
+    try std.testing.expect(selectTanMethodFromCodes(&empty, &s) == null);
 }
 
 test "SegmentIterator splits correctly" {

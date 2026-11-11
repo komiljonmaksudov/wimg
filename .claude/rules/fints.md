@@ -49,6 +49,19 @@ Audience: engineers touching `libwimg/src/fints.zig`, `root.zig`, `mt940.zig`, `
 - TAN submit request must still include correct signature footer content
   (`PIN:TAN` shape as required by current envelope/signature builder).
 - On successful response with statement payload, clear stale TAN state immediately.
+- TAN method selection: read the allowed methods from the `3920` parameters
+  (`3920::text:910:911:923`), keep only ones defined in `HITANS` with process 2,
+  prefer a decoupled (app approval) method. Text scan is only a fallback.
+- HKTAN version = the `HITANS` version that defines the selected method, not the
+  highest advertised (Sparkasse: chipTAN in v6, pushTAN 2.0 in v7).
+- `HITANS` layout: `+J:N:0:` prefix, then fixed-width entries (v6 = 21 tokens,
+  v7 = 26). `parseHitansMethods` fills `session.tan_methods`.
+- Decoupled is signalled by response code `3955` on the challenge and `3956` on a
+  status poll that is still pending. The HITAN echoes the request's process, and a
+  status reply may have no challenge text or task reference (keep the original).
+- The TAN medium picker is only required for typed-TAN methods. Decoupled methods
+  send no medium name even when `description_required=2` (python-fints: Sparkasse
+  accepts an empty name for pushTAN).
 - Decoupled TAN (process-S): empty TAN payload, no PIN in signature, poll loop
   with BPD-derived timings (`decoupled_max_poll_number`, `wait_before_first_poll`,
   `wait_before_next_poll`, `automated_polling_allowed`).
@@ -112,7 +125,8 @@ Audience: engineers touching `libwimg/src/fints.zig`, `root.zig`, `mt940.zig`, `
 - `3060`: warnings present.
 - `3076`: strong customer authentication not required.
 - `3920`: available TAN methods listed.
-- `3956`: decoupled TAN — poll for status.
+- `3955`: decoupled TAN — approve in the banking app.
+- `3956`: decoupled TAN — approval still pending, poll again.
 - `9010`: order not processed due to general message errors.
 - `9050`: message contains errors.
 - `9110`: invalid order message / unknown structure.
