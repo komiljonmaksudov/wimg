@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.9.7 (2026-11-11)
+
+- fix: FinTS TAN medium lookup runs in its own dialog and returns the device name
+- fix: FinTS statement requests work for CAMT-only banks and HKKAZ v7
+- fix: FinTS picks the bank's TAN method and handles app approval (pushTAN)
+
 ## v0.9.6 (2026-10-22)
 
 - refactor: serve MCP 2026-07-28 only and drop the old session flow
