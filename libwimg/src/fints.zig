@@ -46,6 +46,7 @@ pub const FintsSession = struct {
     tan_methods: [max_tan_methods]TanMethod,
     tan_method_count: u8,
     hikaz_version: u8,
+    hktab_version: u8, // 4 or 5, highest advertised in HITABS
     supports_mt940: bool, // bank advertised HIKAZS (HKKAZ) in its BPD
     supports_camt: bool,
     camt_format: [128]u8,
@@ -118,6 +119,7 @@ pub const FintsSession = struct {
         s.tan_method_count = 0;
         // HKKAZ defaults to v5 unless bank BPD advertises higher versions.
         s.hikaz_version = 5;
+        s.hktab_version = 4;
         s.supports_mt940 = false;
         s.supports_camt = false;
         @memset(&s.camt_format, 0);
@@ -656,6 +658,18 @@ pub fn buildSyncInit(session: *const FintsSession, buf: []u8) ?usize {
 /// Build authenticated initialization message for business dialogs.
 /// Uses real TAN security function (e.g. 902 for photoTAN).
 pub fn buildAuthInit(session: *const FintsSession, buf: []u8) ?usize {
+    return buildAuthInitFor(session, "HKIDN", buf);
+}
+
+/// Dialog init for a TAN media lookup. The HKTAN names HKTAB as the order this
+/// dialog is opened for, which exempts the init from strong customer
+/// authentication (FinTS PIN/TAN spec; HBCI4Java does the same). Only HKTAB may
+/// follow in such a dialog.
+pub fn buildTanMediaDialogInit(session: *const FintsSession, buf: []u8) ?usize {
+    return buildAuthInitFor(session, "HKTAB", buf);
+}
+
+fn buildAuthInitFor(session: *const FintsSession, hktan_segment_ref: []const u8, buf: []u8) ?usize {
     var inner_buf: [4096]u8 = undefined;
     var inner_pos: usize = 0;
 
@@ -689,7 +703,7 @@ pub fn buildAuthInit(session: *const FintsSession, buf: []u8) ?usize {
     const is_one_step = std.mem.eql(u8, sec_func, "999");
     if (!is_one_step) {
         // HKTAN process-4 init for two-step auth flows.
-        inner_pos += buildHktanProcess4(session, &inner_buf, inner_pos, 5, "HKIDN") orelse return null;
+        inner_pos += buildHktanProcess4(session, &inner_buf, inner_pos, 5, hktan_segment_ref) orelse return null;
 
         // HNSHA — Signature footer (contains PIN)
         inner_pos += writeSignatureFooter(&inner_buf, inner_pos, 6, sec_ref, session.pinSlice(), "") orelse return null;
@@ -874,8 +888,8 @@ pub fn buildFetchTanMedia(session: *const FintsSession, buf: []u8) ?usize {
     // HNSHK (seg 2)
     inner_pos += writeSignatureHeader(&inner_buf, inner_pos, 2, session, sec_ref, session.tanSecFuncSlice()) orelse return null;
 
-    // HKTAB:3:4+0+A' — fetch all TAN media
-    inner_pos += writeSegment(&inner_buf, inner_pos, "HKTAB", 3, 4, &.{
+    // HKTAB:3:4+0+A' — fetch all TAN media (v5 has the same request fields)
+    inner_pos += writeSegment(&inner_buf, inner_pos, "HKTAB", 3, session.hktab_version, &.{
         "0", // tan_media_type: 0 = all
         "A", // tan_media_class: A = all
     }) orelse return null;
@@ -954,12 +968,14 @@ pub fn parseHitab(segment: []const u8, out_media: []TanMedium) u8 {
                         media.status = tok[0] - '0';
                     }
 
-                    // Heuristic: the longest alphanumeric token with length >= 3
-                    // that is not purely numeric is likely the medium name.
-                    if (tok.len >= 3 and !isAllDigits(tok)) {
-                        if (best_name == null or tok.len > best_name.?.len) {
-                            best_name = tok;
-                        }
+                    // The medium name is the first text token after class and status:
+                    // everything before it (card number/type, account, dates, list
+                    // number) is numeric, and what follows (masked phone number,
+                    // phone number, debit account IBAN) can be longer than the name.
+                    if (best_name == null and tok_idx >= 2 and tok.len >= 3 and
+                        !isAllDigits(tok) and std.mem.indexOfScalar(u8, tok, '*') == null)
+                    {
+                        best_name = tok;
                     }
 
                     tok_start = cp + 1;
@@ -1118,6 +1134,9 @@ pub fn parseResponse(session: *FintsSession, data: []const u8, out: *ParsedRespo
             }
             parseHitansMethods(session, segment, ver);
             applySelectedTanMethod(session);
+        } else if (startsWith(segment, "HITABS:")) {
+            // HKTAB versions the bank offers: python-fints uses the highest of 4 and 5.
+            if (segmentVersion(segment) == 5) session.hktab_version = 5;
         } else if (startsWith(segment, "HITAN:")) {
             // TAN challenge / TAN submit feedback segment
             extractTanChallenge(segment, out);
@@ -1651,6 +1670,14 @@ const SegmentIterator = struct {
 fn isEscaped(data: []const u8, pos: usize) bool {
     if (pos == 0) return false;
     return data[pos - 1] == '?';
+}
+
+/// Version from a segment header "NAME:number:version[:ref]".
+fn segmentVersion(segment: []const u8) u8 {
+    var it = std.mem.splitScalar(u8, segment[0 .. std.mem.indexOfScalar(u8, segment, '+') orelse segment.len], ':');
+    _ = it.next();
+    _ = it.next();
+    return std.fmt.parseInt(u8, it.next() orelse return 0, 10) catch 0;
 }
 
 pub fn findTanMethod(session: *const FintsSession, sec_func: []const u8) ?*const TanMethod {
@@ -2914,6 +2941,22 @@ test "BPD without HIKAZS marks the bank as CAMT-only" {
     try std.testing.expect(s.supports_mt940);
 }
 
+test "TAN media dialog init names HKTAB in its HKTAN (no SCA), HKTAB version follows HITABS" {
+    var s = testSessionWithBpd("920", "HITANS:1:6:3+1+1+1+J:N:0:920:2:smsTAN:mobileTAN::smsTAN:6:1:TAN:3:J:2:N:0:0:N:N:00:2:N:2'");
+    var buf: [4096]u8 = undefined;
+    const n = buildTanMediaDialogInit(&s, &buf) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..n], "HKIDN:3:2+") != null);
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..n], "HKTAN:5:6+4+HKTAB+") != null);
+
+    const n4 = buildFetchTanMedia(&s, &buf) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..n4], "HKTAB:3:4+0+A'") != null);
+
+    var resp = ParsedResponse.init();
+    parseResponse(&s, "HITABS:128:2:3+1+1+0'HITABS:129:5:3+1+1+0'", &resp);
+    const n5 = buildFetchTanMedia(&s, &buf) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..n5], "HKTAB:3:5+0+A'") != null);
+}
+
 test "SegmentIterator splits correctly" {
     const data = "SEG1:1:1+data1'SEG2:2:1+data2'SEG3:3:1+data3'";
     var iter = SegmentIterator{ .data = data, .pos = 0 };
@@ -2990,6 +3033,16 @@ test "parseHitab extracts typical TAN media names" {
     try std.testing.expectEqualStrings("iPhone von Max", media[0].nameSlice());
     try std.testing.expectEqual(@as(u8, 1), media[0].status);
     try std.testing.expectEqualStrings("photoTAN App", media[1].nameSlice());
+}
+
+test "parseHitab takes the name, not the masked phone number or the debit IBAN" {
+    // TANMedia4 as python-fints serialises it, plus a debit account after the numbers.
+    const seg = "HITAB:4:4:3+0+M:1::::::::Handy Eins:********5678:017012345678:DE12100500001234567890+M:1::::::::Handy Zwei:********5679'";
+    var media: [8]TanMedium = undefined;
+    const n = parseHitab(seg, &media);
+    try std.testing.expectEqual(@as(u8, 2), n);
+    try std.testing.expectEqualStrings("Handy Eins", media[0].nameSlice());
+    try std.testing.expectEqualStrings("Handy Zwei", media[1].nameSlice());
 }
 
 test "parseHitab handles reordered tokens and picks best name token" {

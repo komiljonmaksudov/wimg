@@ -2550,6 +2550,39 @@ fn wimg_fints_get_tan_media() callconv(.c) ?[*]const u8 {
     var msg_buf: [8192]u8 = undefined;
     var resp_buf: [65536]u8 = undefined;
 
+    // HKTAB needs an open dialog. Open one whose HKTAN names HKTAB, which the bank
+    // accepts without a TAN, ask for the media, and close it again.
+    fints_session.resetDialog();
+    const init_len = fints_mod.buildTanMediaDialogInit(&fints_session, &msg_buf) orelse {
+        return makeLengthPrefixed("{\"status\":\"error\",\"message\":\"Failed to build TAN media dialog\"}");
+    };
+    const init_resp_len = fints_http_mod.sendFintsMessage(
+        std.heap.page_allocator,
+        fints_session.urlSlice(),
+        msg_buf[0..init_len],
+        &resp_buf,
+    ) catch {
+        setError("wimg_fints_get_tan_media: dialog init HTTP request failed", .{});
+        return makeLengthPrefixed("{\"status\":\"error\",\"message\":\"HKTAB HTTP request failed\"}");
+    };
+    var init_resp = fints_mod.ParsedResponse.init();
+    fints_mod.parseResponse(&fints_session, resp_buf[0..init_resp_len], &init_resp);
+    fints_session.msg_num += 1;
+    if (init_resp.hasError()) {
+        if (!is_wasm) {
+            for (init_resp.codes[0..init_resp.code_count]) |*c| {
+                dbg.print("[FinTS Zig] HKTAB dialog init code: {s} '{s}'\n", .{ c.codeSlice(), c.textSlice() });
+            }
+        }
+        fints_session.resetDialog();
+        return makeLengthPrefixed("{\"status\":\"error\",\"message\":\"TAN-Medien konnten nicht geladen werden\"}");
+    }
+    // The dialog is closed on every path below; the next fetch opens its own.
+    defer {
+        sendDialogEnd(&fints_session, fints_session.tanSecFuncSlice(), &msg_buf, &resp_buf);
+        fints_session.resetDialog();
+    }
+
     // Build and send HKTAB request
     const msg_len = fints_mod.buildFetchTanMedia(&fints_session, &msg_buf) orelse {
         setError("wimg_fints_get_tan_media: failed to build HKTAB message", .{});

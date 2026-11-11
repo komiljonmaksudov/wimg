@@ -70,8 +70,13 @@ Audience: engineers touching `libwimg/src/fints.zig`, `root.zig`, `mt940.zig`, `
 
 - Banks with `description_required=2` and `supported_media_number>1` require
   explicit TAN medium selection before business segments (HKKAZ etc.).
-- C ABI: `wimg_fints_get_tan_media` sends HKTAB:3:4+0+A' and returns parsed
-  HITAB media names as JSON array.
+- C ABI: `wimg_fints_get_tan_media` opens its own dialog (HKIDN + HKVVB + HKTAN
+  process 4 with segment reference `HKTAB`, which needs no TAN), sends
+  `HKTAB:3:<v>+0+A'` in it (v = highest of 4/5 from `HITABS`), closes the dialog
+  and returns the parsed HITAB media names as JSON array. HKTAB outside a
+  dialog is invalid.
+- HITAB name = first text token after class and status; the masked phone number
+  and a debit IBAN come later and can be longer.
 - C ABI: `wimg_fints_set_tan_medium` stores selected name in session
   `tan_medium_name` for inclusion in HKTAN process-4.
 - iOS: `FinTSView` shows `.tanMediumSelect` stage after connect if

@@ -15,6 +15,8 @@
  *   chiptan  3920 allows 911 only → HKTAN v6, typed TAN → HKKAZ import
  *   volksbank  Atruvia parameters: no MT940 (HIKAZS) at all, only CAMT →
  *            app approval (946) → HKCAZ with a KTI1 account → CAMT import
+ *   tanmedium  typed-TAN method that needs a TAN medium (smsTAN, two phones) →
+ *            HKTAB lookup in its own TAN-free dialog → medium name in HKTAN
  *
  * Build the dylib, then run:
  *     cd libwimg && zig build -Dtarget=aarch64-macos -Dshared=true \
@@ -35,7 +37,7 @@ const libPath = process.env.LIBWIMG ?? "libwimg/zig-out/lib/libwimg.dylib";
 const scenario = process.argv[2];
 if (!scenario) {
 	let failed = false;
-	for (const s of ["pushtan", "chiptan", "volksbank"]) {
+	for (const s of ["pushtan", "chiptan", "volksbank", "tanmedium"]) {
 		const p = Bun.spawnSync(["bun", import.meta.path, s], { stdout: "pipe", stderr: "pipe", env: process.env });
 		const out = p.stdout.toString();
 		process.stdout.write(out);
@@ -56,6 +58,10 @@ const HITANS =
 const HITANS_ATRUVIA =
 	"HITANS:84:6:3+1+1+1+J:N:0:962:2:HHD1.4:HHD:1.4:Smart-TAN plus manuell:6:1:Challenge:2048:J:1:N:0:2:N:J:00:0:N:1'" +
 	"HITANS:85:7:3+1+1+1+N:N:0:946:2:DECOUPLED:Decoupled::SecureGo plus (Direktfreigabe):::TAN:2048:J:1:N:0:2:N:J:00:0:N:1:150:2:2:J:J'";
+// Typed-TAN method with two registered phones (description_required=2, media=2).
+const HITANS_SMS = "HITANS:139:6:3+1+1+1+J:N:0:920:2:smsTAN:mobileTAN::smsTAN:6:1:TAN-Nummer:3:J:2:N:0:0:N:N:00:2:N:2'";
+// HITAB as python-fints serialises TANMedia4 entries.
+const HITAB = "HITAB:4:4:3+0+M:1::::::::Handy Eins:********5678+M:1::::::::Handy Zwei:********5679'";
 const HICAZS_ATRUVIA = "HICAZS:52:1:3+1+1+1+740:N:N:urn?:iso?:std?:iso?:20022?:tech?:xsd?:camt.052.001.08'";
 
 const CAMT =
@@ -95,8 +101,9 @@ const seen: string[] = [];
 function bank(req: string): string {
 	const volksbank = scenario === "volksbank";
 	const pushtan = scenario === "pushtan" || volksbank; // app approval flow
+	const tanmedium = scenario === "tanmedium";
 	const ver = pushtan ? 7 : 6;
-	const secFunc = volksbank ? "946" : pushtan ? "923" : "911";
+	const secFunc = volksbank ? "946" : pushtan ? "923" : tanmedium ? "920" : "911";
 
 	if (req.includes("HKEND")) {
 		seen.push("end");
@@ -107,16 +114,30 @@ function bank(req: string): string {
 		return bankMsg(
 			"SYNCDLG",
 			"HIRMG:2:2+0010::Nachricht entgegengenommen.'",
-			`HIRMS:3:2:3+3920::Zugelassene Zwei-Schritt-Verfahren fuer den Benutzer.:${volksbank ? "962:946" : pushtan ? "911:923" : "911"}+0020::Auftrag ausgefuehrt.'`,
+			`HIRMS:3:2:3+3920::Zugelassene Zwei-Schritt-Verfahren fuer den Benutzer.:${volksbank ? "962:946" : pushtan ? "911:923" : tanmedium ? "920" : "911"}+0020::Auftrag ausgefuehrt.'`,
 			`HIBPA:4:3:3+20+280:${BLZ}+Testbank+3+1+300'`,
-			volksbank ? HITANS_ATRUVIA : HITANS,
+			volksbank ? HITANS_ATRUVIA : tanmedium ? HITANS_SMS + "HITABS:130:4:3+1+1+0'" : HITANS,
 			volksbank ? HICAZS_ATRUVIA : "HIKAZS:104:5:3+1+1+360:J:N'",
 			"HISYN:150:4:5+SYSTEMID123'",
 			`HIUPD:151:6:4+1234567890::280:${BLZ}+DE12130910541234567890+testuser+1+EUR+Max Mustermann++Girokonto'`,
 		);
 	}
+	if (/HKTAN:\d+:\d\+4\+HKTAB/.test(req)) {
+		seen.push("tabinit");
+		check(req.includes("HKIDN") && req.includes("HKVVB"), "TAN media lookup opens its own dialog (HKIDN + HKVVB)");
+		check(req.includes(`+PIN:1+${secFunc}+`), `TAN media dialog signs with method ${secFunc}`);
+		// No SCA for an HKTAB dialog.
+		return bankMsg("TABDLG", "HIRMG:2:2+0010::Nachricht entgegengenommen.'", "HIRMS:3:2:5+3076::Starke Kundenauthentifizierung nicht notwendig.'", "HITAN:4:6:5+4++noref+nochallenge'");
+	}
+	if (req.includes("HKTAB:")) {
+		seen.push("tab");
+		check(req.includes("HKTAB:3:4+0+A'"), "HKTAB asks for all TAN media in the version from HITABS");
+		check(req.includes("+TABDLG+"), "HKTAB is sent inside the opened dialog");
+		return bankMsg("TABDLG", "HIRMG:2:2+0010::Nachricht entgegengenommen.'", "HIRMS:3:2:3+0020::Auftrag ausgefuehrt.'", HITAB);
+	}
 	if (req.includes("HKIDN")) {
 		seen.push("auth");
+		if (tanmedium) check(/HKTAN:\d+:6\+4\+HKIDN\+{8}:\+Handy Zwei'/.test(req), "auth init HKTAN names the chosen TAN medium");
 		check(req.includes(`+PIN:1+${secFunc}+`), `auth init signs with method ${secFunc}`);
 		check(new RegExp(`HKTAN:\\d+:${ver}\\+4\\+HKIDN`).test(req), `auth init sends HKTAN v${ver} process 4`);
 		check(req.includes("+SYSTEMID123"), "auth init carries the synced system id");
@@ -201,6 +222,8 @@ const lib = dlopen(libPath, {
 	wimg_fints_connect: { args: [FFIType.ptr, FFIType.u32], returns: FFIType.ptr },
 	wimg_fints_send_tan: { args: [FFIType.ptr, FFIType.u32], returns: FFIType.ptr },
 	wimg_fints_fetch: { args: [FFIType.ptr, FFIType.u32], returns: FFIType.ptr },
+	wimg_fints_get_tan_media: { args: [], returns: FFIType.ptr },
+	wimg_fints_set_tan_medium: { args: [FFIType.ptr, FFIType.u32], returns: FFIType.ptr },
 });
 
 const http = new JSCallback(
@@ -230,12 +253,23 @@ const range = { from: "2026-03-01", to: "2026-03-31" };
 
 const conn = call(lib.symbols.wimg_fints_connect, { blz: BLZ, user: "testuser", pin: "12345", product: "F7C4049477F6136957A46EC28" });
 check(conn.status === "ok", `connect ok (${JSON.stringify(conn).slice(0, 80)})`);
-check(conn.tan_medium_required === false, "no TAN medium picker");
+if (scenario === "tanmedium") {
+	check(conn.tan_medium_required === true, "connect asks for a TAN medium");
+	const out = lib.symbols.wimg_fints_get_tan_media();
+	const media = out ? JSON.parse(new CString(out, 4, read.u32(out, 0)).toString()) : { status: "null" };
+	const names = (media.media ?? []).map((m: any) => m.name);
+	check(media.status === "ok" && names.join("|") === "Handy Eins|Handy Zwei", `TAN media listed (${JSON.stringify(media).slice(0, 120)})`);
+	check(seen.join(" ").endsWith("tabinit tab end"), `lookup dialog is opened and closed (${seen.join(" → ")})`);
+	const set = call(lib.symbols.wimg_fints_set_tan_medium, { name: "Handy Zwei" });
+	check(set.status === "ok", "TAN medium selected");
+} else {
+	check(conn.tan_medium_required === false, "no TAN medium picker");
+}
 
 const first = call(lib.symbols.wimg_fints_fetch, range);
 check(first.status === "tan_required", `first fetch asks for approval/TAN (${first.status})`);
 
-if (scenario !== "chiptan") {
+if (scenario === "pushtan" || scenario === "volksbank") {
 	check(first.decoupled === true, "challenge is flagged as app approval (decoupled)");
 	const t = call(lib.symbols.wimg_fints_send_tan, { tan: "" });
 	check(t.status === "ok", `status check returns ok once approved (${JSON.stringify(t)})`);
