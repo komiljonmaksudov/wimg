@@ -25,6 +25,8 @@ pub const FintsSession = struct {
     user_id_len: u8,
     account_ktv: [96]u8, // Kontoverbindung (Ktonr:Unterkonto:280:BLZ) from HIUPD
     account_ktv_len: u8,
+    account_iban: [34]u8, // IBAN of that account (HIUPD), needed for KTI1 (HKKAZ v7, HKCAZ)
+    account_iban_len: u8,
     pin: [64]u8,
     pin_len: u8,
 
@@ -44,6 +46,7 @@ pub const FintsSession = struct {
     tan_methods: [max_tan_methods]TanMethod,
     tan_method_count: u8,
     hikaz_version: u8,
+    supports_mt940: bool, // bank advertised HIKAZS (HKKAZ) in its BPD
     supports_camt: bool,
     camt_format: [128]u8,
     camt_format_len: u8,
@@ -98,6 +101,7 @@ pub const FintsSession = struct {
         @memcpy(s.user_id[0..uid_len], user_id[0..uid_len]);
         s.user_id_len = @intCast(uid_len);
         s.account_ktv_len = 0;
+        s.account_iban_len = 0;
 
         const pin_l = @min(pin.len, 64);
         @memcpy(s.pin[0..pin_l], pin[0..pin_l]);
@@ -114,6 +118,7 @@ pub const FintsSession = struct {
         s.tan_method_count = 0;
         // HKKAZ defaults to v5 unless bank BPD advertises higher versions.
         s.hikaz_version = 5;
+        s.supports_mt940 = false;
         s.supports_camt = false;
         @memset(&s.camt_format, 0);
         s.camt_format_len = 0;
@@ -742,26 +747,7 @@ pub fn buildFetchStatements(session: *const FintsSession, from: []const u8, to: 
     @memcpy(kaz_buf[kaz_pos .. kaz_pos + kaz_header.len], kaz_header);
     kaz_pos += kaz_header.len;
     if (hikaz_ver == 7) {
-        const ktv = acct_buf[0..acct_pos];
-        if (splitAccountKtv(ktv)) |parts| {
-            // We usually do not have IBAN/BIC in HIUPD yet, so keep both empty.
-            @memcpy(kaz_buf[kaz_pos .. kaz_pos + 2], "++");
-            kaz_pos += 2;
-            @memcpy(kaz_buf[kaz_pos .. kaz_pos + parts.account.len], parts.account);
-            kaz_pos += parts.account.len;
-            kaz_buf[kaz_pos] = '+';
-            kaz_pos += 1;
-            @memcpy(kaz_buf[kaz_pos .. kaz_pos + parts.subaccount.len], parts.subaccount);
-            kaz_pos += parts.subaccount.len;
-            @memcpy(kaz_buf[kaz_pos .. kaz_pos + 5], "+280:");
-            kaz_pos += 5;
-            @memcpy(kaz_buf[kaz_pos .. kaz_pos + parts.blz.len], parts.blz);
-            kaz_pos += parts.blz.len;
-        } else {
-            // Fallback if we cannot split account components.
-            @memcpy(kaz_buf[kaz_pos .. kaz_pos + acct_pos], acct_buf[0..acct_pos]);
-            kaz_pos += acct_pos;
-        }
+        kaz_pos += writeKti1(session, kaz_buf[kaz_pos..]) orelse return null;
     } else {
         @memcpy(kaz_buf[kaz_pos .. kaz_pos + acct_pos], acct_buf[0..acct_pos]);
         kaz_pos += acct_pos;
@@ -816,46 +802,9 @@ pub fn buildFetchStatementsCamt(session: *const FintsSession, from: []const u8, 
     // HNSHK — Signature header (always seg 2 inside HNVSD)
     inner_pos += writeSignatureHeader(&inner_buf, inner_pos, 2, session, sec_ref, session.tanSecFuncSlice()) orelse return null;
 
-    // Account reference in KTI1-compatible shape.
+    // Account as KTI1 (Kontoverbindung international).
     var acct_buf: [160]u8 = undefined;
-    var acct_pos: usize = 0;
-    if (session.account_ktv_len > 0) {
-        if (splitAccountKtv(session.accountKtvSlice())) |parts| {
-            @memcpy(acct_buf[acct_pos .. acct_pos + 2], "++");
-            acct_pos += 2;
-            @memcpy(acct_buf[acct_pos .. acct_pos + parts.account.len], parts.account);
-            acct_pos += parts.account.len;
-            acct_buf[acct_pos] = '+';
-            acct_pos += 1;
-            @memcpy(acct_buf[acct_pos .. acct_pos + parts.subaccount.len], parts.subaccount);
-            acct_pos += parts.subaccount.len;
-            @memcpy(acct_buf[acct_pos .. acct_pos + 5], "+280:");
-            acct_pos += 5;
-            @memcpy(acct_buf[acct_pos .. acct_pos + parts.blz.len], parts.blz);
-            acct_pos += parts.blz.len;
-        } else {
-            // Fallback for malformed/unknown account data.
-            @memcpy(acct_buf[acct_pos .. acct_pos + 2], "++");
-            acct_pos += 2;
-            const uid = session.userIdSlice();
-            @memcpy(acct_buf[acct_pos .. acct_pos + uid.len], uid);
-            acct_pos += uid.len;
-            @memcpy(acct_buf[acct_pos .. acct_pos + 7], "+0+280:");
-            acct_pos += 7;
-            @memcpy(acct_buf[acct_pos .. acct_pos + 8], &session.blz);
-            acct_pos += 8;
-        }
-    } else {
-        @memcpy(acct_buf[acct_pos .. acct_pos + 2], "++");
-        acct_pos += 2;
-        const uid = session.userIdSlice();
-        @memcpy(acct_buf[acct_pos .. acct_pos + uid.len], uid);
-        acct_pos += uid.len;
-        @memcpy(acct_buf[acct_pos .. acct_pos + 7], "+0+280:");
-        acct_pos += 7;
-        @memcpy(acct_buf[acct_pos .. acct_pos + 8], &session.blz);
-        acct_pos += 8;
-    }
+    const acct_pos = writeKti1(session, &acct_buf) orelse return null;
 
     var camt_buf: [1024]u8 = undefined;
     var camt_pos: usize = 0;
@@ -1218,8 +1167,9 @@ pub fn parseResponse(session: *FintsSession, data: []const u8, out: *ParsedRespo
                     }
                 }
             }
-            if (ver >= 5 and ver <= 7 and ver > session.hikaz_version) {
-                session.hikaz_version = ver;
+            if (ver >= 5 and ver <= 7) {
+                session.supports_mt940 = true;
+                if (ver > session.hikaz_version) session.hikaz_version = ver;
             }
         } else if (startsWith(segment, "HICAZS:")) {
             // CAMT statement parameter segment. If present, bank supports HKCAZ/HICAZ.
@@ -2268,6 +2218,39 @@ fn extractCamtFormatFromHicazs(session: *FintsSession, segment: []const u8) void
     }
 }
 
+/// Write a KTI1 account DEG: IBAN:BIC:Konto:Unterkonto:280:BLZ.
+/// KTI1 is ONE data element, so its parts are separated by ':' (not '+').
+/// HBCI4Java-style full form; IBAN/BIC stay empty when HIUPD gave no IBAN.
+fn writeKti1(session: *const FintsSession, out: []u8) ?usize {
+    var account: []const u8 = session.userIdSlice();
+    var subaccount: []const u8 = "";
+    var blz: []const u8 = &session.blz;
+    if (session.account_ktv_len > 0) {
+        if (splitAccountKtv(session.accountKtvSlice())) |parts| {
+            account = parts.account;
+            subaccount = parts.subaccount;
+            blz = parts.blz;
+        }
+    }
+    const iban = session.account_iban[0..session.account_iban_len];
+    var bic: []const u8 = "";
+    if (!is_wasm and iban.len > 0) {
+        if (banks_mod.findByBlz(&session.blz)) |bank| bic = bank.bicSlice();
+    }
+    const written = std.fmt.bufPrint(out, "{s}:{s}:{s}:{s}:280:{s}", .{ iban, bic, account, subaccount, blz }) catch return null;
+    return written.len;
+}
+
+fn looksLikeIban(s: []const u8) bool {
+    if (s.len < 15 or s.len > 34) return false;
+    if (!std.ascii.isUpper(s[0]) or !std.ascii.isUpper(s[1])) return false;
+    if (!std.ascii.isDigit(s[2]) or !std.ascii.isDigit(s[3])) return false;
+    for (s[4..]) |c| {
+        if (!std.ascii.isAlphanumeric(c)) return false;
+    }
+    return true;
+}
+
 fn extractAccountKtvFromHiupd(session: *FintsSession, segment: []const u8) void {
     // Find a field like "Ktonr:Unterkonto:280:BLZ" and keep it for HKKAZ requests.
     var pos: usize = 0;
@@ -2287,6 +2270,17 @@ fn extractAccountKtvFromHiupd(session: *FintsSession, segment: []const u8) void 
                         const copy_len = @min(candidate.len, session.account_ktv.len);
                         @memcpy(session.account_ktv[0..copy_len], candidate[0..copy_len]);
                         session.account_ktv_len = @intCast(copy_len);
+                        // HIUPD v6+: the next data element is this account's IBAN.
+                        session.account_iban_len = 0;
+                        if (pos < segment.len) {
+                            var e = pos + 1;
+                            while (e < segment.len and segment[e] != '+' and segment[e] != '\'') : (e += 1) {}
+                            const next = segment[pos + 1 .. e];
+                            if (looksLikeIban(next)) {
+                                @memcpy(session.account_iban[0..next.len], next);
+                                session.account_iban_len = @intCast(next.len);
+                            }
+                        }
                         return;
                     }
                 }
@@ -2860,6 +2854,64 @@ test "selectTanMethodFromCodes works without HITANS and returns null without par
     try std.testing.expectEqualStrings("902", &selectTanMethodFromCodes(&resp, &s).?);
     const empty = testResp3920("");
     try std.testing.expect(selectTanMethodFromCodes(&empty, &s) == null);
+}
+
+// KTI1 reference output from python-fints: HKKAZ:3:7+IBAN:BIC+N+from+to and
+// HKCAZ:3:1+IBAN:BIC+<camt urn>+N+from+to. We send the full HBCI4Java-style
+// DEG (IBAN:BIC:Konto:Unterkonto:280:BLZ); what matters is that it is ONE
+// data element, so all_accounts/date fields stay in their positions.
+fn testSessionWithHiupd() FintsSession {
+    var s = FintsSession.init("10050000", "https://x.de/f", "u", "p");
+    @memcpy(s.tan_sec_func[0..3], "923");
+    var resp = ParsedResponse.init();
+    parseResponse(&s, "HIUPD:151:6:4+1234567890::280:10050000+DE12100500001234567890+testuser+1+EUR+Max Mustermann++Girokonto'", &resp);
+    return s;
+}
+
+test "HIUPD: account IBAN is kept next to the account reference" {
+    const s = testSessionWithHiupd();
+    try std.testing.expectEqualStrings("1234567890::280:10050000", s.accountKtvSlice());
+    try std.testing.expectEqualStrings("DE12100500001234567890", s.account_iban[0..s.account_iban_len]);
+}
+
+test "HKKAZ v7 writes the account as one KTI1 data element" {
+    var s = testSessionWithHiupd();
+    s.hikaz_version = 7;
+    var buf: [4096]u8 = undefined;
+    const n = buildFetchStatements(&s, "20260301", "20260331", "", &buf) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..n], "HKKAZ:3:7+DE12100500001234567890:BELADEBEXXX:1234567890::280:10050000+N+20260301+20260331+") != null);
+}
+
+test "HKKAZ v7 without an IBAN falls back to the national account in KTI1" {
+    var s = FintsSession.init("10050000", "https://x.de/f", "u", "p");
+    const ktv = "1234567890::280:10050000";
+    @memcpy(s.account_ktv[0..ktv.len], ktv);
+    s.account_ktv_len = ktv.len;
+    s.hikaz_version = 7;
+    var buf: [4096]u8 = undefined;
+    const n = buildFetchStatements(&s, "20260301", "20260331", "", &buf) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..n], "HKKAZ:3:7+::1234567890::280:10050000+N+20260301+") != null);
+}
+
+test "HKCAZ writes the account as one KTI1 data element before the camt format" {
+    var s = testSessionWithHiupd();
+    var resp = ParsedResponse.init();
+    parseResponse(&s, "HICAZS:52:1:3+1+1+1+740:N:N:urn?:iso?:std?:iso?:20022?:tech?:xsd?:camt.052.001.08'", &resp);
+    var buf: [4096]u8 = undefined;
+    const n = buildFetchStatementsCamt(&s, "20260301", "20260331", "", &buf) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..n], "HKCAZ:3:1+DE12100500001234567890:BELADEBEXXX:1234567890::280:10050000+urn?:iso?:std?:iso?:20022?:tech?:xsd?:camt.052.001.08+N+20260301+20260331+") != null);
+}
+
+test "BPD without HIKAZS marks the bank as CAMT-only" {
+    var s = FintsSession.init("13091054", "https://x.de/f", "u", "p");
+    var resp = ParsedResponse.init();
+    parseResponse(&s, "HICAZS:52:1:3+1+1+1+740:N:N:urn?:iso?:std?:iso?:20022?:tech?:xsd?:camt.052.001.08'", &resp);
+    try std.testing.expect(s.supports_camt);
+    try std.testing.expect(!s.supports_mt940);
+
+    var resp2 = ParsedResponse.init();
+    parseResponse(&s, "HIKAZS:104:5:3+1+1+360:J:N'", &resp2);
+    try std.testing.expect(s.supports_mt940);
 }
 
 test "SegmentIterator splits correctly" {

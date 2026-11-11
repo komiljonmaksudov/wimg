@@ -2225,7 +2225,9 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     // the newest value date carries the current account balance.
     var balance_cents: i64 = 0;
     var balance_date_int: u32 = 0; // YYYYMMDD
-    var fetch_mode: FetchMode = .mt940;
+    // Banks that advertise only CAMT (HICAZS, no HIKAZS) must not be sent HKKAZ at all:
+    // Atruvia (Volks-/Raiffeisenbanken) dropped MT940. Unknown BPD keeps MT940 first.
+    var fetch_mode: FetchMode = if (!fints_session.supports_mt940 and fints_session.supports_camt) .camt else .mt940;
     var used_camt_fallback = false;
     var page_count: u8 = 0;
     var touchdown_buf: [128]u8 = undefined;

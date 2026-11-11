@@ -86,6 +86,21 @@ Audience: engineers touching `libwimg/src/fints.zig`, `root.zig`, `mt940.zig`, `
 - v7: KTI1 DEG (IBAN+BIC+account+subaccount+280:BLZ).
 - If no `HIKAZS` but `HICAZS` present → CAMT fallback via `HKCAZ`.
 
+## KTI1 Accounts (HKKAZ v7, HKCAZ)
+
+- KTI1 is ONE data element: `IBAN:BIC:Konto:Unterkonto:280:BLZ`, parts separated
+  by `:`. Splitting it with `+` shifts every following field (bank rejects).
+- IBAN comes from the data element after the account in `HIUPD`, BIC from the
+  bank catalog. Without an IBAN the national form `::Konto:Unterkonto:280:BLZ` is sent.
+- python-fints reference: `HKKAZ:3:7+IBAN:BIC+N+from+to`,
+  `HKCAZ:3:1+IBAN:BIC+<camt urn>+N+from+to`.
+
+## CAMT-only Banks
+
+- A BPD with `HICAZS` but no `HIKAZS` (Atruvia: Volks-/Raiffeisenbanken, Nov 2026)
+  means MT940 is gone. Start with `HKCAZ`; never send `HKKAZ` there.
+- `session.supports_mt940` is set from `HIKAZS` v5–v7. Unknown BPD keeps MT940 first.
+
 ## CAMT Fallback
 
 - `camt.zig` parser: Ntry extraction, multi-Ustrd concatenation, Amt Ccy parsing.

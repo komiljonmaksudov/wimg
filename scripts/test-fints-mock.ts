@@ -13,6 +13,8 @@
  *   pushtan  3920 allows 911+923 → picks 923 (decoupled), HKTAN v7, 3955 →
  *            three 3956 status polls → approved → HKKAZ import
  *   chiptan  3920 allows 911 only → HKTAN v6, typed TAN → HKKAZ import
+ *   volksbank  Atruvia parameters: no MT940 (HIKAZS) at all, only CAMT →
+ *            app approval (946) → HKCAZ with a KTI1 account → CAMT import
  *
  * Build the dylib, then run:
  *     cd libwimg && zig build -Dtarget=aarch64-macos -Dshared=true \
@@ -25,14 +27,15 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-const BLZ = "10050000"; // Berliner Sparkasse (must exist in banks.zig)
+// BLZs must exist in banks.zig: Berliner Sparkasse, Volksbank Vorpommern (Atruvia).
+const BLZ = process.argv[2] === "volksbank" ? "13091054" : "10050000";
 const libPath = process.env.LIBWIMG ?? "libwimg/zig-out/lib/libwimg.dylib";
 
 // Each scenario runs in its own process: libwimg keeps one global session.
 const scenario = process.argv[2];
 if (!scenario) {
 	let failed = false;
-	for (const s of ["pushtan", "chiptan"]) {
+	for (const s of ["pushtan", "chiptan", "volksbank"]) {
 		const p = Bun.spawnSync(["bun", import.meta.path, s], { stdout: "pipe", stderr: "pipe", env: process.env });
 		const out = p.stdout.toString();
 		process.stdout.write(out);
@@ -48,6 +51,18 @@ if (!scenario) {
 const HITANS =
 	"HITANS:139:6:3+1+1+1+J:N:0:910:2:HHD1.3.0:::chipTAN manuell:6:1:TAN-Nummer:3:J:2:N:0:0:N:N:00:0:N:1:911:2:HHD1.3.2OPT:HHDOPT1:1.3.2:chipTAN optisch:6:1:TAN-Nummer:3:J:2:N:0:0:N:N:00:0:N:1'" +
 	"HITANS:140:7:3+1+1+1+N:N:0:923:2:pushTAN-cas:Decoupled::pushTAN 2.0:::Aufforderung:2048:J:2:N:0:0:N:N:00:2:N:5:180:1:1:J:J'";
+
+// Atruvia (fints1.atruvia.de), anonymous BPD probe Nov 2026.
+const HITANS_ATRUVIA =
+	"HITANS:84:6:3+1+1+1+J:N:0:962:2:HHD1.4:HHD:1.4:Smart-TAN plus manuell:6:1:Challenge:2048:J:1:N:0:2:N:J:00:0:N:1'" +
+	"HITANS:85:7:3+1+1+1+N:N:0:946:2:DECOUPLED:Decoupled::SecureGo plus (Direktfreigabe):::TAN:2048:J:1:N:0:2:N:J:00:0:N:1:150:2:2:J:J'";
+const HICAZS_ATRUVIA = "HICAZS:52:1:3+1+1+1+740:N:N:urn?:iso?:std?:iso?:20022?:tech?:xsd?:camt.052.001.08'";
+
+const CAMT =
+	'<?xml version="1.0" encoding="UTF-8"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.052.001.08"><BkToCstmrAcctRpt><Rpt>' +
+	'<Ntry><Amt Ccy="EUR">12.50</Amt><CdtDbtInd>DBIT</CdtDbtInd><BookgDt><Dt>2026-03-01</Dt></BookgDt><NtryDtls><TxDtls><RmtInf><Ustrd>REWE SAGT DANKE 12345</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry>' +
+	'<Ntry><Amt Ccy="EUR">3500.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><BookgDt><Dt>2026-03-05</Dt></BookgDt><NtryDtls><TxDtls><RmtInf><Ustrd>GEHALT MAERZ 2026</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry>' +
+	"</Rpt></BkToCstmrAcctRpt></Document>";
 
 const MT940 = [
 	":20:STARTUMS",
@@ -78,9 +93,10 @@ let polls = 0;
 const seen: string[] = [];
 
 function bank(req: string): string {
-	const pushtan = scenario === "pushtan";
+	const volksbank = scenario === "volksbank";
+	const pushtan = scenario === "pushtan" || volksbank; // app approval flow
 	const ver = pushtan ? 7 : 6;
-	const secFunc = pushtan ? "923" : "911";
+	const secFunc = volksbank ? "946" : pushtan ? "923" : "911";
 
 	if (req.includes("HKEND")) {
 		seen.push("end");
@@ -91,12 +107,12 @@ function bank(req: string): string {
 		return bankMsg(
 			"SYNCDLG",
 			"HIRMG:2:2+0010::Nachricht entgegengenommen.'",
-			`HIRMS:3:2:3+3920::Zugelassene Zwei-Schritt-Verfahren fuer den Benutzer.:${pushtan ? "911:923" : "911"}+0020::Auftrag ausgefuehrt.'`,
-			`HIBPA:4:3:3+20+280:${BLZ}+Berliner Sparkasse+3+1+300'`,
-			HITANS,
-			"HIKAZS:104:5:3+1+1+360:J:N'",
+			`HIRMS:3:2:3+3920::Zugelassene Zwei-Schritt-Verfahren fuer den Benutzer.:${volksbank ? "962:946" : pushtan ? "911:923" : "911"}+0020::Auftrag ausgefuehrt.'`,
+			`HIBPA:4:3:3+20+280:${BLZ}+Testbank+3+1+300'`,
+			volksbank ? HITANS_ATRUVIA : HITANS,
+			volksbank ? HICAZS_ATRUVIA : "HIKAZS:104:5:3+1+1+360:J:N'",
 			"HISYN:150:4:5+SYSTEMID123'",
-			`HIUPD:151:6:4+1234567890::280:${BLZ}+DE12100500001234567890+testuser+1+EUR+Max Mustermann++Girokonto'`,
+			`HIUPD:151:6:4+1234567890::280:${BLZ}+DE12130910541234567890+testuser+1+EUR+Max Mustermann++Girokonto'`,
 		);
 	}
 	if (req.includes("HKIDN")) {
@@ -143,7 +159,24 @@ function bank(req: string): string {
 		check(req.includes(":123456'"), "TAN submit carries the typed TAN in the signature");
 		return bankMsg("AUTHDLG", "HIRMG:2:2+0010::Nachricht entgegengenommen.'", "HIRMS:3:2:3+0020::Auftrag ausgefuehrt.'");
 	}
+	if (req.includes("HKCAZ")) {
+		seen.push("caz");
+		check(volksbank, "CAMT request only for the CAMT-only bank");
+		check(
+			req.includes(`HKCAZ:3:1+DE12130910541234567890:GENODEF1HST:1234567890::280:${BLZ}+urn?:iso?:std?:iso?:20022?:tech?:xsd?:camt.052.001.08+N+20260301+20260331+`),
+			"HKCAZ: account is one KTI1 element (IBAN:BIC:Konto::280:BLZ), then the bank's camt format",
+		);
+		check(/HKTAN:\d+:7\+4\+HKCAZ/.test(req), "CAMT request sends HKTAN v7 process 4");
+		check(req.includes("+AUTHDLG+"), "CAMT request reuses the approved dialog");
+		return bankMsg(
+			"AUTHDLG",
+			"HIRMG:2:2+0010::Nachricht entgegengenommen.'",
+			"HIRMS:3:2:3+0020::Auftrag ausgefuehrt.+3076::Starke Kundenauthentifizierung nicht notwendig.'",
+			`HICAZ:4:1:3+DE12130910541234567890:GENODEF1HST:1234567890::280:${BLZ}+urn?:iso?:std?:iso?:20022?:tech?:xsd?:camt.052.001.08+@${CAMT.length}@${CAMT}'`,
+		);
+	}
 	if (req.includes("HKKAZ")) {
+		check(!volksbank, "MT940 request never goes to the CAMT-only bank");
 		seen.push("kaz");
 		check(/HKKAZ:\d+:5\+/.test(req), "statement request is HKKAZ v5");
 		check(new RegExp(`HKTAN:\\d+:${ver}\\+4\\+HKKAZ`).test(req), `statement request sends HKTAN v${ver} process 4`);
@@ -202,7 +235,7 @@ check(conn.tan_medium_required === false, "no TAN medium picker");
 const first = call(lib.symbols.wimg_fints_fetch, range);
 check(first.status === "tan_required", `first fetch asks for approval/TAN (${first.status})`);
 
-if (scenario === "pushtan") {
+if (scenario !== "chiptan") {
 	check(first.decoupled === true, "challenge is flagged as app approval (decoupled)");
 	const t = call(lib.symbols.wimg_fints_send_tan, { tan: "" });
 	check(t.status === "ok", `status check returns ok once approved (${JSON.stringify(t)})`);
