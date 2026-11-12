@@ -113,9 +113,14 @@ fun WimgNavigation() {
                 onAccountChanged = { selectedAccount = it },
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
-            Box(Modifier.weight(1f).padding(bottom = if (route == "search" || underBar) 0.dp else BarClearance - 24.dp)) {
+            Box(Modifier.weight(1f).padding(bottom = if (route?.startsWith("search") == true || underBar) 0.dp else BarClearance - 24.dp)) {
                 NavHost(navController = navController, startDestination = "dashboard") {
-                    composable("search") { SearchScreen(selectedAccount = selectedAccount, navController = navController) }
+                    composable(
+                        "search?q={q}",
+                        arguments = listOf(androidx.navigation.navArgument("q") { defaultValue = "" }),
+                    ) { entry ->
+                        SearchScreen(selectedAccount = selectedAccount, navController = navController, initialQuery = entry.arguments?.getString("q").orEmpty())
+                    }
                     composable("dashboard") { HomeScreen(selectedAccount = selectedAccount, navController = navController) }
                     composable("transactions") { TransactionsScreen(selectedAccount = selectedAccount, navController = navController) }
                     composable("rec/{id}") { entry ->
@@ -218,7 +223,7 @@ fun WimgNavigation() {
                         }
                     },
                 )
-            } else if (route != "search") {
+            } else if (route?.startsWith("search") != true) {
                 FloatingBar(
                     left = {
                         BarChip(label = L(place.label), icon = place.icon, unfold = true, active = menuOpen) { BarState.onPanelDismiss(); menuOpen = !menuOpen }

@@ -72,6 +72,18 @@ export const en: Record<string, string> = {
   Ansicht: "View",
   Liste: "List",
   "12 Monate": "12 months",
+  // Android redesign: Suche
+  "1 Treffer": "1 match",
+  "Gesucht wird im Verwendungszweck aller Umsätze. Banken kürzen Namen oft ab, versuch einen Teil des Namens oder eine Kundennummer.":
+    "Search looks at the payment reference of every transaction. Banks often shorten names, so try part of a name or a customer number.",
+  "Neueste zuerst": "Newest first",
+  "Treffer im Verwendungszweck": "Matches in the payment reference",
+  "Umsätze durchsuchen": "Search transactions",
+  "Schnell filtern": "Quick filters",
+  "Zuletzt gesucht": "Recent searches",
+  "Nur Einnahmen": "Income only",
+  "Über 100 €": "Over €100",
+  Ausgeschlossene: "Excluded",
   // Interpolated keys (iOS #L macro uses %@ placeholders; web plugin ignores these)
   "%@ Transaktionen": "%@ transactions",
   "%@ Umsätze": "%@ transactions",
@@ -108,6 +120,9 @@ export const en: Record<string, string> = {
   "%s bezahlt · %s erwartet": "%s paid · %s expected",
   "%s · bezahlt": "%s · paid",
   "%s · erwartet": "%s · expected",
+  "%d Treffer": "%d matches",
+  "Ø %s pro Umsatz": "Ø %s per transaction",
+  "Keine Treffer für „%s“": "No matches for “%s”",
   "%@: +%@ (%@% mehr)": "%@: +%@ (%@% more)",
   "Vormonat: %@": "Last month: %@",
   "Aktuell: %@": "Current: %@",

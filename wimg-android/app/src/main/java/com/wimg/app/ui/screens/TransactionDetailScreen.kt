@@ -109,7 +109,7 @@ fun TransactionDetailScreen(id: String, navController: NavController?) {
                             panel = DetailPanel.None
                             Dock.info(__t("Text kopiert"))
                         },
-                        onSearch = { panel = DetailPanel.None; navController?.navigate("search") },
+                        onSearch = { panel = DetailPanel.None; navController?.navigate("search?q=" + android.net.Uri.encode(t.displayTitle.take(40))) },
                     )
                 }
             }
