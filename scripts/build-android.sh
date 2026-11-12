@@ -56,13 +56,24 @@ zig build \
 
 cp zig-out/lib/libwimg.so "$BUILD_DIR/arm64-v8a/libwimg.so"
 
+# JNI shim (Kotlin ↔ C ABI), compiled by Zig against the same NDK sysroot.
+# Gradle only packages the two .so files: no CMake, no pinned NDK version.
+echo "=== Building libwimg-jni.so ==="
+ZIG_LIBC="$BUILD_DIR/android-libc.txt" zig cc \
+  -target aarch64-linux-android \
+  -shared -fPIC -Os -s \
+  -Wl,-soname,libwimg-jni.so \
+  "$ROOT/wimg-android/app/src/main/cpp/wimg_jni.c" \
+  -L"$BUILD_DIR/arm64-v8a" -lwimg \
+  -o "$BUILD_DIR/arm64-v8a/libwimg-jni.so"
+
 echo "=== Build complete ==="
-ls -lh "$BUILD_DIR/arm64-v8a/libwimg.so"
-file "$BUILD_DIR/arm64-v8a/libwimg.so"
+ls -lh "$BUILD_DIR/arm64-v8a/"*.so
+file "$BUILD_DIR/arm64-v8a/"*.so
 
 # Copy to Android project jniLibs if it exists
 if [ -d "$ROOT/wimg-android/app/src/main" ]; then
   mkdir -p "$JNILIBS/arm64-v8a"
-  cp "$BUILD_DIR/arm64-v8a/libwimg.so" "$JNILIBS/arm64-v8a/libwimg.so"
+  cp "$BUILD_DIR/arm64-v8a/libwimg.so" "$BUILD_DIR/arm64-v8a/libwimg-jni.so" "$JNILIBS/arm64-v8a/"
   echo "=== Copied to wimg-android/app/src/main/jniLibs/arm64-v8a/ ==="
 fi

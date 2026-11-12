@@ -23,7 +23,6 @@ android {
         ndk {
             abiFilters += "arm64-v8a"
         }
-        ndkVersion = "30.0.14904198"
     }
 
     // Play upload signing. Credentials come from the environment so nothing
@@ -64,15 +63,10 @@ android {
         jvmTarget = "17"
     }
 
+    // libwimg.so + libwimg-jni.so are prebuilt by scripts/build-android.sh
+    // (Zig) into src/main/jniLibs; Gradle only packages them.
     buildFeatures {
         compose = true
-    }
-
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-        }
     }
 }
 
