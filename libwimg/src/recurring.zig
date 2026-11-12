@@ -1,4 +1,5 @@
 const std = @import("std");
+const booking = @import("booking.zig");
 const db_mod = @import("db.zig");
 const c = @import("sqlite_c.zig");
 
@@ -91,7 +92,7 @@ pub fn normalizeMerchant(desc: []const u8, out_buf: []u8) ?usize {
     // description: "LASTSCHRIFT / BELASTUNG <payee text>", "ÜBERTRAG / ÜBERWEISUNG
     // <purpose>". Without stripping it every direct debit lands in one bucket
     // called "LASTSCHRIFT" and nothing looks recurring.
-    working = stripBookingPrefix(working);
+    working = booking.stripPrefix(working);
 
     // The SEPA reference tail is different on every booking.
     if (std.mem.indexOf(u8, working, "END-TO-END-REF")) |idx| {
@@ -145,34 +146,6 @@ pub fn normalizeMerchant(desc: []const u8, out_buf: []u8) ?usize {
 
     if (out_len == 0) return null;
     return out_len;
-}
-
-/// Booking-type texts that FinTS banks prepend to the description. Matched by
-/// their ASCII part so both UTF-8 and Latin-1 umlauts ("ÜBERWEISUNG") work.
-const booking_prefixes = [_][]const u8{
-    "LASTSCHRIFT / BELASTUNG ",
-    "BERWEISUNG - ECHTZEIT ",
-    "BERWEISUNG ",
-    "KARTENVERF",
-    "DAUERAUFTRAG ",
-    "GUTSCHRIFT ",
-    "AUSZAHLUNG ",
-};
-
-fn stripBookingPrefix(text: []const u8) []const u8 {
-    for (booking_prefixes) |prefix| {
-        const idx = std.mem.indexOf(u8, text, prefix) orelse continue;
-        if (idx > 14) continue; // only at the very start ("ÜBERTRAG / " precedes "BERWEISUNG")
-        var rest = text[idx + prefix.len ..];
-        // Prefixes given without a trailing space end mid-word: skip to the next word.
-        if (prefix[prefix.len - 1] != ' ') {
-            const sp = std.mem.indexOfScalar(u8, rest, ' ') orelse return text;
-            rest = rest[sp + 1 ..];
-        }
-        if (rest.len == 0) return text;
-        return rest;
-    }
-    return text;
 }
 
 fn isLongNumber(tok: []const u8) bool {

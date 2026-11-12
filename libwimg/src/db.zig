@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const types = @import("types.zig");
 const categories = @import("categories.zig");
+const booking = @import("booking.zig");
 const c = @import("sqlite_c.zig");
 
 const Transaction = types.Transaction;
@@ -3555,6 +3556,18 @@ fn jsonFormatTransaction(
 
     // Escaped description
     pos += jsonEscapeString(buf[pos..], desc_ptr[0..desc_len]) orelse return null;
+
+    // ","title":"…","kind":"…"  — row title and booking type (see booking.zig)
+    const title_pre = "\",\"title\":\"";
+    if (pos + title_pre.len > buf.len) return null;
+    @memcpy(buf[pos .. pos + title_pre.len], title_pre);
+    pos += title_pre.len;
+    pos += jsonEscapeString(buf[pos..], booking.displayTitle(desc_ptr[0..desc_len])) orelse return null;
+    const kind_pre = "\",\"kind\":\"";
+    if (pos + kind_pre.len > buf.len) return null;
+    @memcpy(buf[pos .. pos + kind_pre.len], kind_pre);
+    pos += kind_pre.len;
+    pos += jsonEscapeString(buf[pos..], booking.kind(desc_ptr[0..desc_len])) orelse return null;
 
     // ","amount":
     const amt_pre = "\",\"amount\":";

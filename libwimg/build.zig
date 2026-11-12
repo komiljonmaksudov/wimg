@@ -198,6 +198,16 @@ pub fn build(b: *std.Build) void {
     const run_categories_tests = b.addRunArtifact(categories_tests);
     test_step.dependOn(&run_categories_tests.step);
 
+    const booking_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/booking.zig"),
+            .target = b.resolveTargetQuery(.{}),
+            .optimize = optimize,
+        }),
+    });
+    const run_booking_tests = b.addRunArtifact(booking_tests);
+    test_step.dependOn(&run_booking_tests.step);
+
     const db_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/db.zig"),
