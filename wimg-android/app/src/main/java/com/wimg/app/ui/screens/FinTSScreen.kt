@@ -111,7 +111,9 @@ fun FinTSScreen() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
             !com.wimg.app.services.BackgroundRefresh.hasNotificationPermission(context)
         ) {
-            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            // Asking for notifications must never take the app down after a
+            // successful fetch: the refresh is already scheduled and works silently.
+            runCatching { notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
         }
     }
 

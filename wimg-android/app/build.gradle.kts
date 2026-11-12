@@ -98,6 +98,11 @@ dependencies {
 
     // Biometric auth (Face / Fingerprint / device credential)
     implementation("androidx.biometric:biometric:1.2.0-alpha05")
+    // biometric pulls in androidx.fragment 1.2.x, whose FragmentActivity rejects the
+    // request codes of the Activity Result API ("Can only use lower 16 bits for
+    // requestCode") and crashes on any permission request. MainActivity is a
+    // FragmentActivity, so pin a fragment version that supports it (>= 1.3).
+    implementation("androidx.fragment:fragment-ktx:1.8.5")
 
     // WorkManager — periodic background FinTS refresh (BackgroundRefresh.kt)
     implementation("androidx.work:work-runtime-ktx:2.9.1")
