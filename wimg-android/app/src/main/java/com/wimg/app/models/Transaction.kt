@@ -13,7 +13,12 @@ data class Transaction(
     val category: Int = 0,
     val account: String? = null,
     val excluded: Int? = null,
+    /** Row title: the description without its booking type (libwimg booking.zig). */
+    val title: String? = null,
+    /** Booking type ("Lastschrift", "Karte", …) or "" when the bank sent none. */
+    val kind: String? = null,
 ) {
+    val displayTitle: String get() = title?.takeIf { it.isNotBlank() } ?: description
     val isExpense: Boolean get() = amount < 0
     val isIncome: Boolean get() = amount > 0
     val absAmount: Double get() = abs(amount)

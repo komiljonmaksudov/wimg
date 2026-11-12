@@ -1,36 +1,69 @@
 package com.wimg.app.ui.screens
 
-import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.navigation.NavController
 import com.wimg.app.bridge.LibWimg
+import com.wimg.app.i18n.L
+import com.wimg.app.models.Account
 import com.wimg.app.models.Transaction
 import com.wimg.app.models.WimgCategory
-import com.wimg.app.ui.components.formatAmountShort
-import com.wimg.app.ui.theme.WimgColors
-import com.wimg.app.ui.theme.WimgShapes
-import com.wimg.app.ui.theme.wimgCard
-import kotlin.math.abs
-import com.wimg.app.i18n.L
+import com.wimg.app.ui.components.Amount
+import com.wimg.app.ui.components.BandScreen
+import com.wimg.app.ui.components.BarChipSpec
+import com.wimg.app.ui.components.BarClearance
+import com.wimg.app.ui.components.BarContribution
+import com.wimg.app.ui.components.BarPanel
+import com.wimg.app.ui.components.Changes
+import com.wimg.app.ui.components.WimgDates
+import com.wimg.app.ui.components.amountText
+import com.wimg.app.ui.components.pressable
+import com.wimg.app.ui.theme.Wimg
+import com.wimg.app.ui.theme.WimgMotion
+import com.wimg.app.ui.theme.WimgShape
+import com.wimg.app.ui.theme.WimgType
+import com.wimg.app.ui.theme.categoryBar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 enum class TxFilter(val label: String) {
     ALL("Alle"),
@@ -38,606 +71,248 @@ enum class TxFilter(val label: String) {
     INCOME("Einnahmen"),
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+/** Categories offered as filter chips, in the design's order. */
+private val FILTER_CATEGORIES = listOf(
+    WimgCategory.GROCERIES, WimgCategory.DINING, WimgCategory.TRANSPORT, WimgCategory.SHOPPING,
+    WimgCategory.ENTERTAINMENT, WimgCategory.INSURANCE, WimgCategory.UTILITIES, WimgCategory.HOUSING,
+    WimgCategory.SUBSCRIPTIONS, WimgCategory.HEALTH, WimgCategory.INCOME, WimgCategory.UNCATEGORIZED,
+)
+
+private data class TxData(val transactions: List<Transaction>, val accounts: List<Account>)
+
 @Composable
-fun TransactionsScreen(selectedAccount: String?) {
-    var transactions by remember { mutableStateOf<List<Transaction>>(emptyList()) }
+fun TransactionsScreen(selectedAccount: String?, navController: NavController? = null) {
+    var data by remember { mutableStateOf<TxData?>(null) }
     var filter by remember { mutableStateOf(TxFilter.ALL) }
-    var selectedTx by remember { mutableStateOf<Transaction?>(null) }
-    var showFilterSheet by remember { mutableStateOf(false) }
-    var filterCategories by remember { mutableStateOf<Set<Int>>(emptySet()) }
-    var quickCategory by remember { mutableStateOf<Int?>(null) }
-    var searchText by remember { mutableStateOf("") }
-    var amountMin by remember { mutableFloatStateOf(0f) }
-    var amountMax by remember { mutableFloatStateOf(1000f) }
-    // Real account balance (latest FinTS statement closing balance) in cents.
-    // 0 = unknown (CSV-only); anchoring falls back to a plain transaction sum.
-    var accountBalanceCents by remember { mutableStateOf(0L) }
+    var categories by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var filterOpen by remember { mutableStateOf(false) }
 
-    fun reload() {
-        transactions = LibWimg.getTransactionsFiltered(selectedAccount).sortedByDescending { it.date }
-        accountBalanceCents = LibWimg.getAccounts()
-            .filter { selectedAccount == null || it.id == selectedAccount }
-            .sumOf { it.balance_cents }
+    LaunchedEffect(selectedAccount, Changes.version) {
+        data = withContext(Dispatchers.IO) {
+            TxData(
+                transactions = LibWimg.getTransactionsFiltered(selectedAccount).sortedByDescending { it.date },
+                accounts = LibWimg.getAccounts().filter { selectedAccount == null || it.id == selectedAccount },
+            )
+        }
     }
 
-    LaunchedEffect(selectedAccount) { reload() }
-
-    val activeFilterCount = (if (filterCategories.isNotEmpty()) 1 else 0) +
-        (if (searchText.isNotBlank()) 1 else 0) +
-        (if (amountMin > 0 || amountMax < 1000) 1 else 0)
-
-    val filtered = transactions.filter { tx ->
-        val matchesFilter = when (filter) {
-            TxFilter.ALL -> !tx.isExcluded
-            TxFilter.EXPENSES -> tx.isExpense && !tx.isExcluded
-            TxFilter.INCOME -> tx.isIncome && !tx.isExcluded
+    val all = data?.transactions ?: emptyList()
+    val filtered = remember(all, filter, categories) {
+        all.filter { tx ->
+            val type = when (filter) {
+                TxFilter.ALL -> true
+                TxFilter.EXPENSES -> tx.isExpense
+                TxFilter.INCOME -> tx.isIncome
+            }
+            type && (categories.isEmpty() || tx.category in categories)
         }
-        val matchesSearch = searchText.isBlank() || tx.description.contains(searchText, ignoreCase = true)
-        // Either an advanced multi-category set OR a single quick-bar selection,
-        // mirroring iOS where `quickCategoryBar` and the filter sheet share scope.
-        val matchesCat = when {
-            filterCategories.isNotEmpty() -> filterCategories.contains(tx.category)
-            quickCategory != null -> tx.category == quickCategory
-            else -> true
-        }
-        val matchesAmount = kotlin.math.abs(tx.amount) >= amountMin && (amountMax >= 1000 || kotlin.math.abs(tx.amount) <= amountMax)
-        matchesFilter && matchesSearch && matchesCat && matchesAmount
     }
+    val filterActive = filter != TxFilter.ALL || categories.isNotEmpty()
 
-    val grouped = filtered.groupBy { it.date }.toSortedMap(compareByDescending { it })
-
-    // Anchor the running balance to the real account balance only in the
-    // unfiltered "Alle" view — a filtered subset would make the math wrong.
-    val balanceAnchorActive = accountBalanceCents != 0L &&
-        filter == TxFilter.ALL &&
-        quickCategory == null &&
-        activeFilterCount == 0
+    // The bank's closing balance, only when every shown account has one (FinTS).
+    val accounts = data?.accounts ?: emptyList()
+    val knownBalance = accounts.isNotEmpty() && accounts.all { it.balance != null }
+    val balance = if (knownBalance) accounts.sumOf { it.balance_cents } / 100.0 else null
+    val balanceDate = accounts.mapNotNull { it.balance_date.takeIf { d -> d.isNotEmpty() } }.maxOrNull()
+    val anchored = balance != null && !filterActive
 
     val listState = rememberLazyListState()
-    val runningBalance by remember(filtered, listState, balanceAnchorActive, accountBalanceCents) {
+    // Running value at the topmost visible row: with a bank balance it is the
+    // balance after that row (walking back through history); without one, the
+    // sum of that row and everything older. Never called "Kontostand" then.
+    val running by remember(filtered, anchored, balance) {
         derivedStateOf {
-            if (filtered.isEmpty()) return@derivedStateOf 0.0 to 0
-            val visibleKeys = listState.layoutInfo.visibleItemsInfo
-                .mapNotNull { it.key as? String }
-                .toSet()
-
-            if (balanceAnchorActive) {
-                // Bank-accurate running balance: at the topmost visible row it
-                // equals the statement closing balance, then walks back through
-                // history as you scroll.
-                val anchor = accountBalanceCents / 100.0
-                if (visibleKeys.isEmpty()) return@derivedStateOf anchor to filtered.size
-                val topIdx = filtered.indexOfFirst { visibleKeys.contains(it.id) }
-                if (topIdx < 0) return@derivedStateOf anchor to 0
-                // Subtract transactions newer than the topmost visible row.
-                var newer = 0.0
-                for (i in 0 until topIdx) newer += filtered[i].amount
-                return@derivedStateOf (anchor - newer) to (filtered.size - topIdx)
-            }
-
-            // Fallback (CSV-only or filtered view): plain sum, no opening balance.
-            if (visibleKeys.isEmpty()) {
-                return@derivedStateOf filtered.sumOf { it.amount } to filtered.size
-            }
-            val topIdx = filtered.indexOfFirst { visibleKeys.contains(it.id) }
-            if (topIdx < 0) return@derivedStateOf 0.0 to 0
-            var total = 0.0
-            for (i in topIdx until filtered.size) total += filtered[i].amount
-            total to (filtered.size - topIdx)
+            val visible = listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }.toSet()
+            val top = filtered.indexOfFirst { it.id in visible }.coerceAtLeast(0)
+            if (anchored) balance!! - filtered.take(top).sumOf { it.amount }
+            else filtered.drop(top).sumOf { it.amount }
         }
     }
+    val compact by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 48 } }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-    ) {
-        LazyColumn(
-            state = listState,
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier.weight(1f),
-        ) {
-            // Tabs row scrolls with content above the sticky card.
-            item(key = "filter_row") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    TxFilter.entries.forEach { f ->
-                        FilterChip(
-                            selected = filter == f,
-                            onClick = { filter = f },
-                            label = {
-                                Text(
-                                    L(f.label),
-                                    maxLines = 1,
-                                    fontSize = 13.sp,
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    IconButton(onClick = { showFilterSheet = true }) {
-                        BadgedBox(
-                            badge = {
-                                if (activeFilterCount > 0) {
-                                    Badge(containerColor = WimgColors.accent) {
-                                        Text("$activeFilterCount", color = WimgColors.heroText, fontSize = 10.sp)
-                                    }
-                                }
-                            },
-                        ) {
-                            Icon(
-                                Icons.Outlined.FilterList,
-                                contentDescription = "Filter",
-                                tint = if (activeFilterCount > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Quick category bar — 5 most common categories for fast filtering,
-            // mirrors iOS `quickCategoryBar`.
-            item(key = "quick_categories") {
-                QuickCategoryBar(
-                    selected = quickCategory,
-                    onSelect = { id -> quickCategory = if (quickCategory == id) null else id },
+    BarContribution(
+        chip = BarChipSpec(label = "", active = filterOpen || filterActive, onClick = { filterOpen = !filterOpen }, icon = Icons.Outlined.Tune, contentDescription = L("Filter")),
+        panel = if (filterOpen) {
+            {
+                FilterPanel(
+                    filter = filter, onFilter = { filter = it },
+                    categories = categories, onCategories = { categories = it },
+                    resultCount = filtered.size,
+                    onReset = { filter = TxFilter.ALL; categories = emptySet() },
+                    onDone = { filterOpen = false },
                 )
             }
-
-            // Sticky Gesamtsaldo card — mirrors the web's `sticky top-16`.
-            if (grouped.isNotEmpty()) {
-                stickyHeader(key = "gesamtsaldo") {
-                    Box(modifier = Modifier.background(MaterialTheme.colorScheme.background)) {
-                        GesamtsaldoCard(sum = runningBalance.first, count = runningBalance.second, isBalance = balanceAnchorActive)
-                    }
-                }
-            }
-
-            if (grouped.isEmpty()) {
-                item(key = "empty_state") {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 48.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("📋", fontSize = 48.sp)
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                if (transactions.isEmpty()) "Keine Umsätze" else "Keine Ergebnisse",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            Text(
-                                if (transactions.isEmpty()) "Importiere eine CSV-Datei" else "Versuche einen anderen Filter",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            } else {
-                grouped.forEach { (date, txs) ->
-                    item(key = "header_$date") {
-                        Text(
-                            formatDateHeader(date),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 4.dp)
-                                .padding(top = 16.dp, bottom = 6.dp),
-                        )
-                    }
-                    items(txs, key = { it.id }) { tx ->
-                        TransactionRow(
-                            tx = tx,
-                            onClick = { selectedTx = tx },
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    // Advanced filter sheet
-    if (showFilterSheet) {
-        AdvancedFilterSheet(
-            searchText = searchText,
-            onSearchTextChange = { searchText = it },
-            amountMin = amountMin,
-            onAmountMinChange = { amountMin = it },
-            amountMax = amountMax,
-            onAmountMaxChange = { amountMax = it },
-            filterCategories = filterCategories,
-            onFilterCategoriesChange = { filterCategories = it },
-            onReset = { searchText = ""; amountMin = 0f; amountMax = 1000f; filterCategories = emptySet() },
-            onDismiss = { showFilterSheet = false },
-        )
-    }
-
-    // Category editor bottom sheet
-    selectedTx?.let { tx ->
-        CategoryEditorSheet(
-            transaction = tx,
-            onDismiss = {
-                selectedTx = null
-                reload()
-            },
-        )
-    }
-}
-
-@Composable
-private fun TransactionRow(tx: Transaction, onClick: () -> Unit) {
-    val category = WimgCategory.fromId(tx.category)
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .wimgCard(WimgShapes.small)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // Category icon
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(category.color.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                category.icon,
-                contentDescription = null,
-                tint = category.color,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-
-        Spacer(Modifier.width(12.dp))
-
-        // Description
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                tx.description,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-            )
-            Text(
-                category.label,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        // Amount
-        Text(
-            formatAmountShort(tx.amount),
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Bold,
-            color = if (tx.isIncome) WimgCategory.INCOME.color else MaterialTheme.colorScheme.onSurface,
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun CategoryEditorSheet(transaction: Transaction, onDismiss: () -> Unit) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
-
-    val categories = listOf(
-        WimgCategory.GROCERIES, WimgCategory.DINING, WimgCategory.TRANSPORT,
-        WimgCategory.HOUSING, WimgCategory.UTILITIES, WimgCategory.ENTERTAINMENT,
-        WimgCategory.SHOPPING, WimgCategory.HEALTH, WimgCategory.INSURANCE,
-        WimgCategory.SUBSCRIPTIONS, WimgCategory.TRAVEL, WimgCategory.EDUCATION,
-        WimgCategory.CASH, WimgCategory.TRANSFER, WimgCategory.OTHER,
+        } else null,
+        onPanelDismiss = { filterOpen = false },
     )
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
+    val c = Wimg.colors
+    val title = when {
+        anchored -> L("Kontostand")
+        filterActive -> L("Summe der Treffer")
+        else -> L("Summe der Umsätze")
+    }
+    BandScreen(
+        band = {
+            Column(Modifier.animateContentSize(WimgMotion.barCompact())) {
+                if (compact) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(title, style = WimgType.bandOver, color = c.bandSub, modifier = Modifier.weight(1f))
+                        Text(amountText(running, showPlus = !anchored), style = WimgType.amountLarge.copy(fontSize = WimgType.amountLarge.fontSize * 0.9f), color = Color.White)
+                    }
+                } else {
+                    Text(title, style = WimgType.bandOver, color = c.bandSub)
+                    Amount(running, WimgType.amountHero, WimgType.amountHeroCents, Color.White, Modifier.padding(top = 2.dp), showPlus = !anchored)
+                    val parts = buildList {
+                        if (anchored) {
+                            accounts.singleOrNull()?.let { add(it.bank.ifBlank { it.name }) }
+                            balanceDate?.let { add(L("Stand %s", WimgDates.short(it))) }
+                        }
+                        add(L("%d Umsätze", filtered.size))
+                    }
+                    Text(parts.joinToString(" · "), style = WimgType.desc, color = c.bandSub, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                }
+            }
+        },
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxHeight(0.85f)
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .verticalScroll(rememberScrollState()),
-        ) {
-            Text(
-                transaction.description,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 4.dp),
-            )
-            Text(
-                formatAmountShort(transaction.amount),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Black,
-                color = if (transaction.isIncome) WimgCategory.INCOME.color else MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.height(16.dp))
-
-            if (transaction.isIncome) {
-                CategoryOption(WimgCategory.INCOME, transaction.category == WimgCategory.INCOME.id) {
-                    LibWimg.setCategory(transaction.id, WimgCategory.INCOME.id)
-                    onDismiss()
+        if (data != null && filtered.isEmpty()) {
+            Column(Modifier.fillMaxWidth().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(if (all.isEmpty()) L("Noch keine Umsätze") else L("Keine Treffer"), style = WimgType.section, color = c.text)
+                Text(
+                    if (all.isEmpty()) L("Verbinde deine Bank oder importiere eine CSV.") else L("Ändere den Filter, um mehr zu sehen."),
+                    style = WimgType.desc, color = c.text2, modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+            return@BandScreen
+        }
+        val grouped = remember(filtered) { filtered.groupBy { it.date }.toList() }
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = BarClearance)) {
+            grouped.forEachIndexed { gi, (date, txs) ->
+                item(key = "h_$date") { DayHeader(date, txs.sumOf { it.amount }, first = gi == 0) }
+                items(txs, key = { it.id }) { tx ->
+                    TxRow(tx, last = tx == txs.last()) { navController?.navigate("tx/${tx.id}") }
                 }
             }
-            categories.forEach { cat ->
-                CategoryOption(cat, transaction.category == cat.id) {
-                    LibWimg.setCategory(transaction.id, cat.id)
-                    onDismiss()
-                }
-            }
-            Spacer(Modifier.height(24.dp))
         }
     }
 }
 
 @Composable
-internal fun CategoryOption(category: WimgCategory, selected: Boolean, onClick: () -> Unit) {
+private fun DayHeader(date: String, total: Double, first: Boolean) {
+    val c = Wimg.colors
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = if (first) 18.dp else 26.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(category.color.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                category.icon,
-                contentDescription = null,
-                tint = category.color,
-                modifier = Modifier.size(16.dp),
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        Text(
-            category.label,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.weight(1f),
-        )
-        if (selected) {
-            Text("✓", fontWeight = FontWeight.Bold)
-        }
+        Text(WimgDates.dayHeader(date), style = WimgType.chip, color = c.text2, modifier = Modifier.weight(1f))
+        Text(amountText(total), style = WimgType.chip, color = if (total > 0.004) c.pos else c.text2)
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AdvancedFilterSheet(
-    searchText: String,
-    onSearchTextChange: (String) -> Unit,
-    amountMin: Float,
-    onAmountMinChange: (Float) -> Unit,
-    amountMax: Float,
-    onAmountMaxChange: (Float) -> Unit,
-    filterCategories: Set<Int>,
-    onFilterCategoriesChange: (Set<Int>) -> Unit,
+private fun TxRow(tx: Transaction, last: Boolean, onClick: () -> Unit) {
+    val c = Wimg.colors
+    val wc = WimgCategory.fromId(tx.category)
+    Column(Modifier.clickable(onClick = onClick)) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    tx.displayTitle,
+                    style = WimgType.rowTitle,
+                    color = if (tx.isExcluded) c.text3 else c.text,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 3.dp)) {
+                    Box(Modifier.size(7.dp).clip(CircleShape).background(c.categoryBar(tx.category)))
+                    Spacer(Modifier.width(7.dp))
+                    val sub = buildList {
+                        add(L(wc.label))
+                        tx.kind?.takeIf { it.isNotBlank() }?.let { add(L(it)) }
+                        if (tx.isExcluded) add(L("ausgeschlossen"))
+                    }.joinToString(" · ")
+                    Text(sub, style = WimgType.desc, color = c.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Amount(
+                tx.amount, WimgType.amountRow.copy(fontSize = WimgType.amountRow.fontSize * 1.12f), WimgType.amountRowCents,
+                color = when { tx.isExcluded -> c.text3; tx.amount > 0 -> c.pos; else -> c.text },
+            )
+        }
+        if (!last) HorizontalDivider(thickness = 1.dp, color = c.line)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FilterPanel(
+    filter: TxFilter,
+    onFilter: (TxFilter) -> Unit,
+    categories: Set<Int>,
+    onCategories: (Set<Int>) -> Unit,
+    resultCount: Int,
     onReset: () -> Unit,
-    onDismiss: () -> Unit,
+    onDone: () -> Unit,
 ) {
-    val allCategories = listOf(
-        WimgCategory.GROCERIES, WimgCategory.DINING, WimgCategory.TRANSPORT,
-        WimgCategory.HOUSING, WimgCategory.UTILITIES, WimgCategory.ENTERTAINMENT,
-        WimgCategory.SHOPPING, WimgCategory.HEALTH, WimgCategory.INSURANCE,
-        WimgCategory.SUBSCRIPTIONS, WimgCategory.TRAVEL, WimgCategory.EDUCATION,
-        WimgCategory.CASH, WimgCategory.TRANSFER, WimgCategory.INCOME, WimgCategory.OTHER,
-    )
-
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.background) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+    val c = Wimg.colors
+    BarPanel {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(L("Filter"), style = WimgType.sheetTitle.copy(fontSize = WimgType.sheetTitle.fontSize * 0.86f), color = c.text, modifier = Modifier.weight(1f))
+            Text(L("Zurücksetzen"), style = WimgType.chip, color = c.text2, modifier = Modifier.clip(WimgShape.button).pressable(onClick = onReset).padding(8.dp))
+        }
+        // Segmented control: Alle / Ausgaben / Einnahmen
+        Row(
+            Modifier.padding(top = 14.dp).fillMaxWidth().clip(WimgShape.segmentOuter).background(c.neutralTint).padding(4.dp),
         ) {
-            // Search
-            OutlinedTextField(
-                value = searchText, onValueChange = onSearchTextChange,
-                placeholder = { Text(L("Suchen nach...")) },
-                leadingIcon = { Icon(Icons.Outlined.Search, null) },
-                singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
-            )
-
-            // Amount
-            Column {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(L("Betrag"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    Text("${amountMin.toInt()} – ${if (amountMax >= 1000) "∞" else amountMax.toInt().toString()} €", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Text("Min", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Slider(value = amountMin, onValueChange = onAmountMinChange, valueRange = 0f..500f, steps = 9, colors = SliderDefaults.colors(thumbColor = WimgColors.accent, activeTrackColor = WimgColors.accent))
-                Text("Max", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Slider(value = amountMax, onValueChange = onAmountMaxChange, valueRange = 50f..1000f, steps = 18, colors = SliderDefaults.colors(thumbColor = WimgColors.accent, activeTrackColor = WimgColors.accent))
-            }
-
-            // Categories grid
-            Column {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(L("Kategorien"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    if (filterCategories.isNotEmpty()) {
-                        TextButton(onClick = { onFilterCategoriesChange(emptySet()) }) { Text(L("Zurücksetzen"), style = MaterialTheme.typography.labelSmall) }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                allCategories.chunked(4).forEach { row ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        row.forEach { cat ->
-                            val active = filterCategories.contains(cat.id)
-                            Column(
-                                modifier = Modifier.weight(1f).clickable { onFilterCategoriesChange(if (active) filterCategories - cat.id else filterCategories + cat.id) }.padding(vertical = 6.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                Box(
-                                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(cat.color.copy(alpha = if (active) 0.25f else 0.08f)),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(cat.icon, null, tint = cat.color, modifier = Modifier.size(18.dp))
-                                }
-                                Text(
-                                    L(cat.label),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                                    maxLines = 2,
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                    fontSize = 10.sp,
-                                )
-                            }
-                        }
-                        repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
-                    }
-                }
-            }
-
-            // Actions
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (filterCategories.isNotEmpty() || searchText.isNotBlank() || amountMin > 0 || amountMax < 1000) {
-                    OutlinedButton(onClick = onReset, modifier = Modifier.weight(1f), shape = WimgShapes.small) { Text(L("Zurücksetzen")) }
-                }
-                Button(onClick = onDismiss, modifier = Modifier.weight(1f), shape = WimgShapes.small, colors = ButtonDefaults.buttonColors(containerColor = WimgColors.accent, contentColor = WimgColors.heroText)) {
-                    Text(L("Ergebnisse anzeigen"), fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun GesamtsaldoCard(sum: Double, count: Int, isBalance: Boolean = false) {
-    val amountColor = when {
-        sum > 0 -> Color(0xFF059669) // emerald-600
-        sum < 0 -> Color(0xFFE11D48) // rose-600
-        else -> MaterialTheme.colorScheme.onSurface
-    }
-    val signedAmount = when {
-        sum > 0 -> "+${formatAmountShort(sum)}"
-        sum < 0 -> "-${formatAmountShort(abs(sum))}"
-        else -> formatAmountShort(0.0)
-    }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            // Breathing room above the card — also keeps it off the top edge
-            // once it pins as a sticky LazyColumn header.
-            .padding(top = 8.dp, bottom = 12.dp)
-            .wimgCard()
-            .padding(20.dp),
-    ) {
-        Text(L(if (isBalance) "Kontostand" else "Gesamtsaldo"),
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            signedAmount,
-            fontSize = 30.sp,
-            fontWeight = FontWeight.Black,
-            color = amountColor,
-        )
-        Spacer(Modifier.height(2.dp))
-        Row {
-            Text(
-                "$count ",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                L(if (count == 1) "Transaktion im Blickfeld" else "Transaktionen im Blickfeld"),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun QuickCategoryBar(selected: Int?, onSelect: (Int) -> Unit) {
-    val quickCategories = listOf(
-        WimgCategory.GROCERIES,
-        WimgCategory.DINING,
-        WimgCategory.TRANSPORT,
-        WimgCategory.SHOPPING,
-        WimgCategory.ENTERTAINMENT,
-    )
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-    ) {
-        quickCategories.forEach { cat ->
-            val active = selected == cat.id
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable { onSelect(cat.id) }
-                    .padding(vertical = 6.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
+            TxFilter.entries.forEach { f ->
+                val on = f == filter
                 Box(
-                    modifier = Modifier
-                        .size(52.dp)
-                        .clip(androidx.compose.foundation.shape.CircleShape)
-                        .background(cat.color.copy(alpha = 0.12f))
-                        .then(
-                            if (active) Modifier.border(
-                                2.5.dp,
-                                cat.color,
-                                androidx.compose.foundation.shape.CircleShape,
-                            ) else Modifier,
-                        ),
+                    Modifier
+                        .weight(1f)
+                        .height(38.dp)
+                        .clip(WimgShape.segmentInner)
+                        .background(if (on) c.card else Color.Transparent)
+                        .clickable { onFilter(f) },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(cat.icon, contentDescription = null, tint = cat.color, modifier = Modifier.size(18.dp))
+                    Text(L(f.label), style = WimgType.chip, color = if (on) c.text else c.text2)
                 }
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    L(cat.label),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                    fontSize = 10.sp,
-                    maxLines = 2,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    color = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
+        Text(L("Kategorien"), style = WimgType.label, color = c.text2, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            FILTER_CATEGORIES.forEach { cat ->
+                val on = cat.id in categories
+                Row(
+                    Modifier
+                        .height(38.dp)
+                        .clip(CircleShape)
+                        .background(if (on) c.ink else Color.Transparent)
+                        .border(1.dp, if (on) c.ink else c.line, CircleShape)
+                        .clickable { onCategories(if (on) categories - cat.id else categories + cat.id) }
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(c.categoryBar(cat.id)))
+                    Spacer(Modifier.width(8.dp))
+                    Text(L(cat.label), style = WimgType.rowTitle.copy(fontSize = WimgType.rowTitle.fontSize * 0.95f), color = if (on) c.inkText else c.text)
+                }
+            }
+        }
+        Box(
+            Modifier
+                .padding(top = 18.dp)
+                .fillMaxWidth()
+                .height(50.dp)
+                .clip(CircleShape)
+                .background(c.ink)
+                .pressable(onClick = onDone),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(L("%d Umsätze anzeigen", resultCount), style = WimgType.button, color = c.inkText)
+        }
     }
-}
-
-/// Format "YYYY-MM-DD" into a locale-aware day-month-year header,
-/// matching iOS `formatDateHeader`.
-private fun formatDateHeader(dateStr: String): String {
-    val parts = dateStr.split("-")
-    if (parts.size != 3) return dateStr
-    val day = parts[2].toIntOrNull() ?: return dateStr
-    val monthIdx = parts[1].toIntOrNull() ?: return dateStr
-    if (monthIdx !in 1..12) return dateStr
-
-    val isEn = com.wimg.app.ui.theme.LocaleState.locale == "en"
-    val locale = if (isEn) java.util.Locale.US else java.util.Locale.GERMAN
-    val symbols = java.text.DateFormatSymbols(locale).months
-    val monthName = symbols.getOrNull(monthIdx - 1) ?: return dateStr
-    return if (isEn) "$monthName $day, ${parts[0]}" else "$day. $monthName ${parts[0]}"
 }

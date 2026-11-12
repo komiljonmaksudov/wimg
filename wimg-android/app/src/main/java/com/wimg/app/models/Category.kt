@@ -22,7 +22,7 @@ enum class WimgCategory(
     HEALTH(8, "Gesundheit", Color(0xFFFF3B30), Icons.Outlined.FavoriteBorder),
     INSURANCE(9, "Versicherung", Color(0xFF64D2FF), Icons.Outlined.Shield),
     INCOME(10, "Einkommen", Color(0xFF30D158), Icons.Outlined.NorthEast),
-    TRANSFER(11, "Überweisung", Color(0xFF8E8E93), Icons.Outlined.SwapHoriz),
+    TRANSFER(11, "Umbuchung", Color(0xFF8E8E93), Icons.Outlined.SwapHoriz),
     CASH(12, "Bargeld", Color(0xFFFFD60A), Icons.Outlined.Payments),
     SUBSCRIPTIONS(13, "Abonnements", Color(0xFFBF5AF2), Icons.Outlined.Subscriptions),
     TRAVEL(14, "Reisen", Color(0xFF30B0C7), Icons.Outlined.Flight),
