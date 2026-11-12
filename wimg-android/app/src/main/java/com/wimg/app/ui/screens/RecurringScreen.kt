@@ -1,163 +1,366 @@
 package com.wimg.app.ui.screens
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.wimg.app.bridge.LibWimg
-import com.wimg.app.models.RecurringPattern
-import com.wimg.app.models.WimgCategory
-import com.wimg.app.ui.components.InfoTooltip
-import com.wimg.app.ui.components.formatAmountShort
-import com.wimg.app.ui.theme.WimgColors
-import com.wimg.app.ui.theme.WimgShapes
-import com.wimg.app.ui.theme.wimgCard
-import com.wimg.app.ui.theme.wimgHero
-import kotlin.math.abs
 import com.wimg.app.i18n.L
+import com.wimg.app.i18n.__t
+import com.wimg.app.models.RecurringPattern
+import com.wimg.app.ui.components.Amount
+import com.wimg.app.ui.components.BandScreen
+import com.wimg.app.ui.components.BarChipSpec
+import com.wimg.app.ui.components.BarClearance
+import com.wimg.app.ui.components.BarContribution
+import com.wimg.app.ui.components.BarPanel
+import com.wimg.app.ui.components.Changes
+import com.wimg.app.ui.components.Dock
+import com.wimg.app.ui.components.WimgDates
+import com.wimg.app.ui.components.amountText
+import com.wimg.app.ui.components.pressable
+import com.wimg.app.ui.theme.Wimg
+import com.wimg.app.ui.theme.WimgShape
+import com.wimg.app.ui.theme.WimgType
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.Calendar
+import kotlin.math.abs
 
-private val INTERVAL_LABELS = mapOf(
-    "weekly" to "Wöchentlich",
-    "monthly" to "Monatlich",
-    "quarterly" to "Vierteljährlich",
-    "annual" to "Jährlich",
+/** libwimg interval ids, in display order, with their label and per-month factor. */
+private val INTERVALS = listOf(
+    Triple("weekly", "Wöchentlich", 52.0 / 12.0),
+    Triple("monthly", "Monatlich", 1.0),
+    Triple("quarterly", "Vierteljährlich", 1.0 / 3.0),
+    Triple("annual", "Jährlich", 1.0 / 12.0),
 )
 
+private fun monthlyFactor(interval: String) = INTERVALS.firstOrNull { it.first == interval }?.third ?: 1.0
+private fun intervalLabel(interval: String) = INTERVALS.firstOrNull { it.first == interval }?.second ?: interval
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RecurringScreen() {
-    var patterns by remember { mutableStateOf<List<RecurringPattern>>(emptyList()) }
+    var patterns by remember { mutableStateOf<List<RecurringPattern>?>(null) }
+    var filterOpen by remember { mutableStateOf(false) }
+    var showExpenses by remember { mutableStateOf(true) }
+    var showIncome by remember { mutableStateOf(true) }
+    var showInactive by remember { mutableStateOf(false) }
+    var interval by remember { mutableStateOf<String?>(null) }
     var detecting by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
-    fun reload() { patterns = LibWimg.getRecurring() }
-
-    LaunchedEffect(Unit) { reload() }
-
-    val active = patterns.filter { it.active == 1 }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-    ) {
-        SubscriptionsTab(active, patterns.isEmpty(), detecting, onDetect = {
-            detecting = true
-            LibWimg.detectRecurring()
-            reload()
-            detecting = false
-        })
+    LaunchedEffect(Changes.version) {
+        patterns = withContext(Dispatchers.IO) {
+            var list = LibWimg.getRecurring()
+            // Patterns saved by older libwimg builds have next_due before
+            // last_seen (broken date maths). Detecting again fixes them in place.
+            if (list.any { p -> p.next_due != null && p.next_due < p.last_seen }) {
+                LibWimg.detectRecurring()
+                list = LibWimg.getRecurring()
+            }
+            list
+        }
     }
-}
 
-@Composable
-private fun SubscriptionsTab(
-    active: List<RecurringPattern>,
-    isEmpty: Boolean,
-    detecting: Boolean,
-    onDetect: () -> Unit,
-) {
-    val grouped = active.groupBy { it.interval }.toSortedMap()
-    val monthlyTotal = active.filter { it.interval == "monthly" }.sumOf { abs(it.amount) }
+    val month = remember { Calendar.getInstance().let { "%04d-%02d".format(it.get(Calendar.YEAR), it.get(Calendar.MONTH) + 1) } }
+    val today = remember { WimgDates.todayIso() }
+    val all = patterns ?: emptyList()
+    val active = all.filter { it.active == 1 }
+    val expenses = active.filter { it.amount < 0 }
 
-    LazyColumn(
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+    // Hero: fixed costs per month (quarterly/yearly spread over their months).
+    val perMonth = expenses.sumOf { abs(it.amount) * monthlyFactor(it.interval) }
+    // Progress: what falls into this month, paid (seen this month) vs. still open.
+    val dueThisMonth = expenses.filter { it.last_seen.startsWith(month) || (it.next_due ?: "").startsWith(month) || it.interval == "monthly" }
+    val paid = dueThisMonth.filter { it.last_seen.startsWith(month) }.sumOf { abs(it.amount) }
+    val open = dueThisMonth.filter { !it.last_seen.startsWith(month) }.sumOf { abs(it.amount) }
+
+    val shown = all.filter { p ->
+        (showInactive || p.active == 1) &&
+            ((p.amount < 0 && showExpenses) || (p.amount > 0 && showIncome)) &&
+            (interval == null || p.interval == interval)
+    }
+    val filterActive = !showExpenses || !showIncome || showInactive || interval != null
+
+    BarContribution(
+        chip = BarChipSpec("", filterOpen || filterActive, { filterOpen = !filterOpen }, Icons.Outlined.Tune, L("Ansicht und Filter")),
+        panel = if (filterOpen) {
+            {
+                val c = Wimg.colors
+                BarPanel {
+                    Text(L("Zeigen"), style = WimgType.label, color = c.text2, modifier = Modifier.padding(bottom = 8.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ToggleChip(L("Ausgaben"), showExpenses) { showExpenses = !showExpenses }
+                        ToggleChip(L("Einnahmen"), showIncome) { showIncome = !showIncome }
+                        ToggleChip(L("Inaktive"), showInactive) { showInactive = !showInactive }
+                    }
+                    Text(L("Intervall"), style = WimgType.label, color = c.text2, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ToggleChip(L("Alle"), interval == null, check = false) { interval = null }
+                        INTERVALS.filter { (id, _, _) -> all.any { it.interval == id } }.forEach { (id, label, _) ->
+                            ToggleChip(L(label), interval == id, check = false) { interval = if (interval == id) null else id }
+                        }
+                    }
+                    Row(
+                        Modifier
+                            .padding(top = 18.dp)
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .clip(CircleShape)
+                            .border(1.dp, c.line, CircleShape)
+                            .pressable(enabled = !detecting) {
+                                detecting = true
+                                scope.launch {
+                                    val n = withContext(Dispatchers.IO) { LibWimg.detectRecurring() }
+                                    detecting = false
+                                    filterOpen = false
+                                    Changes.bump()
+                                    Dock.info(__t("Erneut erkannt"), __t("%d feste Zahlungen").format(n))
+                                }
+                            },
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Outlined.Refresh, contentDescription = null, tint = c.text, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text(if (detecting) L("Suche Muster…") else L("Erneut erkennen"), style = WimgType.button, color = c.text)
+                    }
+                }
+            }
+        } else null,
+        onPanelDismiss = { filterOpen = false },
+    )
+
+    val c = Wimg.colors
+    BandScreen(
+        band = {
+            Text(L("Fixkosten pro Monat"), style = WimgType.bandOver, color = c.bandSub)
+            Amount(perMonth, WimgType.amountHero, WimgType.amountHeroCents, Color.White, Modifier.padding(top = 2.dp), showPlus = false)
+            Text(
+                if (expenses.size == 1) L("1 feste Zahlung erkannt") else L("%d feste Zahlungen erkannt", expenses.size),
+                style = WimgType.desc, color = c.bandSub, modifier = Modifier.padding(top = 4.dp),
+            )
+            if (paid + open > 0) {
+                val monthName = WimgDates.shortMonths()[Calendar.getInstance().get(Calendar.MONTH)]
+                Box(Modifier.padding(top = 18.dp).fillMaxWidth().height(6.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.14f))) {
+                    Box(Modifier.fillMaxHeight().fillMaxWidth((paid / (paid + open)).toFloat()).clip(CircleShape).background(Color.White))
+                }
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    BandFigure(L("Bezahlt im %s.", monthName), amountText(paid, showPlus = false), Modifier.weight(1f))
+                    BandFigure(L("Noch offen"), amountText(open, showPlus = false))
+                }
+            }
+        },
     ) {
-        if (isEmpty) {
-            item {
-                Box(modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("🔄", fontSize = 48.sp)
-                        Spacer(Modifier.height(8.dp))
-                        Text(L("Keine Muster erkannt"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(L("Importiere Transaktionen und tippe auf Erkennen"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(16.dp))
-                        Button(onClick = onDetect, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onBackground, contentColor = MaterialTheme.colorScheme.background)) {
-                            Text(L(if (detecting) "Erkennung..." else "Erkennen"), fontWeight = FontWeight.Bold)
-                        }
-                    }
+        if (patterns != null && shown.isEmpty()) {
+            Column(Modifier.fillMaxWidth().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(if (all.isEmpty()) L("Noch keine festen Zahlungen") else L("Keine Treffer"), style = WimgType.section, color = c.text)
+                Text(
+                    if (all.isEmpty()) L("wimg erkennt Miete, Strom und Abos, sobald ein paar Monate Umsätze da sind.") else L("Ändere den Filter, um mehr zu sehen."),
+                    style = WimgType.desc, color = c.text2, modifier = Modifier.padding(top = 6.dp),
+                )
+                if (all.isEmpty()) {
+                    Text(
+                        if (detecting) L("Suche Muster…") else L("Jetzt erkennen"),
+                        style = WimgType.button, color = c.inkText,
+                        modifier = Modifier
+                            .padding(top = 18.dp)
+                            .clip(CircleShape)
+                            .background(c.ink)
+                            .pressable(enabled = !detecting) {
+                                detecting = true
+                                scope.launch {
+                                    withContext(Dispatchers.IO) { LibWimg.detectRecurring() }
+                                    detecting = false
+                                    Changes.bump()
+                                }
+                            }
+                            .padding(horizontal = 22.dp, vertical = 13.dp),
+                    )
                 }
             }
-        } else {
-            // Hero
-            item {
-                Box(modifier = Modifier.fillMaxWidth().wimgHero()) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(L("Monatliche Fixkosten"), style = MaterialTheme.typography.labelMedium, color = WimgColors.heroText.copy(alpha = 0.7f))
-                            InfoTooltip(L("Summe aller erkannten monatlichen Abos und Fixkosten. Quartals- und Jahresbeiträge werden nicht eingerechnet."))
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        Text(formatAmountShort(monthlyTotal), fontSize = 32.sp, fontWeight = FontWeight.Black, color = WimgColors.heroText)
-                        Text(L("${active.size} erkannte Muster"), style = MaterialTheme.typography.bodySmall, color = WimgColors.heroText.copy(alpha = 0.7f))
+            return@BandScreen
+        }
+        val sections = buildList {
+            INTERVALS.forEach { (id, label, _) ->
+                val items = shown.filter { it.amount < 0 && it.interval == id }.sortedWith(compareBy({ dueDay(it, month) ?: 99 }, { it.merchant }))
+                if (items.isNotEmpty()) add(L(label) to items)
+            }
+            val income = shown.filter { it.amount > 0 }
+            if (income.isNotEmpty()) add(L("Einnahmen") to income)
+        }
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = BarClearance)) {
+            sections.forEachIndexed { si, (title, items) ->
+                item(key = "s_$title") {
+                    val total = items.sumOf { it.amount }
+                    Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = if (si == 0) 18.dp else 26.dp, bottom = 4.dp)) {
+                        Text(title, style = WimgType.chip, color = c.text2, modifier = Modifier.weight(1f))
+                        Text(amountText(if (total > 0) total else abs(total), showPlus = total > 0), style = WimgType.chip, color = if (total > 0) c.pos else c.text2)
                     }
                 }
-            }
-
-            item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(onClick = onDetect, modifier = Modifier.weight(1f), shape = WimgShapes.small) {
-                        Text(L(if (detecting) "Erkennung..." else "Erneut erkennen"), fontWeight = FontWeight.Bold)
-                    }
-                    InfoTooltip(L("Scannt deine Transaktionen nach wiederkehrenden Mustern (mind. 3 ähnliche Beträge in regelmäßigen Abständen). Erkennt Abos, Mieten und Fixkosten."))
-                }
-            }
-
-            grouped.forEach { (interval, items) ->
-                item {
-                    Text(L(INTERVAL_LABELS[interval] ?: interval), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
-                }
-                items(items, key = { it.id }) { pattern ->
-                    PatternRow(pattern)
-                }
+                items(items, key = { it.id }) { p -> PatternRow(p, month, today, last = p == items.last()) }
             }
         }
     }
 }
 
-@Composable
-private fun PatternRow(pattern: RecurringPattern) {
-    val category = WimgCategory.fromId(pattern.category)
+/** Day of this month the payment was made or is due, or null. */
+private fun dueDay(p: RecurringPattern, month: String): Int? = when {
+    p.last_seen.startsWith(month) -> p.last_seen.takeLast(2).toIntOrNull()
+    (p.next_due ?: "").startsWith(month) -> p.next_due!!.takeLast(2).toIntOrNull()
+    else -> null
+}
 
+private fun daysUntil(date: String): Int? {
+    val d = WimgDates.parse(date) ?: return null
+    val t = WimgDates.parse(WimgDates.todayIso()) ?: return null
+    return ((d.timeInMillis - t.timeInMillis) / 86_400_000L).toInt()
+}
+
+@Composable
+private fun BandFigure(label: String, value: String, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.Bottom) {
+        Text(label, style = WimgType.desc, color = Wimg.colors.bandSub)
+        Spacer(Modifier.width(6.dp))
+        Text(value, style = WimgType.amountStat, color = Color.White)
+    }
+}
+
+@Composable
+private fun PatternRow(p: RecurringPattern, month: String, today: String, last: Boolean) {
+    val c = Wimg.colors
+    val paidNow = p.last_seen.startsWith(month)
+    val income = p.amount > 0
+    val day = dueDay(p, month)
+    val shortMonth = WimgDates.shortMonths()[month.takeLast(2).toInt() - 1]
+    val inactive = p.active != 1
+    val sub = when {
+        inactive -> L("inaktiv · zuletzt %s", WimgDates.short(p.last_seen))
+        // price_change is signed (amount − prev), so compare sizes: an expense
+        // going from −16,99 to −21,99 is a rise even though the diff is negative.
+        !income && p.prev_amount != null && abs(p.amount) - abs(p.prev_amount) > 0.5 ->
+            L("Preis gestiegen · vorher %s", amountText(abs(p.prev_amount), showPlus = false))
+        !income && p.prev_amount != null && abs(p.prev_amount) - abs(p.amount) > 0.5 ->
+            L("Preis gesunken · vorher %s", amountText(abs(p.prev_amount), showPlus = false))
+        else -> {
+            val next = p.next_due?.let { daysUntil(it) }
+            val label = L(intervalLabel(p.interval))
+            when {
+                income && !paidNow && next != null && next >= 0 -> L("%s · erwartet in %d Tagen", label, next)
+                next != null && next > 0 && paidNow -> L("%s · nächste in %d Tagen", label, next)
+                next != null && next > 0 -> L("%s · in %d Tagen", label, next)
+                next != null && next == 0 -> L("%s · heute fällig", label)
+                next != null && next < 0 && !paidNow -> L("%s · überfällig seit %s", label, WimgDates.short(p.next_due!!))
+                else -> label
+            }
+        }
+    }
+    Column {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 66.dp).padding(start = 12.dp, end = 20.dp, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.width(52.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                if (day != null) {
+                    Text("$day.", style = WimgType.amountRow, color = if (inactive) c.text3 else c.text)
+                    Text("$shortMonth.", style = WimgType.caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Normal), color = c.text2)
+                } else {
+                    Text("–", style = WimgType.amountRow, color = c.text3)
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.weight(1f)) {
+                Text(p.merchant, style = WimgType.rowTitle, color = if (inactive) c.text3 else c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(sub, style = WimgType.desc, color = c.text2, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+            }
+            Spacer(Modifier.width(10.dp))
+            Text(
+                amountText(if (income) p.amount else abs(p.amount), showPlus = income),
+                style = WimgType.amountRow, color = when { inactive -> c.text3; income -> c.pos; else -> c.text },
+            )
+            Spacer(Modifier.width(12.dp))
+            StatusDot(paid = paidNow, income = income)
+        }
+        if (!last) HorizontalDivider(thickness = 1.dp, color = c.line)
+    }
+}
+
+@Composable
+private fun StatusDot(paid: Boolean, income: Boolean) {
+    val c = Wimg.colors
+    val desc = if (paid) L("bezahlt") else L("offen")
+    if (paid) {
+        Box(
+            Modifier.size(26.dp).clip(CircleShape).background(if (income) c.pos else c.ink),
+            contentAlignment = Alignment.Center,
+        ) { Icon(Icons.Outlined.Check, contentDescription = desc, tint = c.inkText, modifier = Modifier.size(15.dp)) }
+    } else {
+        Canvas(Modifier.size(26.dp)) {
+            drawCircle(c.text3, radius = size.minDimension / 2 - 1.dp.toPx(), style = Stroke(1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 4f))))
+        }
+    }
+}
+
+@Composable
+private fun ToggleChip(label: String, on: Boolean, check: Boolean = true, onClick: () -> Unit) {
+    val c = Wimg.colors
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .wimgCard(WimgShapes.small)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier
+            .height(40.dp)
+            .clip(CircleShape)
+            .background(if (on) c.ink else Color.Transparent)
+            .border(1.dp, if (on) c.ink else c.line, CircleShape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(category.color.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(category.icon, contentDescription = null, tint = category.color, modifier = Modifier.size(18.dp))
+        if (on && check) {
+            Icon(Icons.Outlined.Check, contentDescription = null, tint = c.inkText, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
         }
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(pattern.merchant, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 1)
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (pattern.next_due != null) {
-                    Text(pattern.next_due, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-        Column(horizontalAlignment = Alignment.End) {
-            Text(formatAmountShort(abs(pattern.amount)), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-            if (pattern.price_change != null && pattern.price_change != 0.0) {
-                Text(
-                    "${if (pattern.price_change > 0) "+" else ""}${formatAmountShort(pattern.price_change)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (pattern.price_change > 0) MaterialTheme.colorScheme.error else WimgCategory.INCOME.color,
-                )
-            }
-        }
+        Text(label, style = WimgType.rowTitle, color = if (on) c.inkText else c.text)
     }
 }

@@ -64,7 +64,7 @@ import com.wimg.app.ui.theme.WimgMotion
 private const val ONBOARDING_KEY = "wimg_onboarding_done"
 
 /** Routes already rebuilt in the redesign (band + sheet, content under the bar). */
-private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}")
+private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}", "recurring")
 
 /** Everything the place chip can switch to, in menu order. */
 val PLACES = listOf(
