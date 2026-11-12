@@ -66,7 +66,7 @@ pub fn normalizeMerchant(desc: []const u8, out_buf: []u8) ?usize {
     for (desc[0..upper_len], 0..) |ch, i| {
         upper[i] = asciiUpper(ch);
     }
-    var working = upper[0..upper_len];
+    var working: []const u8 = upper[0..upper_len];
 
     // Check known merchants first
     for (known_merchants) |km| {
@@ -87,6 +87,17 @@ pub fn normalizeMerchant(desc: []const u8, out_buf: []u8) ?usize {
         }
     }
 
+    // FinTS statements (Comdirect) put the booking type in front of every
+    // description: "LASTSCHRIFT / BELASTUNG <payee text>", "ÜBERTRAG / ÜBERWEISUNG
+    // <purpose>". Without stripping it every direct debit lands in one bucket
+    // called "LASTSCHRIFT" and nothing looks recurring.
+    working = stripBookingPrefix(working);
+
+    // The SEPA reference tail is different on every booking.
+    if (std.mem.indexOf(u8, working, "END-TO-END-REF")) |idx| {
+        if (idx > 0) working = working[0..idx];
+    }
+
     // Take first meaningful token (skip leading numbers/dates)
     var start: usize = 0;
     // Skip date-like prefixes (e.g. "2026-03-01 " or "01.03.2026 ")
@@ -97,29 +108,79 @@ pub fn normalizeMerchant(desc: []const u8, out_buf: []u8) ?usize {
                 digits_or_sep += 1;
             } else break;
         }
-        if (digits_or_sep >= 6 and digits_or_sep < working.len) {
+        if (digits_or_sep >= 6 and digits_or_sep < working.len and working[digits_or_sep] == ' ') {
             start = digits_or_sep;
-            // Skip trailing spaces
-            while (start < working.len and working[start] == ' ') : (start += 1) {}
         }
     }
 
-    // Find end of first token (or take up to 30 chars)
-    var end = start;
-    var token_count: usize = 0;
-    while (end < working.len and token_count < 3) : (end += 1) {
-        if (working[end] == '/' or working[end] == '\\' or working[end] == ',' or working[end] == ';') break;
-        if (working[end] == ' ') token_count += 1;
+    // Keep up to three tokens, stopping at a separator. Long digit runs (invoice
+    // or booking numbers) change every month, so they are not part of the key.
+    var out_len: usize = 0;
+    var kept: usize = 0;
+    var pos = start;
+    while (pos < working.len and kept < 3) {
+        while (pos < working.len and working[pos] == ' ') : (pos += 1) {}
+        const tok_start = pos;
+        var hit_separator = false;
+        while (pos < working.len and working[pos] != ' ') : (pos += 1) {
+            if (working[pos] == '/' or working[pos] == '\\' or working[pos] == ',' or working[pos] == ';') {
+                hit_separator = true;
+                break;
+            }
+        }
+        const tok = working[tok_start..pos];
+        if (tok.len > 0 and !isLongNumber(tok)) {
+            const need = tok.len + @as(usize, if (out_len > 0) 1 else 0);
+            if (out_len + need > out_buf.len) return null;
+            if (out_len > 0) {
+                out_buf[out_len] = ' ';
+                out_len += 1;
+            }
+            @memcpy(out_buf[out_len .. out_len + tok.len], tok);
+            out_len += tok.len;
+            kept += 1;
+        }
+        if (hit_separator) break;
     }
 
-    // Trim trailing spaces
-    while (end > start and working[end - 1] == ' ') : (end -= 1) {}
+    if (out_len == 0) return null;
+    return out_len;
+}
 
-    const result = working[start..end];
-    if (result.len == 0) return null;
-    if (result.len > out_buf.len) return null;
-    @memcpy(out_buf[0..result.len], result);
-    return result.len;
+/// Booking-type texts that FinTS banks prepend to the description. Matched by
+/// their ASCII part so both UTF-8 and Latin-1 umlauts ("ÜBERWEISUNG") work.
+const booking_prefixes = [_][]const u8{
+    "LASTSCHRIFT / BELASTUNG ",
+    "BERWEISUNG - ECHTZEIT ",
+    "BERWEISUNG ",
+    "KARTENVERF",
+    "DAUERAUFTRAG ",
+    "GUTSCHRIFT ",
+    "AUSZAHLUNG ",
+};
+
+fn stripBookingPrefix(text: []const u8) []const u8 {
+    for (booking_prefixes) |prefix| {
+        const idx = std.mem.indexOf(u8, text, prefix) orelse continue;
+        if (idx > 14) continue; // only at the very start ("ÜBERTRAG / " precedes "BERWEISUNG")
+        var rest = text[idx + prefix.len ..];
+        // Prefixes given without a trailing space end mid-word: skip to the next word.
+        if (prefix[prefix.len - 1] != ' ') {
+            const sp = std.mem.indexOfScalar(u8, rest, ' ') orelse return text;
+            rest = rest[sp + 1 ..];
+        }
+        if (rest.len == 0) return text;
+        return rest;
+    }
+    return text;
+}
+
+fn isLongNumber(tok: []const u8) bool {
+    if (tok.len < 8) return false;
+    for (tok) |ch| {
+        if (ch < '0' or ch > '9') return false;
+    }
+    return true;
 }
 
 fn asciiUpper(ch: u8) u8 {
@@ -328,12 +389,57 @@ pub fn detectRecurring(database: *Db) DbError!i32 {
     var detected: i32 = 0;
     for (&buckets) |*b| {
         if (!b.used or b.entry_count < MIN_OCCURRENCES) continue;
-        if (processGroup(database, b.name[0..b.name_len], b.entries[0..b.entry_count], max_julian) catch false) {
+        const entries = b.entries[0..b.entry_count];
+        if (processGroup(database, b.name[0..b.name_len], entries, max_julian) catch false) {
             detected += 1;
+            continue;
+        }
+        // The group as a whole is not regular. It may still hide one fixed payment
+        // among unrelated bookings that share the same text, e.g. a monthly rent
+        // transfer next to other transfers with the same purpose line. Retry with
+        // only the bookings around the most frequent amount.
+        var cluster: [MAX_TX_PER_MERCHANT]TxEntry = undefined;
+        const n = mostFrequentAmountCluster(entries, &cluster);
+        if (n >= MIN_OCCURRENCES and n < entries.len) {
+            if (processGroup(database, b.name[0..b.name_len], cluster[0..n], max_julian) catch false) {
+                detected += 1;
+            }
         }
     }
 
     return detected;
+}
+
+/// Copy the entries whose amount is within ±15% of the most frequent exact amount
+/// (same sign) into `out`, keeping date order. Returns how many were copied.
+fn mostFrequentAmountCluster(entries: []const TxEntry, out: *[MAX_TX_PER_MERCHANT]TxEntry) usize {
+    var best_amount: i64 = 0;
+    var best_count: usize = 0;
+    for (entries) |e| {
+        var count: usize = 0;
+        for (entries) |other| {
+            if (other.amount == e.amount) count += 1;
+        }
+        if (count > best_count) {
+            best_count = count;
+            best_amount = e.amount;
+        }
+    }
+    if (best_count < MIN_OCCURRENCES or best_amount == 0) return 0;
+
+    const abs_mode: i64 = if (best_amount < 0) -best_amount else best_amount;
+    const lo = @divTrunc(abs_mode * RECENT_AMOUNT_BAND_LO, 100);
+    const hi = @divTrunc(abs_mode * RECENT_AMOUNT_BAND_HI, 100);
+    var n: usize = 0;
+    for (entries) |e| {
+        if ((e.amount < 0) != (best_amount < 0)) continue;
+        const a: i64 = if (e.amount < 0) -e.amount else e.amount;
+        if (a >= lo and a <= hi) {
+            out[n] = e;
+            n += 1;
+        }
+    }
+    return n;
 }
 
 /// Simple hash for merchant name (FNV-1a)
@@ -572,6 +678,45 @@ fn hashMerchantId(merchant: []const u8, out: *[32]u8) void {
 }
 
 // --- Tests ---
+
+fn testNormalize(desc: []const u8, buf: *[128]u8) []const u8 {
+    const n = normalizeMerchant(desc, buf) orelse return "";
+    return buf[0..n];
+}
+
+test "normalizeMerchant strips FinTS booking-type prefixes" {
+    var buf: [128]u8 = undefined;
+    try std.testing.expectEqualStrings("KTO. 12345 678", testNormalize("LASTSCHRIFT / BELASTUNG KTO. 12345 678 KD MUSTERMANN RNR 2603 44025 DATUM 01.11.2026", &buf));
+    // Latin-1 umlauts as stored from MT940, instant transfer variant, SEPA tail cut off.
+    try std.testing.expectEqualStrings("MAX MUSTERMANN", testNormalize("\xDCBERTRAG / \xDCBERWEISUNG - ECHTZEIT MAX MUSTERMANN END-TO-END-REF.: NICHT ANGEGEBEN Ref. 4D2C/5", &buf));
+    try std.testing.expectEqualStrings("MAX MUSTERMANN", testNormalize("ÜBERTRAG / ÜBERWEISUNG MAX MUSTERMANN END-TO-END-REF.: NICHT ANGEGEBEN", &buf));
+    try std.testing.expectEqualStrings("BAECKEREI KAMPS", testNormalize("KARTENVERFÜGUNG BAECKEREI KAMPS, SOLINGEN DE", &buf));
+}
+
+test "normalizeMerchant leaves changing invoice numbers out of the key" {
+    var buf: [128]u8 = undefined;
+    try std.testing.expectEqualStrings("B VK MUSTERSTR", testNormalize("LASTSCHRIFT / BELASTUNG B 8319997724 VK 3014261600 MUSTERSTR . 1 / STROM ABS", &buf));
+    try std.testing.expectEqualStrings("B VK MUSTERSTR", testNormalize("LASTSCHRIFT / BELASTUNG B 8440181080 VK 3014261600 MUSTERSTR . 1 / STROM ABS", &buf));
+    // A description that is only a booking number gives no usable key.
+    try std.testing.expectEqualStrings("", testNormalize("LASTSCHRIFT / BELASTUNG 1049180470184/PP.6831.PP/. , IHR EINKAUF BEI", &buf));
+}
+
+test "mostFrequentAmountCluster isolates a fixed payment among mixed transfers" {
+    const d = struct {
+        fn e(month: i32, day: i32, amount: i64) TxEntry {
+            return .{ .date = .{ .year = 2026, .month = month, .day = day }, .amount = amount, .category = 0 };
+        }
+    };
+    const entries = [_]TxEntry{
+        d.e(6, 10, -76000), d.e(6, 22, -35000), d.e(6, 25, -20000), d.e(7, 1, -35000),
+        d.e(7, 4, -90000),  d.e(8, 3, -35000),  d.e(8, 20, -10000), d.e(9, 1, -35000),
+        d.e(9, 15, 35000),  d.e(10, 1, -35000),
+    };
+    var out: [MAX_TX_PER_MERCHANT]TxEntry = undefined;
+    const n = mostFrequentAmountCluster(&entries, &out);
+    try std.testing.expectEqual(@as(usize, 5), n); // the five -350.00 debits, not the +350.00 credit
+    for (out[0..n]) |x| try std.testing.expectEqual(@as(i64, -35000), x.amount);
+}
 
 test "normalizeMerchant: known merchants" {
     var buf: [128]u8 = undefined;
