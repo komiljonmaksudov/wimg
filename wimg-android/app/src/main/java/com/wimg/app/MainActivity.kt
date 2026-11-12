@@ -72,7 +72,7 @@ class MainActivity : FragmentActivity() {
      * Applied only when the user has opted into the app lock.
      */
     private fun applySecureFlag() {
-        if (BiometricLock.isEnabled) {
+        if (BiometricLock.secureScreen) {
             window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)

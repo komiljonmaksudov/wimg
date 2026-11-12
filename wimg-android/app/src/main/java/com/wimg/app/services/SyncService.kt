@@ -46,6 +46,11 @@ object SyncService {
 
     fun isEnabled(context: Context): Boolean = getSyncKey(context) != null
 
+    private const val KEY_LAST_SYNC_AT = "wimg_sync_last_ok_at"
+
+    /** When the last successful sync finished (unix ms), or 0. */
+    fun lastSyncAt(context: Context): Long = context.getSharedPreferences(PREFS, 0).getLong(KEY_LAST_SYNC_AT, 0)
+
     fun enableSync(context: Context): String {
         val key = java.util.UUID.randomUUID().toString()
         context.getSharedPreferences(PREFS, 0).edit().putString(KEY_SYNC_KEY, key).apply()
@@ -62,6 +67,7 @@ object SyncService {
         context.getSharedPreferences(PREFS, 0).edit()
             .remove(KEY_SYNC_KEY)
             .remove(KEY_LAST_TS)
+            .remove(KEY_LAST_SYNC_AT)
             .apply()
         encryptionKey = null
         webSocket?.close(1000, null)
@@ -85,6 +91,7 @@ object SyncService {
         return try {
             val pushed = pushOrThrow(context)
             val pulled = pullOrThrow(context)
+            context.getSharedPreferences(PREFS, 0).edit().putLong(KEY_LAST_SYNC_AT, System.currentTimeMillis()).apply()
             SyncOutcome(pushed, pulled, null)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e

@@ -29,7 +29,26 @@ object BiometricLock {
      * Only background spans longer than this trigger re-lock. Mirrors the
      * iOS BiometricLock + web LockScreen grace.
      */
-    private const val BACKGROUND_GRACE_MS = 30_000L
+    private const val DEFAULT_LOCK_AFTER_MS = 60_000L
+    private const val KEY_LOCK_AFTER = "wimg_lock_after_ms"
+    private const val KEY_DEVICE_ONLY = "wimg_lock_device_only"
+    private const val KEY_SECURE_SCREEN = "wimg_secure_screen"
+
+    /** How long the app may be in the background before it locks again ("Sperren nach"). */
+    var lockAfterMs by mutableStateOf(DEFAULT_LOCK_AFTER_MS)
+        private set
+
+    /** Unlock with the device PIN only, never biometrics ("Nur Geräte-PIN"). */
+    var deviceOnly by mutableStateOf(false)
+        private set
+
+    /**
+     * Hide amounts in the system's app overview and block screenshots
+     * (FLAG_SECURE). Older installs tied this to the lock, so it defaults to
+     * the lock's state until the user sets it.
+     */
+    var secureScreen by mutableStateOf(false)
+        private set
 
     /** True when the gate is up and the main UI should be hidden. */
     var isLocked by mutableStateOf(false)
@@ -47,6 +66,9 @@ object BiometricLock {
     fun initialize(context: Context) {
         val prefs = prefs(context)
         isEnabled = prefs.getBoolean(KEY_ENABLED, false)
+        lockAfterMs = prefs.getLong(KEY_LOCK_AFTER, DEFAULT_LOCK_AFTER_MS)
+        deviceOnly = prefs.getBoolean(KEY_DEVICE_ONLY, false)
+        secureScreen = prefs.getBoolean(KEY_SECURE_SCREEN, isEnabled)
         // Start locked if the user enabled it — first authenticate() unlocks.
         isLocked = isEnabled
     }
@@ -58,6 +80,21 @@ object BiometricLock {
         // flipping the toggle — otherwise they'd have to background the app
         // first, which feels broken.
         isLocked = enabled
+    }
+
+    fun setLockAfter(context: Context, ms: Long) {
+        prefs(context).edit().putLong(KEY_LOCK_AFTER, ms).apply()
+        lockAfterMs = ms
+    }
+
+    fun setDeviceOnly(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean(KEY_DEVICE_ONLY, on).apply()
+        deviceOnly = on
+    }
+
+    fun setSecureScreen(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean(KEY_SECURE_SCREEN, on).apply()
+        secureScreen = on
     }
 
     fun availableMethod(context: Context): AvailableMethod {
@@ -77,7 +114,10 @@ object BiometricLock {
     /** Called when the activity is in foreground — show prompt if locked. */
     fun authenticate(activity: FragmentActivity) {
         if (!isLocked) return
-        val method = availableMethod(activity)
+        val detected = availableMethod(activity)
+        val credentialOk = BiometricManager.from(activity)
+            .canAuthenticate(BiometricManager.Authenticators.DEVICE_CREDENTIAL) == BiometricManager.BIOMETRIC_SUCCESS
+        val method = if (deviceOnly && credentialOk) AvailableMethod.DEVICE_CREDENTIAL else detected
         if (method == AvailableMethod.NONE) {
             // Nothing enrolled. Don't auto-unlock — that would silently
             // disable security. Instead leave the LockScreen up so the user
@@ -140,7 +180,7 @@ object BiometricLock {
         val at = backgroundedAt
         backgroundedAt = 0L
         if (at == 0L) return
-        if (System.currentTimeMillis() - at >= BACKGROUND_GRACE_MS) {
+        if (System.currentTimeMillis() - at >= lockAfterMs) {
             isLocked = true
         }
     }

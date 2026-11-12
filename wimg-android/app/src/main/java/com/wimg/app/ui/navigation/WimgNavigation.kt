@@ -65,7 +65,7 @@ import com.wimg.app.ui.theme.WimgMotion
 private const val ONBOARDING_KEY = "wimg_onboarding_done"
 
 /** Routes already rebuilt in the redesign (band + sheet, content under the bar). */
-private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}", "recurring", "rec/{id}")
+private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}", "recurring", "rec/{id}", "settings", "settings/lock", "settings/data", "settings/sync", "settings/sync/key", "settings/sync/link")
 
 /** Everything the place chip can switch to, in menu order. */
 val PLACES = listOf(
@@ -135,7 +135,12 @@ fun WimgNavigation() {
                     composable("recurring") { RecurringScreen(navController = navController) }
                     composable("review") { ReviewScreen(selectedAccount = selectedAccount) }
                     composable("fints") { FinTSScreen() }
-                    composable("settings") { SettingsScreen() }
+                    composable("settings") { SettingsScreen(navController = navController) }
+                    composable("settings/lock") { SettingsLockScreen(navController) }
+                    composable("settings/data") { SettingsDataScreen(navController) }
+                    composable("settings/sync") { SettingsSyncScreen(navController) }
+                    composable("settings/sync/key") { SettingsSyncKeyScreen(navController) }
+                    composable("settings/sync/link") { SettingsSyncLinkScreen(navController) }
                     composable("about") { AboutScreen() }
                 }
             }
