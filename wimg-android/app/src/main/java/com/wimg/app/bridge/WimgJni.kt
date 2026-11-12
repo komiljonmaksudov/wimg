@@ -39,6 +39,7 @@ object WimgJni {
     // Recurring
     external fun nativeGetRecurring(): String?
     external fun nativeDetectRecurring(): Int
+    external fun nativeGetRecurringPayments(id: String): String?
 
     // Snapshots
     external fun nativeTakeSnapshot(year: Int, month: Int): Int

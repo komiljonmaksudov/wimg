@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.CalendarMonth
@@ -64,7 +65,7 @@ import com.wimg.app.ui.theme.WimgMotion
 private const val ONBOARDING_KEY = "wimg_onboarding_done"
 
 /** Routes already rebuilt in the redesign (band + sheet, content under the bar). */
-private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}", "recurring")
+private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}", "recurring", "rec/{id}")
 
 /** Everything the place chip can switch to, in menu order. */
 val PLACES = listOf(
@@ -117,13 +118,16 @@ fun WimgNavigation() {
                     composable("search") { SearchScreen(selectedAccount = selectedAccount, navController = navController) }
                     composable("dashboard") { HomeScreen(selectedAccount = selectedAccount, navController = navController) }
                     composable("transactions") { TransactionsScreen(selectedAccount = selectedAccount, navController = navController) }
+                    composable("rec/{id}") { entry ->
+                        RecurringDetailScreen(id = entry.arguments?.getString("id") ?: "", navController = navController)
+                    }
                     composable("tx/{id}") { entry ->
                         TransactionDetailScreen(id = entry.arguments?.getString("id") ?: "", navController = navController)
                     }
                     composable("more") { MoreScreen(navController = navController) }
                     composable("import") { ImportScreen(navController = navController) }
                     composable("analysis") { AnalysisScreen(selectedAccount = selectedAccount, navController = navController) }
-                    composable("recurring") { RecurringScreen() }
+                    composable("recurring") { RecurringScreen(navController = navController) }
                     composable("review") { ReviewScreen(selectedAccount = selectedAccount) }
                     composable("fints") { FinTSScreen() }
                     composable("settings") { SettingsScreen() }
@@ -196,9 +200,17 @@ fun WimgNavigation() {
             val detailBar = BarState.detail
             if (detailBar != null) {
                 FloatingBar(
+                    divider = detailBar.onMore != null,
                     left = {
-                        BarBack(detailBar.onBack)
-                        BarAction(detailBar.actionLabel, detailBar.actionIcon) { detailBar.onAction() }
+                        if (detailBar.actionLabel != null) {
+                            BarBack(detailBar.onBack)
+                            BarAction(detailBar.actionLabel, detailBar.actionIcon) { detailBar.onAction() }
+                        } else {
+                            BarChip(
+                                label = detailBar.backLabel ?: L("Zurück"),
+                                icon = androidx.compose.material.icons.Icons.AutoMirrored.Outlined.ArrowBack,
+                            ) { detailBar.onBack() }
+                        }
                     },
                     right = {
                         detailBar.onMore?.let { more ->

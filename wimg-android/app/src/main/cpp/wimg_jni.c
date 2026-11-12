@@ -23,6 +23,7 @@ extern int32_t wimg_update_account(const uint8_t *data, uint32_t len);
 extern int32_t wimg_delete_account(const uint8_t *id, uint32_t id_len);
 extern const uint8_t *wimg_get_recurring(void);
 extern int32_t wimg_detect_recurring(void);
+extern const uint8_t *wimg_get_recurring_payments(const uint8_t *id, uint32_t id_len);
 extern int32_t wimg_take_snapshot(uint32_t year, uint32_t month);
 extern const uint8_t *wimg_get_snapshots(void);
 extern const uint8_t *wimg_undo(void);
@@ -197,6 +198,15 @@ JNIEXPORT jstring JNICALL JNI_FN(nativeGetRecurring)(JNIEnv *env, jobject obj) {
 
 JNIEXPORT jint JNICALL JNI_FN(nativeDetectRecurring)(JNIEnv *env, jobject obj) {
     return wimg_detect_recurring();
+}
+
+JNIEXPORT jstring JNICALL JNI_FN(nativeGetRecurringPayments)(JNIEnv *env, jobject obj, jstring id) {
+    const char *s = (*env)->GetStringUTFChars(env, id, NULL);
+    if (s == NULL) return NULL;
+    jsize len = (*env)->GetStringUTFLength(env, id);
+    const uint8_t *res = wimg_get_recurring_payments((const uint8_t *)s, (uint32_t)len);
+    (*env)->ReleaseStringUTFChars(env, id, s);
+    return ptr_to_jstring(env, res);
 }
 
 // --- Snapshots ---

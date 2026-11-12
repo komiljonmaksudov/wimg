@@ -56,6 +56,13 @@ data class RecurringPattern(
 )
 
 @Serializable
+data class RecurringPayment(
+    val id: String,
+    val date: String,
+    val amount: Double,
+)
+
+@Serializable
 data class Snapshot(
     val id: String,
     val date: String,

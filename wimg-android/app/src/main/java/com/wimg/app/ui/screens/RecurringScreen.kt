@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Tune
@@ -43,12 +44,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.wimg.app.bridge.LibWimg
 import com.wimg.app.i18n.L
 import com.wimg.app.i18n.__t
 import com.wimg.app.models.RecurringPattern
+import com.wimg.app.models.RecurringPayment
 import com.wimg.app.ui.components.Amount
 import com.wimg.app.ui.components.BandScreen
 import com.wimg.app.ui.components.BarChipSpec
@@ -70,19 +73,19 @@ import java.util.Calendar
 import kotlin.math.abs
 
 /** libwimg interval ids, in display order, with their label and per-month factor. */
-private val INTERVALS = listOf(
+internal val INTERVALS = listOf(
     Triple("weekly", "Wöchentlich", 52.0 / 12.0),
     Triple("monthly", "Monatlich", 1.0),
     Triple("quarterly", "Vierteljährlich", 1.0 / 3.0),
     Triple("annual", "Jährlich", 1.0 / 12.0),
 )
 
-private fun monthlyFactor(interval: String) = INTERVALS.firstOrNull { it.first == interval }?.third ?: 1.0
-private fun intervalLabel(interval: String) = INTERVALS.firstOrNull { it.first == interval }?.second ?: interval
+internal fun monthlyFactor(interval: String) = INTERVALS.firstOrNull { it.first == interval }?.third ?: 1.0
+internal fun intervalLabel(interval: String) = INTERVALS.firstOrNull { it.first == interval }?.second ?: interval
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun RecurringScreen() {
+fun RecurringScreen(navController: androidx.navigation.NavController? = null) {
     var patterns by remember { mutableStateOf<List<RecurringPattern>?>(null) }
     var filterOpen by remember { mutableStateOf(false) }
     var showExpenses by remember { mutableStateOf(true) }
@@ -90,6 +93,9 @@ fun RecurringScreen() {
     var showInactive by remember { mutableStateOf(false) }
     var interval by remember { mutableStateOf<String?>(null) }
     var detecting by remember { mutableStateOf(false) }
+    var months by remember { mutableStateOf(false) }
+    var payments by remember { mutableStateOf<Map<String, List<RecurringPayment>>>(emptyMap()) }
+    var pickedMonth by remember { mutableStateOf(Calendar.getInstance().get(Calendar.MONTH) + 1) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Changes.version) {
@@ -102,6 +108,15 @@ fun RecurringScreen() {
                 list = LibWimg.getRecurring()
             }
             list
+        }
+    }
+
+    LaunchedEffect(months, patterns) {
+        val list = patterns
+        if (months && list != null) {
+            payments = withContext(Dispatchers.IO) {
+                list.filter { it.amount < 0 }.associate { it.id to LibWimg.getRecurringPayments(it.id) }
+            }
         }
     }
 
@@ -126,11 +141,22 @@ fun RecurringScreen() {
     val filterActive = !showExpenses || !showIncome || showInactive || interval != null
 
     BarContribution(
-        chip = BarChipSpec("", filterOpen || filterActive, { filterOpen = !filterOpen }, Icons.Outlined.Tune, L("Ansicht und Filter")),
+        chip = BarChipSpec("", filterOpen || filterActive, { filterOpen = !filterOpen }, if (months) Icons.Outlined.CalendarMonth else Icons.Outlined.Tune, L("Ansicht und Filter")),
         panel = if (filterOpen) {
             {
                 val c = Wimg.colors
                 BarPanel {
+                    Text(L("Ansicht"), style = WimgType.sheetTitle.copy(fontSize = WimgType.sheetTitle.fontSize * 0.86f), color = c.text)
+                    Row(Modifier.padding(top = 12.dp, bottom = 18.dp).fillMaxWidth().clip(WimgShape.segmentOuter).background(c.neutralTint).padding(4.dp)) {
+                        listOf(false to L("Liste"), true to L("12 Monate")).forEach { (m, label) ->
+                            Box(
+                                Modifier.weight(1f).height(38.dp).clip(WimgShape.segmentInner)
+                                    .background(if (months == m) c.card else Color.Transparent)
+                                    .clickable { months = m },
+                                contentAlignment = Alignment.Center,
+                            ) { Text(label, style = WimgType.chip, color = if (months == m) c.text else c.text2) }
+                        }
+                    }
                     Text(L("Zeigen"), style = WimgType.label, color = c.text2, modifier = Modifier.padding(bottom = 8.dp))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         ToggleChip(L("Ausgaben"), showExpenses) { showExpenses = !showExpenses }
@@ -224,6 +250,10 @@ fun RecurringScreen() {
             }
             return@BandScreen
         }
+        if (months) {
+            YearView(expenses, payments, pickedMonth, { pickedMonth = it }) { id -> navController?.navigate("rec/$id") }
+            return@BandScreen
+        }
         val sections = buildList {
             INTERVALS.forEach { (id, label, _) ->
                 val items = shown.filter { it.amount < 0 && it.interval == id }.sortedWith(compareBy({ dueDay(it, month) ?: 99 }, { it.merchant }))
@@ -241,7 +271,9 @@ fun RecurringScreen() {
                         Text(amountText(if (total > 0) total else abs(total), showPlus = total > 0), style = WimgType.chip, color = if (total > 0) c.pos else c.text2)
                     }
                 }
-                items(items, key = { it.id }) { p -> PatternRow(p, month, today, last = p == items.last()) }
+                items(items, key = { it.id }) { p ->
+                    PatternRow(p, month, today, last = p == items.last()) { navController?.navigate("rec/${p.id}") }
+                }
             }
         }
     }
@@ -254,7 +286,7 @@ private fun dueDay(p: RecurringPattern, month: String): Int? = when {
     else -> null
 }
 
-private fun daysUntil(date: String): Int? {
+internal fun daysUntil(date: String): Int? {
     val d = WimgDates.parse(date) ?: return null
     val t = WimgDates.parse(WimgDates.todayIso()) ?: return null
     return ((d.timeInMillis - t.timeInMillis) / 86_400_000L).toInt()
@@ -270,7 +302,7 @@ private fun BandFigure(label: String, value: String, modifier: Modifier = Modifi
 }
 
 @Composable
-private fun PatternRow(p: RecurringPattern, month: String, today: String, last: Boolean) {
+private fun PatternRow(p: RecurringPattern, month: String, today: String, last: Boolean, onClick: () -> Unit) {
     val c = Wimg.colors
     val paidNow = p.last_seen.startsWith(month)
     val income = p.amount > 0
@@ -298,7 +330,7 @@ private fun PatternRow(p: RecurringPattern, month: String, today: String, last: 
             }
         }
     }
-    Column {
+    Column(Modifier.clickable(onClick = onClick)) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 66.dp).padding(start = 12.dp, end = 20.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -362,5 +394,124 @@ private fun ToggleChip(label: String, on: Boolean, check: Boolean = true, onClic
             Spacer(Modifier.width(6.dp))
         }
         Text(label, style = WimgType.rowTitle, color = if (on) c.inkText else c.text)
+    }
+}
+
+/** Does a pattern fall into [month] (1–12) of a future month, judged from its next due date? */
+private fun dueInMonth(p: RecurringPattern, year: Int, month: Int): Boolean {
+    val next = p.next_due?.let { WimgDates.parse(it) } ?: return p.interval == "monthly" || p.interval == "weekly"
+    val diff = (year - next.get(Calendar.YEAR)) * 12 + (month - (next.get(Calendar.MONTH) + 1))
+    if (diff < 0) return false
+    return when (p.interval) {
+        "weekly", "monthly" -> true
+        "quarterly" -> diff % 3 == 0
+        "annual" -> diff % 12 == 0
+        else -> true
+    }
+}
+
+/**
+ * 12-month view: what was actually paid per month this year (from the
+ * patterns' real payments), and the forecast for the months still to come
+ * (dashed). Tapping a month lists its payments below.
+ */
+@Composable
+private fun YearView(
+    expenses: List<RecurringPattern>,
+    payments: Map<String, List<RecurringPayment>>,
+    picked: Int,
+    onPick: (Int) -> Unit,
+    onOpen: (String) -> Unit,
+) {
+    val c = Wimg.colors
+    val now = Calendar.getInstance()
+    val year = now.get(Calendar.YEAR)
+    val curMonth = now.get(Calendar.MONTH) + 1
+    val names = WimgDates.shortMonths()
+    val prefix = { m: Int -> "%04d-%02d".format(year, m) }
+    val paidIn = { m: Int ->
+        expenses.flatMap { p -> payments[p.id].orEmpty().filter { it.date.startsWith(prefix(m)) }.map { p to it } }
+    }
+    val expectedIn = { m: Int ->
+        expenses.filter { it.active == 1 && dueInMonth(it, year, m) && (m > curMonth || payments[it.id].orEmpty().none { pay -> pay.date.startsWith(prefix(m)) }) }
+    }
+    val paidTotal = (1..curMonth).sumOf { m -> paidIn(m).sumOf { abs(it.second.amount) } }
+    val expectedTotal = (curMonth..12).sumOf { m -> expectedIn(m).sumOf { abs(it.amount) } }
+
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = BarClearance)) {
+        item {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text("$year", style = WimgType.section.copy(fontSize = WimgType.section.fontSize * 1.2f), color = c.text, modifier = Modifier.weight(1f))
+                Text(L("%s bezahlt · %s erwartet", amountText(paidTotal, showPlus = false), amountText(expectedTotal, showPlus = false)), style = WimgType.desc, color = c.text2)
+            }
+            Spacer(Modifier.height(14.dp))
+            for (row in 0 until 4) {
+                Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    for (col in 0 until 3) {
+                        val m = row * 3 + col + 1
+                        val future = m > curMonth
+                        val sum = if (future) expectedIn(m).sumOf { abs(it.amount) } else paidIn(m).sumOf { abs(it.second.amount) }
+                        val sel = m == picked
+                        Column(
+                            Modifier
+                                .weight(1f)
+                                .clip(WimgShape.group)
+                                .background(if (sel) c.ink else if (future) Color.Transparent else c.card)
+                                .then(
+                                    if (sel) Modifier
+                                    else Modifier.border(1.dp, c.line, WimgShape.group),
+                                )
+                                .clickable { onPick(m) }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                        ) {
+                            Text(names[m - 1], style = WimgType.desc.copy(fontWeight = FontWeight.Medium), color = if (sel) c.inkText else c.text2)
+                            Text(
+                                if (sum > 0.004) amountText(sum, showPlus = false) else "–",
+                                style = WimgType.amountRow,
+                                color = when { sel -> c.inkText; future -> c.text3; else -> c.text },
+                                modifier = Modifier.padding(top = 2.dp), maxLines = 1,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        val paid = paidIn(picked).sortedBy { it.second.date }
+        val expected = expectedIn(picked).filter { picked >= curMonth }
+            .sortedBy { p -> p.next_due?.let { WimgDates.parse(it) }?.get(Calendar.DAY_OF_MONTH) ?: 99 }
+        val monthTotal = paid.sumOf { abs(it.second.amount) } + expected.sumOf { abs(it.amount) }
+        item {
+            Row(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 4.dp)) {
+                Text(WimgDates.months()[picked - 1], style = WimgType.chip, color = c.text2, modifier = Modifier.weight(1f))
+                Text(amountText(monthTotal, showPlus = false), style = WimgType.chip, color = c.text2)
+            }
+        }
+        items(paid, key = { it.second.id }) { (p, pay) ->
+            YearRow(pay.date.takeLast(2).toIntOrNull(), names[picked - 1], p.merchant, L("%s · bezahlt", L(intervalLabel(p.interval))), abs(pay.amount), future = false) { onOpen(p.id) }
+        }
+        items(expected, key = { "e_" + it.id }) { p ->
+            val day = p.next_due?.let { WimgDates.parse(it) }?.get(Calendar.DAY_OF_MONTH)
+            YearRow(day, names[picked - 1], p.merchant, L("%s · erwartet", L(intervalLabel(p.interval))), abs(p.amount), future = true) { onOpen(p.id) }
+        }
+    }
+}
+
+@Composable
+private fun YearRow(day: Int?, monthName: String, name: String, sub: String, amount: Double, future: Boolean, onClick: () -> Unit) {
+    val c = Wimg.colors
+    Column(Modifier.clickable(onClick = onClick)) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 62.dp).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.width(44.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(day?.let { "$it." } ?: "–", style = WimgType.amountRow, color = if (future) c.text3 else c.text)
+                Text("$monthName.", style = WimgType.caption.copy(fontWeight = FontWeight.Normal), color = c.text2)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(name, style = WimgType.rowTitle, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(sub, style = WimgType.desc, color = c.text2)
+            }
+            Text(amountText(amount, showPlus = false), style = WimgType.amountRow, color = if (future) c.text2 else c.text)
+        }
+        HorizontalDivider(thickness = 1.dp, color = c.line)
     }
 }

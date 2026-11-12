@@ -98,6 +98,12 @@ object LibWimg {
         WimgJni.nativeDetectRecurring()
     }
 
+    /** Payments that belong to a recurring pattern, newest first. */
+    fun getRecurringPayments(id: String): List<RecurringPayment> = lock.withLock {
+        val str = WimgJni.nativeGetRecurringPayments(id) ?: return emptyList()
+        json.decodeFromString(str)
+    }
+
     // --- Snapshots ---
 
     fun takeSnapshot(year: Int, month: Int) = lock.withLock {

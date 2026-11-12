@@ -476,6 +476,8 @@ fun BarIcon(icon: ImageVector, label: String, modifier: Modifier = Modifier, acc
 @Composable
 fun FloatingBar(
     modifier: Modifier = Modifier,
+    /** Separator between "where" and "what"; off when there is nothing on the right. */
+    divider: Boolean = true,
     left: @Composable RowScope.() -> Unit,
     right: @Composable RowScope.() -> Unit,
 ) {
@@ -508,7 +510,7 @@ fun FloatingBar(
             horizontalArrangement = Arrangement.spacedBy(WimgDimens.barGap),
         ) {
             left()
-            Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 24.dp).background(c.line))
+            if (divider) Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 24.dp).background(c.line))
             Spacer(Modifier.weight(1f, fill = docked != null))
             right()
         }
@@ -584,9 +586,11 @@ data class BarChipSpec(
 /** Detail screens replace the place bar with [←] [main action] [⋯]. */
 data class DetailBarSpec(
     val onBack: () -> Unit,
-    val actionLabel: String,
+    /** No main action: the back button carries [backLabel] ("← Wiederkehrend"). */
+    val actionLabel: String?,
     val actionIcon: ImageVector?,
     val onAction: () -> Unit,
+    val backLabel: String? = null,
     val onMore: (() -> Unit)? = null,
     val moreActive: Boolean = false,
 )
