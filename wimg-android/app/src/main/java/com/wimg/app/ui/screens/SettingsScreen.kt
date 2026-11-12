@@ -21,6 +21,7 @@ import com.wimg.app.bridge.LibWimg
 import com.wimg.app.ui.theme.WimgShapes
 import java.io.File
 import com.wimg.app.i18n.L
+import com.wimg.app.i18n.__t
 
 private enum class ThemeMode(val label: String, val value: Int) {
     SYSTEM("System", -1),
@@ -152,9 +153,13 @@ fun SettingsScreen() {
                                 onClick = {
                                     syncing = true
                                     scope.launch {
-                                        com.wimg.app.services.SyncService.push(context)
-                                        com.wimg.app.services.SyncService.pull(context)
+                                        val r = com.wimg.app.services.SyncService.syncNow(context)
                                         syncing = false
+                                        if (r.error != null) {
+                                            com.wimg.app.ui.components.Dock.error(__t("Nicht synchron"), __t("Keine Verbindung zum Sync-Server. Später erneut versuchen."))
+                                        } else {
+                                            com.wimg.app.ui.components.Dock.info(__t("Synchron"), if (r.pulled > 0) __t("%d Änderungen übernommen").format(r.pulled) else null)
+                                        }
                                     }
                                 },
                                 enabled = !syncing,

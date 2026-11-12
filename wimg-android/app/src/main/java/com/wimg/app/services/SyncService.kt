@@ -1,5 +1,6 @@
 package com.wimg.app.services
 
+
 import android.content.Context
 import com.wimg.app.bridge.WimgJni
 import kotlinx.coroutines.*
@@ -24,7 +25,7 @@ private data class SyncRow(
 )
 
 object SyncService {
-    private const val BASE_URL = "https://wimg-sync.mili-my.name"
+    private const val BASE_URL = "https://wimg-sync.komiljonmaksudov.com"
     private const val PREFS = "wimg"
     private const val KEY_SYNC_KEY = "wimg_sync_key"
     private const val KEY_LAST_TS = "wimg_sync_last_ts"
@@ -75,7 +76,40 @@ object SyncService {
         context.getSharedPreferences(PREFS, 0).edit().putLong(KEY_LAST_TS, ts).apply()
     }
 
-    suspend fun push(context: Context): Int = withContext(Dispatchers.IO) {
+    /**
+     * Push then pull. Never throws: a missing network or a server error comes
+     * back as [SyncOutcome.error] instead of crashing the caller.
+     */
+    suspend fun syncNow(context: Context): SyncOutcome {
+        if (getSyncKey(context) == null) return SyncOutcome(0, 0, null)
+        return try {
+            val pushed = pushOrThrow(context)
+            val pulled = pullOrThrow(context)
+            SyncOutcome(pushed, pulled, null)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("wimg-sync", "sync failed: ${e.javaClass.simpleName}")
+            SyncOutcome(0, 0, e)
+        }
+    }
+
+    /** Safe push: returns -1 on failure instead of throwing. */
+    suspend fun push(context: Context): Int = safely { pushOrThrow(context) }
+
+    /** Safe pull: returns -1 on failure instead of throwing. */
+    suspend fun pull(context: Context): Int = safely { pullOrThrow(context) }
+
+    private suspend fun safely(block: suspend () -> Int): Int = try {
+        block()
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        android.util.Log.w("wimg-sync", "sync step failed: ${e.javaClass.simpleName}")
+        -1
+    }
+
+    private suspend fun pushOrThrow(context: Context): Int = withContext(Dispatchers.IO) {
         val syncKey = getSyncKey(context) ?: return@withContext 0
         val lastTs = getLastTs(context)
         val changesJson = WimgJni.nativeGetChanges(lastTs) ?: return@withContext 0
@@ -109,7 +143,7 @@ object SyncService {
         payload.rows.size
     }
 
-    suspend fun pull(context: Context): Int = withContext(Dispatchers.IO) {
+    private suspend fun pullOrThrow(context: Context): Int = withContext(Dispatchers.IO) {
         val syncKey = getSyncKey(context) ?: return@withContext 0
         val lastTs = getLastTs(context)
         val key = encryptionKey ?: WimgJni.nativeDeriveKey(syncKey).also { encryptionKey = it } ?: return@withContext 0
@@ -145,12 +179,24 @@ object SyncService {
             val maxTs = payload.rows.maxOfOrNull { it.updated_at } ?: lastTs
             if (maxTs > lastTs) setLastTs(context, maxTs)
             WidgetDataWriter.writeSummary(context)
+            com.wimg.app.ui.components.Changes.bump()
         }
         applied
     }
 
+    /** Closes the live connection (app going to the background). */
+    fun disconnectWebSocket() {
+        wsWanted = false
+        webSocket?.close(1000, null)
+        webSocket = null
+    }
+
+    @Volatile private var wsWanted = false
+
     fun connectWebSocket(context: Context, scope: CoroutineScope) {
         val syncKey = getSyncKey(context) ?: return
+        wsWanted = true
+        if (webSocket != null) return
         val wsUrl = BASE_URL.replace("https://", "wss://").replace("http://", "ws://")
 
         val request = Request.Builder().url("$wsUrl/ws/$syncKey").build()
@@ -161,12 +207,19 @@ object SyncService {
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                // Auto-reconnect after delay
+                SyncService.webSocket = null
+                // Reconnect after a delay, but only while the app wants a connection.
                 scope.launch {
                     delay(5000)
-                    connectWebSocket(context, scope)
+                    if (wsWanted) connectWebSocket(context, scope)
                 }
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                SyncService.webSocket = null
             }
         })
     }
 }
+
+data class SyncOutcome(val pushed: Int, val pulled: Int, val error: Throwable?)

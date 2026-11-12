@@ -12,6 +12,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.fragment.app.FragmentActivity
 import com.wimg.app.services.BiometricLock
+import com.wimg.app.services.SyncService
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import com.wimg.app.ui.LockScreen
 import com.wimg.app.ui.navigation.WimgNavigation
 import com.wimg.app.ui.theme.WimgTheme
@@ -43,6 +46,7 @@ class MainActivity : FragmentActivity() {
     override fun onPause() {
         super.onPause()
         BiometricLock.onPause()
+        SyncService.disconnectWebSocket()
     }
 
     override fun onResume() {
@@ -51,6 +55,14 @@ class MainActivity : FragmentActivity() {
         BiometricLock.onResume()
         if (BiometricLock.isLocked) {
             BiometricLock.authenticate(this)
+        }
+        // Pull what other devices changed while we were away, then stay live.
+        // Failures stay quiet here (offline is normal); Settings shows the state.
+        if (SyncService.isEnabled(this)) {
+            lifecycleScope.launch {
+                SyncService.syncNow(this@MainActivity)
+                SyncService.connectWebSocket(this@MainActivity, lifecycleScope)
+            }
         }
     }
 
