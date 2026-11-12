@@ -129,12 +129,30 @@ z-index from stack depth, CSS-driven indent when nested (custom properties
 wraps page content for scale-down effect when any drawer opens. Sonner-style
 stacked toasts (multiple simultaneous, hover-to-pause, swipe-to-dismiss).
 
-Hosting (Aug 2026): wimg no longer runs on Cloudflare. `wimg-sync.mili-my.name`
+Hosting (Aug 2026): wimg no longer runs on Cloudflare. `wimg-sync.komiljonmaksudov.com`
 is the native Zig server (`wimg-sync-zig/`) on a Hetzner VPS behind Caddy, and
-`wimg.mili-my.name` is the static SPA (`adapter-static`) served from
+`wimg.komiljonmaksudov.com` is the static SPA (`adapter-static`) served from
 `/var/www/wimg` on the same box. See `.claude/rules/sync.md` and `infra/`.
 The old Cloudflare Worker in `wimg-sync/` is kept as a rollback path only.
-Everything else on the `mili-my.name` zone still uses Cloudflare DNS.
+
+Domain move (Nov 2026): both names moved from `mili-my.name` to
+`komiljonmaksudov.com` (DNS at Namecheap, A records → 91.98.69.226). The
+old `wimg.mili-my.name` / `wimg-sync.mili-my.name` names were cut over at
+once, not served in parallel: app builds from before the move can't sync
+until they're updated.
+
+Landing page (Nov 2026): the web app is no longer served.
+`wimg.komiljonmaksudov.com` is a static landing page built from `wimg-site/`
+(`python3 wimg-site/build.py` → `wimg-site/public/`, deployed by
+`./scripts/deploy-server.sh web`). `src/components/*` are the design-canvas
+export (template + code per screen, rendered by `src/runtime.js`); the
+clickable demo phone and the pocket easter egg (`EggHero`) live there.
+**Demo data only**: every amount, merchant and bank in those screens is
+invented (Musterbank, Grünstrom AG, Muster GmbH). Re-exports from the canvas
+carry the owner's real data and must be replaced before they land in the
+repo. The site keeps no access logs (`infra/wimg-web.caddy` has no `log`
+block) and loads nothing from third parties; `datenschutz.html` says so.
+`wimg-web/` still exists only because `en.ts` + i18n codegen live there.
 
 There is no in-app feedback system. An earlier `POST /feedback` endpoint on
 wimg-sync is gone — no route in any server and no client calls it. The

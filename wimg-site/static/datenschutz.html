@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Datenschutz · wimg</title>
+<meta name="theme-color" content="#1D1C1A">
+<link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+<style>
+@font-face{font-family:"Manrope";font-weight:800;font-display:swap;src:url(fonts/manrope-latin-800-normal.woff2) format("woff2")}
+@font-face{font-family:"Inter";font-weight:400;font-display:swap;src:url(fonts/inter-latin-400-normal.woff2) format("woff2")}
+@font-face{font-family:"Inter";font-weight:600;font-display:swap;src:url(fonts/inter-latin-600-normal.woff2) format("woff2")}
+:root{--bg:#FAF9F6;--text:#1A1A1A;--text2:#6B6A66;--line:#ECE8E1;--band:#1D1C1A;--accent:#4A6D96}
+@media (prefers-color-scheme:dark){:root{--bg:#111114;--text:#F2F2F3;--text2:#9A9BA0;--line:rgba(255,255,255,.08);--band:#161618;--accent:#8FB0D3}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:400 16px/1.65 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+header{background:var(--band);color:#fff}
+.wrap{max-width:720px;margin:0 auto;padding:0 20px}
+.top{display:flex;align-items:center;gap:12px;height:76px}
+.top a{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;font:800 20px Manrope,sans-serif;letter-spacing:-.5px}
+.top img{width:34px;height:34px;border-radius:9px}
+h1{font:800 clamp(32px,5vw,44px)/1.1 Manrope,sans-serif;letter-spacing:-.03em;margin:0;padding:32px 0 40px}
+h2{font:600 19px/1.35 Inter,sans-serif;margin:40px 0 8px}
+p,li{color:var(--text2)}
+ul{padding-left:20px}
+a{color:var(--accent)}
+.en{margin-top:56px;padding-top:24px;border-top:1px solid var(--line)}
+footer{margin:56px 0 40px;font-size:14px;color:var(--text2)}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="top"><a href="./"><img src="img/logo.svg" alt="">wimg</a></div>
+    <h1>Datenschutz</h1>
+  </div>
+</header>
+<main class="wrap">
+  <h2>Kurz gesagt</h2>
+  <p>Diese Website setzt keine Cookies, nutzt kein Tracking und keine Analyse-Dienste und lädt nichts von fremden Servern. Schriften und Bilder liegen auf demselben Server wie die Seite. Für diese Website werden keine Zugriffsprotokolle gespeichert.</p>
+
+  <h2>Die App</h2>
+  <ul>
+    <li>Deine Umsätze, Kategorien und Einstellungen liegen in einer Datenbank auf deinem Telefon.</li>
+    <li>Die Bankverbindung (FinTS) läuft direkt zwischen deinem Telefon und deiner Bank. Kein anderer Dienst sitzt dazwischen.</li>
+    <li>Deine Bank-PIN geht nur an deine Bank. Sie wird nie an den Sync-Server übertragen und nicht synchronisiert.</li>
+    <li>Ein Konto, eine E-Mail-Adresse oder ein Passwort gibt es nicht.</li>
+  </ul>
+
+  <h2>Sync zwischen deinen Geräten (optional)</h2>
+  <p>Wenn du Sync einschaltest, verschlüsselt die App deine Daten auf dem Gerät mit einem Schlüssel, der aus deinem Sync-Schlüssel abgeleitet wird (Ende-zu-Ende). Der Sync-Server speichert nur diese verschlüsselten Daten und kann sie nicht lesen.</p>
+  <p>Der Sync-Server protokolliert technische Zugriffe: IP-Adresse, Zeitpunkt und aufgerufene Adresse. Der Sync-Schlüssel wird dabei aus der Adresse entfernt. Für diese Protokolle gibt es derzeit noch keine feste Löschfrist.</p>
+  <p>Ohne Sync verlässt nichts dein Telefon außer der Verbindung zu deiner Bank.</p>
+
+  <h2>Downloads</h2>
+  <p>Die Android-App wird über GitHub ausgeliefert, die iPhone-Version über Apples TestFlight. Beim Download gelten die Datenschutzbestimmungen von <a href="https://docs.github.com/de/site-policy/privacy-policies/github-general-privacy-statement">GitHub</a> und <a href="https://www.apple.com/de/legal/privacy/">Apple</a>.</p>
+
+  <h2>Hosting</h2>
+  <p>Website und Sync-Server laufen auf einem Server der Hetzner Online GmbH in Deutschland.</p>
+
+  <section class="en" lang="en">
+    <h2>In English</h2>
+    <p>This website sets no cookies, uses no tracking or analytics, loads nothing from third-party servers and keeps no access logs. The app stores your data on your phone and talks to your bank directly. Optional sync is end-to-end encrypted: the server only stores ciphertext. The sync server logs technical requests (IP address, time, path with the sync key removed); there is no fixed deletion period yet. Downloads come from GitHub (Android) and Apple TestFlight (iPhone).</p>
+  </section>
+
+  <footer><a href="./">← Zurück zur Startseite</a></footer>
+</main>
+</body>
+</html>

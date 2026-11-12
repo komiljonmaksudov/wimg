@@ -1,0 +1,178 @@
+
+
+<div style="width: 390px; height: 848px; position: relative; overflow: hidden; box-sizing: border-box; background: {{t.band}}; color: {{t.text}}; font-family: Inter, system-ui, sans-serif; font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased">
+
+  <!-- ===== Transaction detail ===== -->
+  <sc-if value="{{isTx}}" hint-placeholder-val="{{ true }}">
+    <section style="padding: 28px 20px 0 20px; color: #FFFFFF">
+      <span style="font-size: 13px; font-weight: 500; color: #A8A49C">1. Nov. 2026 · Lastschrift</span>
+      <div style="display: flex; align-items: baseline; margin-top: 4px; font-family: Manrope, sans-serif; letter-spacing: -1px">
+        <span style="font-size: 40px; font-weight: 800; line-height: 48px">−62</span>
+        <span style="font-size: 22px; font-weight: 700">,50 €</span>
+      </div>
+      <span style="font-size: 13px; color: #A8A49C">Musterbank</span>
+    </section>
+
+    <section style="position: absolute; left: 0; right: 0; top: 160px; bottom: 0; background: {{t.sheet}}; border-radius: 20px 20px 0 0; border-top: {{t.sheetEdge}}; padding: 4px 20px 0 20px">
+      <div style="display: flex; justify-content: space-between; align-items: center; height: 52px; border-bottom: 1px solid {{t.line}}">
+        <span style="font-size: 14px; color: {{t.text2}}">Datum</span>
+        <span style="font-size: 15px; font-weight: 500">1. Nov. 2026</span>
+      </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; height: 52px; border-bottom: 1px solid {{t.line}}">
+        <span style="font-size: 14px; color: {{t.text2}}">Kategorie</span>
+        <span style="display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 500"><span style="width: 8px; height: 8px; border-radius: 4px; background: {{t.neutral}}"></span>Sonstiges</span>
+      </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; height: 52px; border-bottom: 1px solid {{t.line}}">
+        <span style="font-size: 14px; color: {{t.text2}}">Konto</span>
+        <span style="font-size: 15px; font-weight: 500">Musterbank</span>
+      </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; height: 52px; border-bottom: 1px solid {{t.line}}">
+        <span style="display: flex; align-items: center; gap: 6px; font-size: 14px; color: {{t.text2}}">Gegenpartei <span style="font: 700 10px Inter, sans-serif; letter-spacing: 0.4px; padding: 2px 6px; border-radius: 6px; background: {{t.neuBg}}; color: {{t.neuFg}}">NEU</span></span>
+        <span style="font-size: 14px; color: {{t.text2}}">von der Bank nicht übermittelt</span>
+      </div>
+      <div style="padding: 14px 0; border-bottom: 1px solid {{t.line}}">
+        <span style="font-size: 14px; color: {{t.text2}}">Verwendungszweck</span>
+        <div style="margin-top: 8px; padding: 12px; border-radius: 12px; background: {{t.card}}; border: 1px solid {{t.line}}; user-select: text">
+          <span style="display: inline-block; font: 700 11px Inter, sans-serif; letter-spacing: 0.6px; padding: 3px 8px; border-radius: 6px; background: {{t.neutralTint}}; color: {{t.text}}">LASTSCHRIFT</span>
+          <p style="margin: 8px 0 0 0; font: 400 13px/20px 'JetBrains Mono', ui-monospace, monospace; word-break: break-word">GRUENSTROM AG ABSCHLAG STROM VERTRAG 4471-209 KD-NR 7731 0042 ZEITRAUM 11/2026 BETRAG 62,50 FÄLLIGKEIT […]</p>
+        </div>
+      </div>
+      <label style="display: flex; align-items: center; gap: 12px; padding: 14px 0">
+        <span style="display: flex; flex-direction: column; gap: 2px; flex-grow: 1">
+          <span style="font-size: 15px; font-weight: 500">Aus Summen ausschließen</span>
+          <span style="font-size: 12px; color: {{t.text2}}">Zählt dann nicht in Übersicht und Analyse</span>
+        </span>
+        <span style="width: 48px; height: 26px; border-radius: 8px; background: {{t.trackSoft}}; position: relative; flex-shrink: 0" role="switch" aria-checked="false" aria-label="Aus Summen ausschließen"><span style="position: absolute; left: 3px; top: 3px; width: 20px; height: 20px; border-radius: 6px; background: #FFFFFF; box-shadow: 0 1px 2px rgba(0,0,0,0.18)"></span></span>
+      </label>
+    </section>
+  </sc-if>
+
+  <!-- ===== Recurring detail ===== -->
+  <sc-if value="{{isRec}}" hint-placeholder-val="{{ false }}">
+    <section style="padding: 28px 20px 0 20px; color: #FFFFFF">
+      <span style="font-size: 13px; font-weight: 500; color: #A8A49C">{{rec.label}}</span>
+      <div style="display: flex; align-items: baseline; margin-top: 4px; font-family: Manrope, sans-serif; letter-spacing: -1px">
+        <span style="font-size: 40px; font-weight: 800; line-height: 48px">{{rec.int}}</span>
+        <span style="font-size: 22px; font-weight: 700">{{rec.dec}}</span>
+      </div>
+      <h1 style="display: flex; align-items: center; gap: 8px; margin: 2px 0 0 0; font: 700 17px Manrope, sans-serif; line-height: 23px">{{rec.name}}
+        <sc-if value="{{rec.renamed}}" hint-placeholder-val="{{ false }}"><span style="font: 700 10px Inter, sans-serif; letter-spacing: 0.4px; padding: 2px 6px; border-radius: 6px; background: rgba(185,168,255,0.22); color: #CFC2FF">NEU · umbenannt</span></sc-if>
+      </h1>
+    </section>
+
+    <section style="position: absolute; left: 0; right: 0; top: 176px; bottom: 0; background: {{t.sheet}}; border-radius: 20px 20px 0 0; border-top: {{t.sheetEdge}}; padding: 16px 20px 0 20px">
+      <sc-if value="{{rec.priceChange}}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; margin-bottom: 14px; border-radius: 14px; background: {{t.warnBg}}">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{{t.warn}}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 1px"><path d="M4 17l6-6 4 4 6-8M14 7h6v6"></path></svg>
+          <div style="display: flex; flex-direction: column; gap: 2px">
+            <span style="font: 700 14px Manrope, sans-serif">Preis gestiegen: 14,99 € → 19,99 €</span>
+            <span style="font-size: 13px; color: {{t.text2}}">+5,00 € im Monat · +60,00 € im Jahr</span>
+          </div>
+        </div>
+      </sc-if>
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding-bottom: 14px; border-bottom: 1px solid {{t.line}}">
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 12px; color: {{t.text2}}">Nächste</span>
+          <span style="font: 700 15px Manrope, sans-serif">{{rec.next}}</span>
+          <span style="font-size: 12px; color: {{t.text2}}">{{rec.nextIn}}</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 12px; color: {{t.text2}}">Pro Jahr</span>
+          <span style="font: 700 15px Manrope, sans-serif">{{rec.year}}</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 12px; color: {{t.text2}}">Bisher</span>
+          <span style="font: 700 15px Manrope, sans-serif">{{rec.total}}</span>
+          <span style="font-size: 12px; color: {{t.text2}}">{{rec.count}}</span>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; height: 40px; margin-top: 8px">
+        <span style="font: 700 13px Manrope, sans-serif; color: {{t.text2}}">Verlauf</span>
+      </div>
+      <sc-for list="{{rec.history}}" as="h" hint-placeholder-count="5">
+        <div style="display: flex; align-items: center; gap: 12px; height: 48px; border-bottom: 1px solid {{t.line}}">
+          <span style="width: 22px; height: 22px; flex-shrink: 0; border-radius: 11px; display: flex; align-items: center; justify-content: center; background: {{t.ink}}; color: {{t.inkText}}" role="img" aria-label="bezahlt">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>
+          </span>
+          <span style="display: flex; flex-direction: column; flex-grow: 1">
+            <span style="font-size: 15px; font-weight: 500">{{h.date}}</span>
+            <span style="font-size: 12px; color: {{t.warn}}">{{h.note}}</span>
+          </span>
+          <span style="font: 700 15px Manrope, sans-serif">{{h.amt}}</span>
+        </div>
+      </sc-for>
+    </section>
+  </sc-if>
+
+  <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 110px; background: linear-gradient(to bottom, {{t.fade0}}, {{t.sheet}} 70%)"></div>
+
+  <!-- ⋯ menu -->
+  <sc-if value="{{isMenu}}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.24)"></div>
+    <div role="menu" aria-label="Weitere Aktionen" style="position: absolute; right: 16px; bottom: 100px; width: 250px; background: {{t.card}}; border: 1px solid {{t.line}}; border-radius: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.18); padding: 6px">
+      <sc-for list="{{menu}}" as="m" hint-placeholder-count="3">
+        <button type="button" role="menuitem" style="display: flex; align-items: center; gap: 12px; width: 100%; height: 48px; padding: 0 12px; border: 0; border-radius: 14px; background: transparent; color: {{t.text}}; font: 500 15px Inter, sans-serif; text-align: left">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{m.icon}}"></path></svg>{{m.label}}</button>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <!-- Category picker -->
+  <sc-if value="{{isCat}}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.36)"></div>
+    <div role="dialog" aria-label="Kategorie wählen" style="position: absolute; left: 16px; right: 16px; bottom: 100px; background: {{t.card}}; border: 1px solid {{t.line}}; border-radius: 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.18); padding: 16px 8px 8px 8px">
+      <h3 style="margin: 0 8px 8px 8px; font: 700 16px Manrope, sans-serif">Kategorie</h3>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px">
+        <sc-for list="{{cats}}" as="c" hint-placeholder-count="17">
+          <button type="button" aria-pressed="{{c.pressed}}" style="display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 10px; border: 0; border-radius: 10px; background: {{c.bg}}; color: {{c.fg}}; font: {{c.font}}; text-align: left">
+            <span style="width: 10px; height: 10px; border-radius: 5px; flex-shrink: 0; background: {{c.color}}; border: {{c.ring}}; box-sizing: border-box"></span>
+            <span style="flex-grow: 1">{{c.name}}</span>
+            <sc-if value="{{c.selected}}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></sc-if>
+          </button>
+        </sc-for>
+      </div>
+      <div style="margin: 8px 4px 0 4px; padding: 10px 12px; border-radius: 14px; background: {{t.neutralTint}}">
+        <label style="display: flex; align-items: center; gap: 12px">
+          <span style="flex-grow: 1; font-size: 14px; font-weight: 600">Auch für ähnliche Umsätze</span>
+          <span style="width: 48px; height: 26px; border-radius: 8px; background: {{accent}}; position: relative; flex-shrink: 0" role="switch" aria-checked="true" aria-label="Auch für ähnliche Umsätze"><span style="position: absolute; right: 3px; top: 3px; width: 20px; height: 20px; border-radius: 6px; background: #FFFFFF; box-shadow: 0 1px 2px rgba(0,0,0,0.18)"></span></span>
+        </label>
+        <div style="display: flex; align-items: flex-start; gap: 8px; margin-top: 8px">
+          <span style="font: 700 10px Inter, sans-serif; letter-spacing: 0.4px; padding: 2px 6px; border-radius: 6px; background: {{t.neuBg}}; color: {{t.neuFg}}; flex-shrink: 0; margin-top: 1px">NEU</span>
+          <span style="font-size: 12px; line-height: 17px; color: {{t.text2}}">Regel: <b style="font: 600 12px 'JetBrains Mono', monospace; color: {{t.text}}">„GRUENSTROM AG“</b> → Nebenkosten · ändert 9 weitere Umsätze</span>
+        </div>
+      </div>
+      <button type="button" style="width: calc(100% - 8px); height: 46px; margin: 8px 4px 0 4px; border: 0; border-radius: 13px; background: {{t.ink}}; color: {{t.inkText}}; font: 700 14px Manrope, sans-serif">Übernehmen</button>
+    </div>
+  </sc-if>
+
+  <!-- Detail bar -->
+  <div style="position: absolute; left: 0; right: 0; bottom: 20px; display: flex; justify-content: center">
+    <div style="display: flex; align-items: center; gap: 4px; height: 60px; padding: 0 8px; box-sizing: border-box; border-radius: 20px; background: {{t.card}}; border: 1px solid {{t.line}}; box-shadow: 0 6px 24px rgba(0,0,0,0.12)">
+      <button type="button" aria-label="Zurück" style="width: 44px; height: 44px; border-radius: 13px; border: 0; background: {{t.neutralTint}}; color: {{t.text}}; display: flex; align-items: center; justify-content: center">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>
+      </button>
+      <sc-if value="{{isTx}}" hint-placeholder-val="{{ true }}">
+        <button type="button" aria-expanded="{{isCatStr}}" style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 20px 0 14px; border-radius: 13px; border: 0; background: {{accent}}; color: #FFFFFF; font: 700 14px Manrope, sans-serif">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8zM7.5 7.5h.01"></path></svg>
+          Kategorie wählen</button>
+      </sc-if>
+      <sc-if value="{{isRec}}" hint-placeholder-val="{{ false }}">
+        <span style="position: relative; display: flex">
+          <button type="button" style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 16px 0 12px; border-radius: 13px; border: 1.5px solid {{t.danger}}; background: transparent; color: {{t.danger}}; font: 700 14px Manrope, sans-serif">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M6 6l12 12"></path></svg>
+            Nicht wiederkehrend</button>
+          <span style="position: absolute; right: -2px; top: -8px; font: 700 9px Inter, sans-serif; letter-spacing: 0.4px; padding: 2px 5px; border-radius: 6px; background: {{t.neuBg}}; color: {{t.neuFg}}">NEU</span>
+        </span>
+        <span style="position: relative; display: flex">
+          <button type="button" aria-label="Umbenennen" style="width: 44px; height: 44px; border-radius: 13px; border: 0; background: transparent; color: {{t.text}}; display: flex; align-items: center; justify-content: center">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4"></path></svg>
+          </button>
+          <span style="position: absolute; right: -4px; top: -8px; font: 700 9px Inter, sans-serif; letter-spacing: 0.4px; padding: 2px 5px; border-radius: 6px; background: {{t.neuBg}}; color: {{t.neuFg}}">NEU</span>
+        </span>
+      </sc-if>
+      <button type="button" aria-label="Weitere Aktionen" aria-expanded="{{isMenuStr}}" style="width: 44px; height: 44px; border-radius: 13px; border: 0; background: {{menuBg}}; color: {{menuFg}}; display: flex; align-items: center; justify-content: center">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"></path></svg>
+      </button>
+    </div>
+  </div>
+</div>

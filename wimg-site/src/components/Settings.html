@@ -1,0 +1,66 @@
+
+
+<div style="width: 390px; height: 848px; position: relative; overflow: hidden; box-sizing: border-box; background: {{t.band}}; color: {{t.text}}; font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased">
+
+  <section style="padding: 26px 20px 0 20px; height: 84px; box-sizing: border-box">
+    <h1 style="margin: 0; font: 800 24px Manrope, sans-serif; color: #FFFFFF; letter-spacing: -0.4px">Einstellungen</h1>
+  </section>
+
+  <section style="position: absolute; left: 0; right: 0; top: 76px; bottom: 0; background: {{t.sheet}}; border-radius: 20px 20px 0 0; border-top: {{t.sheetEdge}}; padding: 0 16px; overflow: hidden">
+    <div style="margin-top: {{offset}}">
+    <sc-for list="{{groups}}" as="g" hint-placeholder-count="5">
+      <div style="display: flex; flex-direction: column">
+        <h2 style="display: flex; align-items: center; gap: 6px; margin: 18px 4px 8px 4px; font: 700 13px Manrope, sans-serif; color: {{g.titleColor}}">{{g.title}}
+          <sc-if value="{{g.neu}}" hint-placeholder-val="{{ false }}"><span style="font: 700 10px Inter, sans-serif; letter-spacing: 0.4px; padding: 2px 6px; border-radius: 6px; background: {{t.neuBg}}; color: {{t.neuFg}}">NEU</span></sc-if>
+        </h2>
+        <div style="background: {{t.card}}; border: 1px solid {{g.border}}; border-radius: 14px; overflow: hidden">
+          <sc-for list="{{g.rows}}" as="r" hint-placeholder-count="2">
+            <div style="display: flex; align-items: center; gap: 12px; min-height: {{r.h}}; padding: 8px 14px; box-sizing: border-box; border-top: {{r.border}}">
+              <div style="display: flex; flex-direction: column; gap: 2px; flex-grow: 1; min-width: 0">
+                <span style="display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 500; color: {{r.color}}">{{r.label}}
+                  <sc-if value="{{r.neu}}" hint-placeholder-val="{{ false }}"><span style="font: 700 10px Inter, sans-serif; letter-spacing: 0.4px; padding: 2px 6px; border-radius: 6px; background: {{t.neuBg}}; color: {{t.neuFg}}">NEU</span></sc-if>
+                </span>
+                <sc-if value="{{r.desc}}" hint-placeholder-val="{{ false }}"><span style="font-size: 12px; line-height: 16px; color: {{t.text2}}">{{r.desc}}</span></sc-if>
+              </div>
+              <sc-if value="{{r.isNav}}" hint-placeholder-val="{{ true }}">
+                <span style="display: flex; align-items: center; gap: 4px; font-size: 14px; color: {{t.text2}}; flex-shrink: 0">{{r.value}}
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"></path></svg></span>
+              </sc-if>
+              <sc-if value="{{r.isStatus}}" hint-placeholder-val="{{ false }}">
+                <span style="display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: {{t.pos}}; flex-shrink: 0"><span style="width: 8px; height: 8px; border-radius: 4px; background: {{t.pos}}"></span>{{r.value}}</span>
+              </sc-if>
+              <sc-if value="{{r.isSwitch}}" hint-placeholder-val="{{ false }}">
+                <span role="switch" aria-checked="{{r.checked}}" aria-label="{{r.label}}" style="width: {{sh.trackW}}; height: 26px; border-radius: {{sh.trackR}}; background: {{r.trackBg}}; position: relative; flex-shrink: 0"><span style="position: absolute; left: {{r.knobLeft}}; top: 3px; width: 20px; height: 20px; border-radius: {{sh.knobR}}; background: {{r.knobBg}}; box-shadow: 0 1px 2px rgba(0,0,0,0.18), 0 0 0 0.5px rgba(0,0,0,0.04)"></span></span>
+              </sc-if>
+              <sc-if value="{{r.isSeg}}" hint-placeholder-val="{{ false }}">
+                <span style="display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: {{t.neutralTint}}; flex-shrink: 0">
+                  <sc-for list="{{r.opts}}" as="o" hint-placeholder-count="3">
+                    <button type="button" aria-pressed="{{o.pressed}}" style="height: 28px; padding: 0 10px; border: 0; border-radius: 8px; background: {{o.bg}}; color: {{o.fg}}; font: {{o.font}}; box-shadow: {{o.shadow}}">{{o.label}}</button>
+                  </sc-for>
+                </span>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-for>
+    </div>
+  </section>
+
+  <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 110px; background: linear-gradient(to bottom, {{t.fade0}}, {{t.sheet}} 70%)"></div>
+
+  <!-- Bar: no filter, no + on settings -->
+  <div style="position: absolute; left: 0; right: 0; bottom: 20px; display: flex; justify-content: center">
+    <div style="display: flex; align-items: center; gap: 4px; height: 60px; padding: 0 8px; box-sizing: border-box; border-radius: {{sh.barR}}; background: {{t.card}}; border: 1px solid {{t.line}}; box-shadow: 0 6px 24px rgba(0,0,0,0.12)">
+      <button type="button" aria-label="Bereich wechseln, aktuell Einstellungen" style="display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 10px 0 12px; border-radius: {{sh.btnR}}; border: 0; background: {{t.neutralTint}}; color: {{t.text}}; font: 700 14px Manrope, sans-serif">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"></path></svg>
+        Einstellungen
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 9l5-5 5 5M7 15l5 5 5-5"></path></svg>
+      </button>
+      <span style="width: 5px; height: 24px; display: flex; justify-content: center"><span style="width: 1px; height: 24px; background: {{t.line}}"></span></span>
+      <button type="button" aria-label="Einstellungen durchsuchen" style="width: 44px; height: 44px; border-radius: {{sh.btnR}}; border: 0; background: transparent; color: {{t.text}}; display: flex; align-items: center; justify-content: center">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+      </button>
+    </div>
+  </div>
+</div>

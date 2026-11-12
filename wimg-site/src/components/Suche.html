@@ -1,0 +1,108 @@
+
+
+<div style="width: 390px; height: 848px; position: relative; overflow: hidden; box-sizing: border-box; background: {{t.band}}; color: {{t.text}}; font-family: Inter, system-ui, sans-serif; font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased">
+
+  <!-- Band -->
+  <sc-if value="{{isResults}}" hint-placeholder-val="{{ false }}">
+    <section style="padding: 26px 20px 0 20px; color: #FFFFFF">
+      <span style="font-size: 13px; font-weight: 500; color: #A8A49C">„spotify“ · 10 Treffer · Feb. – Nov. 2026</span>
+      <div style="display: flex; align-items: baseline; margin-top: 2px; font-family: Manrope, sans-serif; letter-spacing: -1px">
+        <span style="font-size: 38px; font-weight: 800; line-height: 46px">−109</span>
+        <span style="font-size: 21px; font-weight: 700">,90 €</span>
+      </div>
+      <span style="font-size: 13px; color: #A8A49C">Ø 10,99 € pro Umsatz</span>
+    </section>
+  </sc-if>
+  <sc-if value="{{notResults}}" hint-placeholder-val="{{ true }}">
+    <section style="padding: 26px 20px 0 20px; height: 84px; box-sizing: border-box">
+      <h1 style="margin: 0; font: 800 24px Manrope, sans-serif; color: #FFFFFF; letter-spacing: -0.4px">Suche</h1>
+    </section>
+  </sc-if>
+
+  <section style="position: absolute; left: 0; right: 0; top: {{sheetTop}}; bottom: 0; background: {{t.sheet}}; border-radius: 20px 20px 0 0; border-top: {{t.sheetEdge}}; overflow: hidden">
+
+    <!-- Before typing: recent + quick filters -->
+    <sc-if value="{{isEmpty}}" hint-placeholder-val="{{ true }}">
+      <div style="padding: 18px 20px 0 20px">
+        <h2 style="margin: 0 0 10px 0; font: 700 13px Manrope, sans-serif; color: {{t.text2}}">Zuletzt gesucht</h2>
+        <sc-for list="{{recent}}" as="r" hint-placeholder-count="3">
+          <a href="#" style="display: flex; align-items: center; gap: 12px; height: 44px; text-decoration: none; color: {{t.text}}">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{{t.text2}}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+            <span style="flex-grow: 1; font: {{r.font}}">{{r.q}}</span>
+            <span style="font-size: 12px; color: {{t.text2}}">{{r.hits}}</span>
+          </a>
+        </sc-for>
+        <h2 style="margin: 16px 0 10px 0; font: 700 13px Manrope, sans-serif; color: {{t.text2}}">Schnell filtern</h2>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px">
+          <sc-for list="{{quick}}" as="c" hint-placeholder-count="6">
+            <button type="button" style="display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px 0 10px; border-radius: 17px; border: 1px solid {{t.line}}; background: {{t.card}}; color: {{t.text}}; font: 600 13px Inter, sans-serif">
+              <span style="width: 8px; height: 8px; border-radius: 4px; background: {{c.color}}; border: {{c.ring}}; box-sizing: border-box"></span>{{c.name}}</button>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- Results -->
+    <sc-if value="{{isResults}}" hint-placeholder-val="{{ false }}">
+      <div style="display: flex; align-items: center; justify-content: space-between; height: 44px; padding: 6px 20px 0 20px">
+        <span style="font: 700 13px Manrope, sans-serif; color: {{t.text2}}">Neueste zuerst</span>
+        <span style="font-size: 12px; color: {{t.text2}}">Treffer im Verwendungszweck</span>
+      </div>
+      <sc-for list="{{results}}" as="row" hint-placeholder-count="6">
+        <div style="display: flex; align-items: center; gap: 12px; height: 60px; padding: 0 20px; border-bottom: 1px solid {{t.line}}">
+          <div style="display: flex; flex-direction: column; gap: 3px; flex-grow: 1; min-width: 0">
+            <span style="font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis"><mark style="background: {{t.mark}}; color: {{t.text}}; border-radius: 3px; padding: 0 2px">Spotify</mark> AB</span>
+            <span style="font-size: 12px; color: {{t.text2}}">{{row.date}} · Lastschrift · Musterbank</span>
+          </div>
+          <span style="display: flex; align-items: baseline; font-family: Manrope, sans-serif; flex-shrink: 0">
+            <span style="font-size: 18px; font-weight: 700">−10</span><span style="font-size: 13px; font-weight: 700">,99 €</span>
+          </span>
+        </div>
+      </sc-for>
+    </sc-if>
+
+    <!-- No results -->
+    <sc-if value="{{isNone}}" hint-placeholder-val="{{ false }}">
+      <div style="padding: 28px 24px 0 24px">
+        <h2 style="margin: 0; font: 800 19px Manrope, sans-serif">Keine Treffer für „netflix“</h2>
+        <p style="margin: 8px 0 0 0; font-size: 14px; line-height: 20px; color: {{t.text2}}">Gesucht wird im Verwendungszweck aller Umsätze. Banken kürzen Namen oft ab, versuch einen Teil des Namens, z. B. „netfl“, oder eine Kundennummer.</p>
+      </div>
+    </sc-if>
+  </section>
+
+  <!-- Keyboard (system) -->
+  <sc-if value="{{kb}}" hint-placeholder-val="{{ true }}">
+    <div aria-hidden="true" style="position: absolute; left: 0; right: 0; bottom: 0; height: 272px; padding: 10px 4px 0 4px; box-sizing: border-box; background: {{t.kbBg}}; display: flex; flex-direction: column; gap: 10px">
+      <sc-for list="{{kbRows}}" as="kr" hint-placeholder-count="4">
+        <div style="display: flex; gap: 5px; justify-content: center; padding: 0 {{kr.pad}}">
+          <sc-for list="{{kr.keys}}" as="k" hint-placeholder-count="10">
+            <span style="flex: {{k.flex}} 1 0; height: 46px; border-radius: 7px; background: {{k.bg}}; color: {{t.text}}; display: flex; align-items: center; justify-content: center; font: 400 19px Inter, sans-serif">{{k.label}}</span>
+          </sc-for>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{noKb}}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 110px; background: linear-gradient(to bottom, {{t.fade0}}, {{t.sheet}} 70%)"></div>
+  </sc-if>
+
+  <!-- Bar in search state: [←] [field] [filter] -->
+  <div style="position: absolute; left: 16px; right: 16px; bottom: {{barBottom}}; display: flex; align-items: center; gap: 4px; height: 60px; padding: 0 8px; box-sizing: border-box; border-radius: 20px; background: {{t.card}}; border: 1px solid {{t.line}}; box-shadow: 0 6px 24px rgba(0,0,0,0.12)">
+    <button type="button" aria-label="Suche schließen" style="width: 44px; height: 44px; border-radius: 13px; border: 0; background: {{t.neutralTint}}; color: {{t.text}}; display: flex; align-items: center; justify-content: center; flex-shrink: 0">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>
+    </button>
+    <label style="display: flex; align-items: center; gap: 8px; flex-grow: 1; min-width: 0; height: 44px; padding: 0 6px 0 14px; border-radius: 13px; background: {{t.neutralTint}}; border: {{fieldBorder}}; box-sizing: border-box">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{{t.text2}}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+      <input type="search" value="{{query}}" placeholder="Umsätze durchsuchen" aria-label="Umsätze durchsuchen" style="flex-grow: 1; min-width: 0; border: 0; background: transparent; color: {{t.text}}; font: 500 15px Inter, sans-serif; outline: none">
+      <sc-if value="{{query}}" hint-placeholder-val="{{ false }}">
+        <button type="button" aria-label="Eingabe löschen" style="width: 32px; height: 32px; border-radius: 16px; border: 0; background: {{t.line}}; color: {{t.text}}; display: flex; align-items: center; justify-content: center; flex-shrink: 0">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+        </button>
+      </sc-if>
+    </label>
+    <button type="button" aria-label="Suchfilter" style="width: 44px; height: 44px; border-radius: 13px; border: 0; background: transparent; color: {{t.text}}; display: flex; align-items: center; justify-content: center; flex-shrink: 0">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2"></circle><circle cx="10" cy="17" r="2"></circle></svg>
+    </button>
+  </div>
+</div>

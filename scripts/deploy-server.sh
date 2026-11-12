@@ -3,9 +3,9 @@
 # No GitHub CI involved — CI only builds iOS/Android and the GitHub Release.
 #
 # Usage:
-#   ./scripts/deploy-server.sh          # web app + sync server
-#   ./scripts/deploy-server.sh web      # web app only  (wimg.mili-my.name)
-#   ./scripts/deploy-server.sh sync     # sync server only (wimg-sync.mili-my.name)
+#   ./scripts/deploy-server.sh          # landing page + sync server
+#   ./scripts/deploy-server.sh web      # landing page only (wimg.komiljonmaksudov.com)
+#   ./scripts/deploy-server.sh sync     # sync server only (wimg-sync.komiljonmaksudov.com)
 #
 # VPS defaults to the `wimg-vps` alias in ~/.ssh/config (Host wimg-vps →
 # 91.98.69.226, the box that also serves packsil — NOT the `hetzner` alias,
@@ -42,9 +42,8 @@ if [[ ! -f libwimg/vendor/sqlite3.c ]]; then
 fi
 
 if [[ "$WHAT" == all || "$WHAT" == web ]]; then
-  echo "==> Building web app"
-  ./scripts/build-wasm.sh
-  (cd wimg-web && bun install --frozen-lockfile && bun run build)
+  echo "==> Building landing page"
+  python3 wimg-site/build.py
   ./infra/scripts/deploy-web.sh --no-build
 fi
 

@@ -1,51 +1,38 @@
-# wimg web app (static SPA) — a *fragment*, installed to
+# wimg landing page (static) — a *fragment*, installed to
 # /etc/caddy/conf.d/wimg-web.caddy and pulled in by `import conf.d/*.caddy`.
 # Never replaces the main /etc/caddy/Caddyfile; see wimg-sync.caddy for why.
 #
-# Built by `bun run build` in wimg-web/ (@sveltejs/adapter-static) and uploaded
-# to /var/www/wimg by infra/scripts/deploy-web.sh.
+# Built by `python3 wimg-site/build.py` into wimg-site/public/ and uploaded to
+# /var/www/wimg by infra/scripts/deploy-web.sh. The old SvelteKit web app is
+# gone; unknown paths (old app routes, bookmarks) get the landing page.
+#
+# No `log` block on purpose: the privacy page promises that this site keeps
+# no access logs. Add one and that page has to change.
 
-wimg.mili-my.name {
+wimg.komiljonmaksudov.com {
 	root * /var/www/wimg
 	encode zstd gzip
 
 	header {
-		# REQUIRED — OPFS and SharedArrayBuffer need cross-origin isolation.
-		# These used to come from src/hooks.server.ts, which ran in the
-		# Cloudflare Worker. adapter-static has no runtime server, so the host
-		# has to set them. Drop these and the app silently loses persistence.
-		Cross-Origin-Opener-Policy "same-origin"
-		Cross-Origin-Embedder-Policy "credentialless"
-
+		# app.js renders the page from templates with `new Function`, hence
+		# 'unsafe-eval'. Inline styles come from the design export.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
 		-Server
 	}
 
-	# Content-hashed filenames — safe to cache forever.
-	header /_app/immutable/* Cache-Control "public, max-age=31536000, immutable"
-	# These two decide when a client notices a new deploy; they must revalidate.
-	header /service-worker.js Cache-Control "no-cache"
-	header /_app/version.json Cache-Control "no-cache"
+	# Pages and the app bundle revalidate so a deploy shows up immediately.
+	header /fonts/* Cache-Control "public, max-age=2592000"
+	header /img/* Cache-Control "public, max-age=86400"
+	@revalidate path / /index.html /app.js /datenschutz.html
+	header @revalidate Cache-Control "no-cache"
+	# Kill switch for the old web app's service worker; must never be cached.
+	header /service-worker.js Cache-Control "no-store"
 
-	# Belt-and-braces: Caddy's built-in table already maps .wasm, but a wrong
-	# Content-Type here breaks WebAssembly.instantiateStreaming outright.
-	@wasm path *.wasm
-	header @wasm Content-Type "application/wasm"
-
-	# SPA: every unknown path is a client route, so fall through to index.html.
-	try_files {path} {path}/index.html /index.html
-
-	file_server {
-		# adapter-static was built with precompress: true — serve the .br/.gz
-		# siblings directly instead of compressing on every request.
-		precompressed zstd br gzip
-	}
-
-	log {
-		output stderr
-		format json
-	}
+	try_files {path} {path}.html /index.html
+	file_server
 }
