@@ -1986,7 +1986,12 @@ pub const Db = struct {
     }
 
     pub fn insertAccount(self: *Db, id: [*]const u8, id_len: u32, name_val: [*]const u8, name_len: u32, color: [*]const u8, color_len: u32) DbError!void {
-        const sql = "INSERT OR REPLACE INTO accounts (id, name, bank, color, updated_at) VALUES (?1, ?2, ?1, ?3, ?4);";
+        // Upsert so renaming/recolouring an account keeps its statement balance.
+        const sql =
+            \\INSERT INTO accounts (id, name, bank, color, updated_at) VALUES (?1, ?2, ?1, ?3, ?4)
+            \\ON CONFLICT(id) DO UPDATE SET name = excluded.name, bank = excluded.bank,
+            \\  color = excluded.color, deleted = 0, updated_at = excluded.updated_at;
+        ;
         var stmt: ?*c.sqlite3_stmt = null;
         if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) != c.SQLITE_OK or stmt == null) return DbError.PrepareFailed;
         defer _ = c.sqlite3_finalize(stmt.?);
@@ -2651,7 +2656,7 @@ pub const Db = struct {
 
         // --- accounts ---
         {
-            const sql = "SELECT id, name, bank, color, deleted, updated_at FROM accounts WHERE updated_at >= ?1;";
+            const sql = "SELECT id, name, bank, color, deleted, updated_at, balance_cents, balance_date FROM accounts WHERE updated_at >= ?1;";
             var stmt: ?*c.sqlite3_stmt = null;
             if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) != c.SQLITE_OK or stmt == null) return DbError.PrepareFailed;
             defer _ = c.sqlite3_finalize(stmt.?);
@@ -2705,6 +2710,24 @@ pub const Db = struct {
                 @memcpy(buf[pos .. pos + p_del.len], p_del);
                 pos += p_del.len;
                 pos += formatSignedInt(buf[pos..buf_len], @as(i64, deleted)) orelse return null;
+
+                // Statement closing balance (FinTS), so other devices show the real Kontostand.
+                const p_bal = ",\"balance_cents\":";
+                if (pos + p_bal.len > buf_len) return null;
+                @memcpy(buf[pos .. pos + p_bal.len], p_bal);
+                pos += p_bal.len;
+                pos += formatSignedInt(buf[pos..buf_len], c.sqlite3_column_int64(s, 6)) orelse return null;
+                const p_bal_date = ",\"balance_date\":\"";
+                if (pos + p_bal_date.len > buf_len) return null;
+                @memcpy(buf[pos .. pos + p_bal_date.len], p_bal_date);
+                pos += p_bal_date.len;
+                if (c.sqlite3_column_text(s, 7)) |bd_ptr| {
+                    const bd_len: usize = @intCast(c.sqlite3_column_bytes(s, 7));
+                    pos += jsonEscapeString(buf[pos..buf_len], bd_ptr[0..bd_len]) orelse return null;
+                }
+                if (pos >= buf_len) return null;
+                buf[pos] = '"';
+                pos += 1;
 
                 const p_close = "},\"updated_at\":";
                 if (pos + p_close.len > buf_len) return null;
@@ -3296,7 +3319,23 @@ pub const Db = struct {
         const color_len = jsonUnescapeString(&color_buf, color_escaped) orelse return DbError.ExecFailed;
         const color = color_buf[0..color_len];
 
-        const sql = "INSERT OR REPLACE INTO accounts (id, name, bank, color, updated_at) VALUES (?1, ?2, ?3, ?4, ?5);";
+        // Balance fields are absent in rows from older clients: keep what we have then.
+        const balance_cents = jsonExtractI64FromSlice(data, "\"balance_cents\"");
+        const balance_date = jsonExtractStringFromSlice(data, "\"balance_date\"") orelse "";
+
+        // Upsert, not INSERT OR REPLACE: REPLACE deletes the row first and would reset
+        // the local statement balance to 0. The balance with the newer date wins.
+        const sql =
+            \\INSERT INTO accounts (id, name, bank, color, updated_at, balance_cents, balance_date)
+            \\VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            \\ON CONFLICT(id) DO UPDATE SET
+            \\  name = excluded.name, bank = excluded.bank, color = excluded.color,
+            \\  deleted = 0, updated_at = excluded.updated_at,
+            \\  balance_cents = CASE WHEN excluded.balance_date != '' AND excluded.balance_date >= accounts.balance_date
+            \\    THEN excluded.balance_cents ELSE accounts.balance_cents END,
+            \\  balance_date = CASE WHEN excluded.balance_date != '' AND excluded.balance_date >= accounts.balance_date
+            \\    THEN excluded.balance_date ELSE accounts.balance_date END;
+        ;
         var stmt: ?*c.sqlite3_stmt = null;
         if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) != c.SQLITE_OK or stmt == null) return DbError.PrepareFailed;
         defer _ = c.sqlite3_finalize(stmt.?);
@@ -3306,6 +3345,8 @@ pub const Db = struct {
         if (c.sqlite3_bind_text(s, 3, @ptrCast(bank.ptr), @intCast(bank.len), c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
         if (c.sqlite3_bind_text(s, 4, @ptrCast(color.ptr), @intCast(color.len), c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
         if (c.sqlite3_bind_int64(s, 5, updated_at) != c.SQLITE_OK) return DbError.BindFailed;
+        if (c.sqlite3_bind_int64(s, 6, balance_cents) != c.SQLITE_OK) return DbError.BindFailed;
+        if (c.sqlite3_bind_text(s, 7, @ptrCast(balance_date.ptr), @intCast(balance_date.len), c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
         if (c.sqlite3_step(s) != c.SQLITE_DONE) return DbError.StepFailed;
     }
 
@@ -4315,6 +4356,79 @@ test "sync roundtrip: applyChanges preserves description with quotes" {
     // Category should have been updated (from 1 to 2) since updated_at 2000 > 1000
     const cat = c.sqlite3_column_int(s, 1);
     try std.testing.expectEqual(@as(c_int, 2), cat);
+}
+
+fn testAccountBalance(db: *Db, id: []const u8) !struct { cents: i64, date: [10]u8, date_len: usize } {
+    var stmt: ?*c.sqlite3_stmt = null;
+    if (c.sqlite3_prepare_v2(db.handle, "SELECT balance_cents, balance_date FROM accounts WHERE id = ?1;", -1, &stmt, null) != c.SQLITE_OK or stmt == null)
+        return error.TestUnexpectedResult;
+    defer _ = c.sqlite3_finalize(stmt.?);
+    const s = stmt.?;
+    _ = c.sqlite3_bind_text(s, 1, @ptrCast(id.ptr), @intCast(id.len), c.SQLITE_STATIC);
+    if (c.sqlite3_step(s) != c.SQLITE_ROW) return error.TestUnexpectedResult;
+    var date: [10]u8 = undefined;
+    const len: usize = @intCast(c.sqlite3_column_bytes(s, 1));
+    if (c.sqlite3_column_text(s, 1)) |ptr| @memcpy(date[0..len], ptr[0..len]);
+    return .{ .cents = c.sqlite3_column_int64(s, 0), .date = date, .date_len = len };
+}
+
+test "sync: account balance travels to another device" {
+    // Device A fetched statements via FinTS and has the closing balance.
+    var a = try Db.init(":memory:");
+    defer a.close();
+    try a.ensureAccount("comdirect", "comdirect", "#4361ee");
+    try a.setAccountBalance("comdirect", 292214, "2026-11-12");
+
+    var buf: [8192]u8 = undefined;
+    const n = (try a.getChangesJson(0, &buf, buf.len)) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..n], "\"balance_cents\":292214,\"balance_date\":\"2026-11-12\"") != null);
+
+    // Device B only ever got its data through sync.
+    var b = try Db.init(":memory:");
+    defer b.close();
+    _ = try b.applyChanges(buf[0..n]);
+    const bal = try testAccountBalance(&b, "comdirect");
+    try std.testing.expectEqual(@as(i64, 292214), bal.cents);
+    try std.testing.expectEqualStrings("2026-11-12", bal.date[0..bal.date_len]);
+}
+
+test "sync: an account change does not wipe or downgrade the local balance" {
+    var db = try Db.init(":memory:");
+    defer db.close();
+    try db.ensureAccount("comdirect", "comdirect", "#4361ee");
+    try db.setAccountBalance("comdirect", 292214, "2026-11-12");
+
+    // Row from an older client: no balance fields at all (e.g. a rename).
+    _ = try db.applyChanges(
+        \\{"rows":[{"table":"accounts","id":"comdirect","data":{"name":"Giro","bank":"comdirect","color":"#ff0000","deleted":0},"updated_at":9999999999999}]}
+    );
+    var bal = try testAccountBalance(&db, "comdirect");
+    try std.testing.expectEqual(@as(i64, 292214), bal.cents);
+
+    // Row carrying an older statement balance: the newer local one stays.
+    _ = try db.applyChanges(
+        \\{"rows":[{"table":"accounts","id":"comdirect","data":{"name":"Giro","bank":"comdirect","color":"#ff0000","deleted":0,"balance_cents":100,"balance_date":"2026-10-01"},"updated_at":99999999999999}]}
+    );
+    bal = try testAccountBalance(&db, "comdirect");
+    try std.testing.expectEqual(@as(i64, 292214), bal.cents);
+    try std.testing.expectEqualStrings("2026-11-12", bal.date[0..bal.date_len]);
+
+    // Row carrying a newer statement balance wins.
+    _ = try db.applyChanges(
+        \\{"rows":[{"table":"accounts","id":"comdirect","data":{"name":"Giro","bank":"comdirect","color":"#ff0000","deleted":0,"balance_cents":300000,"balance_date":"2026-11-13"},"updated_at":999999999999999}]}
+    );
+    bal = try testAccountBalance(&db, "comdirect");
+    try std.testing.expectEqual(@as(i64, 300000), bal.cents);
+}
+
+test "editing an account keeps its statement balance" {
+    var db = try Db.init(":memory:");
+    defer db.close();
+    try db.ensureAccount("comdirect", "comdirect", "#4361ee");
+    try db.setAccountBalance("comdirect", 292214, "2026-11-12");
+    try db.insertAccount("comdirect", 9, "Mein Giro", 9, "#00ff00", 7);
+    const bal = try testAccountBalance(&db, "comdirect");
+    try std.testing.expectEqual(@as(i64, 292214), bal.cents);
 }
 
 // ============================================================
