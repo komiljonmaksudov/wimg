@@ -327,7 +327,7 @@
       "command": "npx",
       "args": [
         "mcp-remote",
-        "https://wimg-sync.mili-my.name/mcp",
+        "https://wimg-sync.komiljonmaksudov.com/mcp",
         "--header",
         "Authorization: Bearer DEIN-SYNC-SCHLÜSSEL"
       ]

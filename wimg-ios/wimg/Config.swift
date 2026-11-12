@@ -7,7 +7,7 @@ enum WimgConfig {
     #if DEBUG && targetEnvironment(simulator)
     static let syncBaseURL = "http://localhost:8787"
     #else
-    static let syncBaseURL = "https://wimg-sync.mili-my.name"
+    static let syncBaseURL = "https://wimg-sync.komiljonmaksudov.com"
     #endif
 
     // MARK: - GitHub

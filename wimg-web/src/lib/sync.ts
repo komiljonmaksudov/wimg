@@ -3,7 +3,7 @@
  * Now also manages real-time WebSocket connection for live sync.
  *
  * Dev:  http://localhost:8787 (wrangler dev)
- * Prod: https://wimg-sync.mili-my.name
+ * Prod: https://wimg-sync.komiljonmaksudov.com
  */
 
 import {

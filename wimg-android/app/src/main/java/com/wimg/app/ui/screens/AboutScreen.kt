@@ -202,7 +202,7 @@ fun AboutScreen() {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                MonoLine(label = "URL:", value = "https://wimg-sync.mili-my.name/mcp")
+                MonoLine(label = "URL:", value = "https://wimg-sync.komiljonmaksudov.com/mcp")
                 MonoLine(label = L("Auth:"), value = L("Bearer <dein Sync-Schlüssel>"))
                 Spacer(Modifier.height(4.dp))
                 Bullet(L("Sync-Schlüssel = MCP-Zugang, kein extra Setup"))

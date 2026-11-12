@@ -163,7 +163,7 @@ jobs:
         working-directory: wimg-web
         run: bun run build
 
-      # No deploy step: CI never touches the VPS. wimg.mili-my.name and the
+      # No deploy step: CI never touches the VPS. wimg.komiljonmaksudov.com and the
       # sync server are shipped from a Mac with ./scripts/deploy-server.sh.
       # This job still builds, so a broken web build fails the release.
 
@@ -409,7 +409,7 @@ jobs:
           name: wimg-sync-server
           path: wimg-sync-zig/zig-out/bin/wimg-sync
 
-  # The deploy-sync job is gone. wimg-sync.mili-my.name is served by the native
+  # The deploy-sync job is gone. wimg-sync.komiljonmaksudov.com is served by the native
   # Zig server on the VPS (wimg-sync-zig/, deployed with infra/scripts/deploy.sh),
   # so redeploying the Cloudflare Worker every release shipped nothing anyone
   # used — and failed anyway: Code Mode's LOADER binding needs a paid Workers

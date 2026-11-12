@@ -23,7 +23,7 @@
 #   - Drop the systemd unit files and `systemctl enable --now wimg-sync wimg-restic.timer`
 #   - Fill in /etc/wimg/restic.env from restic.env.example
 #   - Initialize the restic repo: `sudo -u wimg restic init` (one-time)
-#   - Point DNS A record for wimg-sync.mili-my.name at this VPS
+#   - Point DNS A record for wimg-sync.komiljonmaksudov.com at this VPS
 
 set -euo pipefail
 
@@ -116,4 +116,4 @@ echo "     chmod 600 /etc/wimg/restic.env && chown root:wimg /etc/wimg/restic.en
 echo "  4. sudo -u wimg /usr/local/bin/restic init  # one-time R2 repo init"
 echo "  5. Drop the wimg-sync binary at /usr/local/bin/wimg-sync (Phase 1)"
 echo "     systemctl enable --now wimg-sync wimg-restic.timer"
-echo "  6. Point wimg-sync.mili-my.name DNS A record at this VPS"
+echo "  6. Point wimg-sync.komiljonmaksudov.com DNS A record at this VPS"

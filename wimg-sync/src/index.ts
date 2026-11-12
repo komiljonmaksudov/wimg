@@ -13,7 +13,7 @@ type Bindings = {
 const ALLOWED_ORIGINS = [
   "https://wimg.pages.dev",
   "https://wimg-web.pages.dev",
-  "https://wimg.mili-my.name",
+  "https://wimg.komiljonmaksudov.com",
   "http://localhost:5173",
   "http://localhost:4173",
 ];

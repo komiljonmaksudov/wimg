@@ -44,4 +44,4 @@ DO SQLite — each SyncRoom DO has a `sync_rows` table with `(tbl, row_id, data,
 McpSession Durable Object inside wimg-sync. Loads libwimg-compact.wasm,
 pulls data from SyncRoom DO, decrypts, serves 17 MCP tools (8 read + 9 write).
 
-Claude.ai connector: `URL: https://wimg-sync.mili-my.name/mcp`, `Auth: Bearer <sync-key>`
+Claude.ai connector: `URL: https://wimg-sync.komiljonmaksudov.com/mcp`, `Auth: Bearer <sync-key>`

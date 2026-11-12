@@ -4,7 +4,7 @@
 
 // --- Sync API ---
 export const SYNC_API_URL = (() => {
-  if (typeof window === "undefined") return "https://wimg-sync.mili-my.name";
+  if (typeof window === "undefined") return "https://wimg-sync.komiljonmaksudov.com";
   const host = window.location.hostname;
   // Local dev: localhost or private network IPs (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
   if (
@@ -16,7 +16,7 @@ export const SYNC_API_URL = (() => {
   ) {
     return `http://${host}:8787`;
   }
-  return "https://wimg-sync.mili-my.name";
+  return "https://wimg-sync.komiljonmaksudov.com";
 })();
 
 // --- GitHub ---
