@@ -181,41 +181,35 @@ fn daysBetween(a: DateTriple, b: DateTriple) i32 {
     return julianDay(b) - julianDay(a);
 }
 
+/// Days since 1970-01-01 (Howard Hinnant's days_from_civil). Only differences
+/// and round trips through `fromRataDie` matter; the epoch is arbitrary.
 fn julianDay(d: DateTriple) i32 {
-    // Rata Die calculation (days since 0001-01-01)
-    var y = d.year;
-    var m = d.month;
-    if (m <= 2) {
-        y -= 1;
-        m += 12;
-    }
-    return 365 * y + @divTrunc(y, 4) - @divTrunc(y, 100) + @divTrunc(y, 400) + @divTrunc(306 * (m + 1), 10) + d.day - 428;
+    const y: i32 = if (d.month <= 2) d.year - 1 else d.year;
+    const era: i32 = @divFloor(y, 400);
+    const yoe: i32 = y - era * 400; // [0, 399]
+    const mp: i32 = @mod(d.month + 9, 12); // March = 0
+    const doy: i32 = @divFloor(153 * mp + 2, 5) + d.day - 1; // [0, 365]
+    const doe: i32 = yoe * 365 + @divFloor(yoe, 4) - @divFloor(yoe, 100) + doy;
+    return era * 146097 + doe - 719468;
 }
 
 fn addDays(d: DateTriple, days: i32) DateTriple {
-    const jd = julianDay(d) + days;
-    return fromRataDie(jd);
+    return fromRataDie(julianDay(d) + days);
 }
 
-fn fromRataDie(rd: i32) DateTriple {
-    // Inverse of julianDay — convert rata die back to date
-    // Using a well-known algorithm
-    const y0 = @divTrunc(10000 * @as(i64, rd) + 14780, 3652425);
-    const y0_i32: i32 = @intCast(y0);
-    var doy = rd - (365 * y0_i32 + @divTrunc(y0_i32, 4) - @divTrunc(y0_i32, 100) + @divTrunc(y0_i32, 400));
-    if (doy < 0) {
-        const y1 = y0_i32 - 1;
-        doy = rd - (365 * y1 + @divTrunc(y1, 4) - @divTrunc(y1, 100) + @divTrunc(y1, 400));
-        const mi = @divTrunc(100 * doy + 52, 3060);
-        const month = if (mi < 10) mi + 3 else mi - 9;
-        const year = if (month <= 2) y1 + 1 else y1;
-        const day = doy - @divTrunc(mi * 306 + 5, 10) + 1;
-        return .{ .year = year, .month = month, .day = day };
-    }
-    const mi = @divTrunc(100 * doy + 52, 3060);
-    const month = if (mi < 10) mi + 3 else mi - 9;
-    const year = if (month <= 2) y0_i32 + 1 else y0_i32;
-    const day = doy - @divTrunc(mi * 306 + 5, 10) + 1;
+/// Exact inverse of `julianDay` (civil_from_days). The previous version mixed
+/// two different day-count algorithms, so addDays() landed in the wrong month
+/// and year (3 Nov 2026 + 30 days came out as 1 Feb 2026).
+fn fromRataDie(days: i32) DateTriple {
+    const z: i32 = days + 719468;
+    const era: i32 = @divFloor(z, 146097);
+    const doe: i32 = z - era * 146097; // [0, 146096]
+    const yoe: i32 = @divFloor(doe - @divFloor(doe, 1460) + @divFloor(doe, 36524) - @divFloor(doe, 146096), 365);
+    const doy: i32 = doe - (365 * yoe + @divFloor(yoe, 4) - @divFloor(yoe, 100));
+    const mp: i32 = @divFloor(5 * doy + 2, 153);
+    const day: i32 = doy - @divFloor(153 * mp + 2, 5) + 1;
+    const month: i32 = if (mp < 10) mp + 3 else mp - 9;
+    const year: i32 = yoe + era * 400 + @as(i32, if (month <= 2) 1 else 0);
     return .{ .year = year, .month = month, .day = day };
 }
 
@@ -810,4 +804,36 @@ test "isPatternActive: annual sub tolerates 18-month gap up to threshold" {
     // 800 days ago — beyond 2× annual (730 days), inactive.
     const old_last = DateTriple{ .year = 2024, .month = 2, .day = 1 };
     try std.testing.expect(!isPatternActive(julianDay(old_last), julianDay(max_date), .annual));
+}
+
+test "addDays crosses months, years and leap days" {
+    const D = DateTriple;
+    const cases = [_]struct { from: D, add: i32, want: D }{
+        .{ .from = .{ .year = 2026, .month = 11, .day = 3 }, .add = 30, .want = .{ .year = 2026, .month = 12, .day = 3 } },
+        .{ .from = .{ .year = 2026, .month = 12, .day = 15 }, .add = 30, .want = .{ .year = 2027, .month = 1, .day = 14 } },
+        .{ .from = .{ .year = 2028, .month = 2, .day = 28 }, .add = 1, .want = .{ .year = 2028, .month = 2, .day = 29 } },
+        .{ .from = .{ .year = 2027, .month = 2, .day = 28 }, .add = 1, .want = .{ .year = 2027, .month = 3, .day = 1 } },
+        .{ .from = .{ .year = 2026, .month = 1, .day = 31 }, .add = 91, .want = .{ .year = 2026, .month = 5, .day = 2 } },
+        .{ .from = .{ .year = 2026, .month = 3, .day = 1 }, .add = 365, .want = .{ .year = 2027, .month = 3, .day = 1 } },
+    };
+    for (cases) |tc| {
+        const got = addDays(tc.from, tc.add);
+        try std.testing.expectEqual(tc.want.year, got.year);
+        try std.testing.expectEqual(tc.want.month, got.month);
+        try std.testing.expectEqual(tc.want.day, got.day);
+    }
+}
+
+test "julianDay and fromRataDie round-trip" {
+    var d: DateTriple = .{ .year = 2024, .month = 1, .day = 1 };
+    var i: i32 = 0;
+    while (i < 1200) : (i += 1) {
+        const back = fromRataDie(julianDay(d));
+        try std.testing.expectEqual(d.year, back.year);
+        try std.testing.expectEqual(d.month, back.month);
+        try std.testing.expectEqual(d.day, back.day);
+        try std.testing.expectEqual(@as(i32, 1), daysBetween(d, addDays(d, 1)));
+        d = addDays(d, 1);
+    }
+    try std.testing.expectEqual(@as(i32, 2027), d.year);
 }
