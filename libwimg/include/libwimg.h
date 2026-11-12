@@ -123,6 +123,11 @@ int32_t wimg_detect_recurring(void);
 //   "last_seen":"YYYY-MM-DD","next_due":"YYYY-MM-DD","active":1,"prev_amount":X.XX,"price_change":X.XX}
 const uint8_t *wimg_get_recurring(void);
 
+// Payments that belong to one recurring pattern (by pattern id), newest first,
+// as a length-prefixed JSON array: [{"id":"...","date":"YYYY-MM-DD","amount":X.XX}].
+// Unknown ids give [].
+const uint8_t *wimg_get_recurring_payments(const uint8_t *id, uint32_t id_len);
+
 // --- Categories ---
 
 // Get all category metadata as a length-prefixed JSON array (static, no DB needed).

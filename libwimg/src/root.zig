@@ -1055,6 +1055,35 @@ export fn wimg_detect_recurring() i32 {
 }
 
 /// Get all active recurring patterns as JSON array.
+/// Payments that belong to one recurring pattern, newest first, as a
+/// length-prefixed JSON array: [{"id","date","amount"}]. Unknown ids give [].
+export fn wimg_get_recurring_payments(id_ptr: [*]const u8, id_len: u32) ?[*]const u8 {
+    var database = global_db orelse {
+        setError("wimg_get_recurring_payments: database not initialized", .{});
+        return null;
+    };
+
+    const buf_size: usize = 256 * 1024;
+    const buf = fba.allocator().alloc(u8, buf_size + 4) catch {
+        setError("wimg_get_recurring_payments: failed to allocate buffer", .{});
+        return null;
+    };
+
+    const json_len = recurring.paymentsJson(&database, id_ptr[0..id_len], buf.ptr + 4, buf_size) catch |err| {
+        setError("wimg_get_recurring_payments: query failed: {s}", .{@errorName(err)});
+        fba.allocator().free(buf);
+        return null;
+    } orelse {
+        setError("wimg_get_recurring_payments: buffer too small", .{});
+        fba.allocator().free(buf);
+        return null;
+    };
+
+    const len_bytes: [4]u8 = @bitCast(@as(u32, @intCast(json_len)));
+    @memcpy(buf[0..4], &len_bytes);
+    return buf.ptr;
+}
+
 export fn wimg_get_recurring() ?[*]const u8 {
     var database = global_db orelse {
         setError("wimg_get_recurring: database not initialized", .{});

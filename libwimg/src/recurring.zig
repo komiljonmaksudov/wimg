@@ -628,6 +628,89 @@ fn processGroup(database: *Db, merchant: []const u8, entries: []const TxEntry, g
     return active == 1;
 }
 
+/// Payments that belong to one recurring pattern, newest first:
+/// `[{"id":"…","date":"YYYY-MM-DD","amount":-10.99}, …]`.
+/// A payment belongs to the pattern when its description normalizes to the
+/// same merchant (the pattern id is the hash of that merchant) and its sign
+/// matches the pattern's. Unknown ids give `[]`.
+pub fn paymentsJson(database: *Db, pattern_id: []const u8, buf: [*]u8, buf_len: usize) DbError!?usize {
+    if (buf_len < 2) return null;
+    var pos: usize = 0;
+    buf[pos] = '[';
+    pos += 1;
+
+    // The pattern's sign (expense or income).
+    var sign: i64 = 0;
+    {
+        var stmt: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(database.handle, "SELECT amount FROM recurring_patterns WHERE id = ?1;", -1, &stmt, null) != c.SQLITE_OK or stmt == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(stmt.?);
+        if (c.sqlite3_bind_text(stmt.?, 1, pattern_id.ptr, @intCast(pattern_id.len), c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
+        if (c.sqlite3_step(stmt.?) == c.SQLITE_ROW) {
+            const a = c.sqlite3_column_int64(stmt.?, 0);
+            sign = if (a < 0) -1 else 1;
+        }
+    }
+    if (sign != 0) {
+        const sql =
+            \\SELECT id, date_year, date_month, date_day, amount_cents, description
+            \\FROM transactions WHERE excluded = 0
+            \\ORDER BY date_year DESC, date_month DESC, date_day DESC, rowid DESC;
+        ;
+        var stmt: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(database.handle, sql, -1, &stmt, null) != c.SQLITE_OK or stmt == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(stmt.?);
+        const s = stmt.?;
+        var first = true;
+        while (c.sqlite3_step(s) == c.SQLITE_ROW) {
+            const amount = c.sqlite3_column_int64(s, 4);
+            if ((amount < 0) != (sign < 0) or amount == 0) continue;
+            const desc_ptr = c.sqlite3_column_text(s, 5) orelse continue;
+            const desc_len: usize = @intCast(c.sqlite3_column_bytes(s, 5));
+            var norm_buf: [128]u8 = undefined;
+            const norm_len = normalizeMerchant(desc_ptr[0..desc_len], &norm_buf) orelse continue;
+            var hid: [32]u8 = undefined;
+            hashMerchantId(norm_buf[0..norm_len], &hid);
+            if (!std.mem.eql(u8, &hid, pattern_id)) continue;
+
+            const id_ptr = c.sqlite3_column_text(s, 0) orelse continue;
+            const id_len: usize = @intCast(c.sqlite3_column_bytes(s, 0));
+            const out = buf[0..buf_len];
+            const need = id_len + 64;
+            if (pos + need > buf_len) return null;
+            if (!first) {
+                out[pos] = ',';
+                pos += 1;
+            }
+            first = false;
+            const p1 = "{\"id\":\"";
+            @memcpy(out[pos .. pos + p1.len], p1);
+            pos += p1.len;
+            @memcpy(out[pos .. pos + id_len], id_ptr[0..id_len]);
+            pos += id_len;
+            const p2 = "\",\"date\":\"";
+            @memcpy(out[pos .. pos + p2.len], p2);
+            pos += p2.len;
+            pos += formatDateStr(out[pos..], .{
+                .year = c.sqlite3_column_int(s, 1),
+                .month = c.sqlite3_column_int(s, 2),
+                .day = c.sqlite3_column_int(s, 3),
+            }) orelse return null;
+            const p3 = "\",\"amount\":";
+            @memcpy(out[pos .. pos + p3.len], p3);
+            pos += p3.len;
+            pos += db_mod.formatAmount(out[pos..], amount) orelse return null;
+            if (pos >= buf_len) return null;
+            out[pos] = '}';
+            pos += 1;
+        }
+    }
+    if (pos >= buf_len) return null;
+    buf[pos] = ']';
+    pos += 1;
+    return pos;
+}
+
 fn hashMerchantId(merchant: []const u8, out: *[32]u8) void {
     // Simple hash → hex string for deterministic ID
     var hash: u64 = 5381;
@@ -836,4 +919,38 @@ test "julianDay and fromRataDie round-trip" {
         d = addDays(d, 1);
     }
     try std.testing.expectEqual(@as(i32, 2027), d.year);
+}
+
+test "paymentsJson lists a pattern's payments, newest first" {
+    var database = try Db.init(":memory:");
+    defer database.close();
+    const rows =
+        \\INSERT INTO transactions (id, date_year, date_month, date_day, description, amount_cents) VALUES
+        \\ ('a1', 2026, 9, 1, 'LASTSCHRIFT / BELASTUNG SPOTIFY AB 123', -1099),
+        \\ ('a2', 2026, 10, 1, 'LASTSCHRIFT / BELASTUNG SPOTIFY AB 456', -1099),
+        \\ ('a3', 2026, 11, 1, 'LASTSCHRIFT / BELASTUNG SPOTIFY AB 789', -1099),
+        \\ ('b1', 2026, 11, 2, 'KARTENVERFUEGUNG REWE MARKT', -2348);
+    ;
+    try std.testing.expect(c.sqlite3_exec(database.handle, rows, null, null, null) == c.SQLITE_OK);
+    _ = try detectRecurring(&database);
+    // A refund from the same merchant arrives later: other sign, not a payment.
+    const refund = "INSERT INTO transactions (id, date_year, date_month, date_day, description, amount_cents) VALUES ('c1', 2026, 11, 3, 'GUTSCHRIFT SPOTIFY AB ERSTATTUNG', 500);";
+    try std.testing.expect(c.sqlite3_exec(database.handle, refund, null, null, null) == c.SQLITE_OK);
+
+    var name_buf: [128]u8 = undefined;
+    const n = normalizeMerchant("LASTSCHRIFT / BELASTUNG SPOTIFY AB 123", &name_buf).?;
+    var id: [32]u8 = undefined;
+    hashMerchantId(name_buf[0..n], &id);
+
+    var out: [1024]u8 = undefined;
+    const len = (try paymentsJson(&database, &id, &out, out.len)).?;
+    const json = out[0..len];
+    // Three debits, newest first; the refund (other sign) and REWE are not part of it.
+    try std.testing.expect(std.mem.startsWith(u8, json, "[{\"id\":\"a3\",\"date\":\"2026-11-01\""));
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"a1\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"b1\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"c1\"") == null);
+
+    const none = (try paymentsJson(&database, "00000000000000000000000000000000", &out, out.len)).?;
+    try std.testing.expectEqualStrings("[]", out[0..none]);
 }
