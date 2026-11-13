@@ -1,5 +1,6 @@
 package com.wimg.app.ui.screens
 
+import java.util.Calendar
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -66,6 +67,33 @@ import com.wimg.app.ui.theme.categoryBar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/** A date range for the Umsätze filter; [to] inclusive, ISO dates. */
+data class TxPeriod(val from: String, val to: String, val label: String, val key: String)
+
+/** Filter Umsätze should open with (set by a tap on Home or Rückblick, read once). */
+object TxTarget {
+    var category: Int? = null
+    var period: TxPeriod? = null
+}
+
+private fun iso(c: Calendar) = "%04d-%02d-%02d".format(c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH))
+
+/** One calendar month as a period, labelled "Okt. 2026". */
+fun monthPeriod(year: Int, month: Int): TxPeriod {
+    val c = Calendar.getInstance().apply { set(year, month - 1, 1) }
+    val from = iso(c)
+    c.set(Calendar.DAY_OF_MONTH, c.getActualMaximum(Calendar.DAY_OF_MONTH))
+    val short = java.text.DateFormatSymbols(if (com.wimg.app.ui.theme.LocaleState.locale == "en") java.util.Locale.ENGLISH else java.util.Locale.GERMAN).shortMonths[month - 1].trimEnd('.')
+    return TxPeriod(from, iso(c), "$short $year", "m:$year-$month")
+}
+
+private fun lastDays(days: Int, label: String, key: String): TxPeriod {
+    val c = Calendar.getInstance()
+    val to = iso(c)
+    c.add(Calendar.DAY_OF_YEAR, -days)
+    return TxPeriod(iso(c), to, label, key)
+}
+
 enum class TxFilter(val label: String) {
     ALL("Alle"),
     EXPENSES("Ausgaben"),
@@ -92,7 +120,9 @@ internal fun loadTx(account: String?) = TxData(
 fun TransactionsScreen(selectedAccount: String?, navController: NavController? = null) {
     var data by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<TxData>(txKey(selectedAccount))) }
     var filter by remember { mutableStateOf(TxFilter.ALL) }
-    var categories by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var categories by remember { mutableStateOf(TxTarget.category?.let { setOf(it) } ?: emptySet()) }
+    var period by remember { mutableStateOf(TxTarget.period) }
+    LaunchedEffect(Unit) { TxTarget.category = null; TxTarget.period = null }
     var filterOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(selectedAccount, Changes.version) {
@@ -101,17 +131,18 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
     }
 
     val all = data?.transactions ?: emptyList()
-    val filtered = remember(all, filter, categories) {
+    val filtered = remember(all, filter, categories, period) {
         all.filter { tx ->
             val type = when (filter) {
                 TxFilter.ALL -> true
                 TxFilter.EXPENSES -> tx.isExpense
                 TxFilter.INCOME -> tx.isIncome
             }
-            type && (categories.isEmpty() || tx.category in categories)
+            type && (categories.isEmpty() || tx.category in categories) &&
+                (period == null || tx.date in period!!.from..period!!.to)
         }
     }
-    val filterActive = filter != TxFilter.ALL || categories.isNotEmpty()
+    val filterActive = filter != TxFilter.ALL || categories.isNotEmpty() || period != null
 
     // The bank's closing balance, only when every shown account has one (FinTS).
     val accounts = data?.accounts ?: emptyList()
@@ -141,8 +172,9 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
                 FilterPanel(
                     filter = filter, onFilter = { filter = it },
                     categories = categories, onCategories = { categories = it },
+                    period = period, onPeriod = { period = it },
                     resultCount = filtered.size,
-                    onReset = { filter = TxFilter.ALL; categories = emptySet() },
+                    onReset = { filter = TxFilter.ALL; categories = emptySet(); period = null },
                     onDone = { filterOpen = false },
                 )
             }
@@ -250,6 +282,16 @@ private fun TxRow(tx: Transaction, last: Boolean, onClick: () -> Unit) {
     }
 }
 
+@Composable
+private fun PeriodChip(label: String, on: Boolean, onClick: () -> Unit) {
+    val c = Wimg.colors
+    Box(
+        Modifier.height(38.dp).clip(CircleShape).background(if (on) c.ink else Color.Transparent)
+            .border(1.dp, if (on) c.ink else c.line, CircleShape).clickable(onClick = onClick).padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center,
+    ) { Text(label, style = WimgType.rowTitle.copy(fontSize = WimgType.rowTitle.fontSize * 0.95f), color = if (on) c.inkText else c.text) }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FilterPanel(
@@ -257,11 +299,23 @@ private fun FilterPanel(
     onFilter: (TxFilter) -> Unit,
     categories: Set<Int>,
     onCategories: (Set<Int>) -> Unit,
+    period: TxPeriod?,
+    onPeriod: (TxPeriod?) -> Unit,
     resultCount: Int,
     onReset: () -> Unit,
     onDone: () -> Unit,
 ) {
     val c = Wimg.colors
+    var picking by remember { mutableStateOf(false) }
+    val now = remember { Calendar.getInstance() }
+    if (picking) {
+        // The same month grid as Home's period chip, in place of the filter panel.
+        val shortMonths = remember { java.text.DateFormatSymbols(if (com.wimg.app.ui.theme.LocaleState.locale == "en") java.util.Locale.ENGLISH else java.util.Locale.GERMAN).shortMonths.map { it.trimEnd('.') } }
+        val (py, pm) = period?.key?.removePrefix("m:")?.split("-")?.mapNotNull { it.toIntOrNull() }?.takeIf { it.size == 2 }?.let { it[0] to it[1] }
+            ?: (now.get(Calendar.YEAR) to now.get(Calendar.MONTH) + 1)
+        MonthPickerPanel(py, pm, shortMonths, now) { y, m -> onPeriod(monthPeriod(y, m)); picking = false }
+        return
+    }
     BarPanel {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(L("Filter"), style = WimgType.sheetTitle.copy(fontSize = WimgType.sheetTitle.fontSize * 0.86f), color = c.text, modifier = Modifier.weight(1f))
@@ -284,6 +338,20 @@ private fun FilterPanel(
                 ) {
                     Text(L(f.label), style = WimgType.chip, color = if (on) c.text else c.text2)
                 }
+            }
+        }
+        Text(L("Zeitraum"), style = WimgType.label, color = c.text2, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
+        run {
+            val thisMonth = monthPeriod(now.get(Calendar.YEAR), now.get(Calendar.MONTH) + 1).copy(label = L("Dieser Monat"), key = "this")
+            val lastMonth = (now.clone() as Calendar).apply { add(Calendar.MONTH, -1) }.let { monthPeriod(it.get(Calendar.YEAR), it.get(Calendar.MONTH) + 1) }.copy(label = L("Letzter Monat"), key = "last")
+            val options = listOf<TxPeriod?>(null, thisMonth, lastMonth, lastDays(91, L("3 Monate"), "3m"), lastDays(365, L("12 Monate"), "12m"))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                options.forEach { o ->
+                    PeriodChip(o?.label ?: L("Immer"), period?.key == o?.key) { onPeriod(o) }
+                }
+                // A specific month (from Home, or picked) shows as its own chip.
+                val custom = period?.takeIf { it.key.startsWith("m:") }
+                PeriodChip(custom?.label ?: L("Monat wählen…"), custom != null) { picking = true }
             }
         }
         Text(L("Kategorien"), style = WimgType.label, color = c.text2, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))

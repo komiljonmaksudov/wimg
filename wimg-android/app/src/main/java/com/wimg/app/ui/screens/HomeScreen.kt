@@ -1,5 +1,6 @@
 package com.wimg.app.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -216,7 +217,11 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null) {
                     StackedBar(cats, total)
                 }
                 items(cats, key = { it.id }) { cat ->
-                    CategoryRow(cat, total, prevById[cat.id])
+                    CategoryRow(cat, total, prevById[cat.id]) {
+                        TxTarget.category = cat.id
+                        TxTarget.period = monthPeriod(year, month)
+                        navController?.navigate("transactions") { popUpTo("dashboard") }
+                    }
                 }
             } else if (d != null) {
                 item {
@@ -346,12 +351,12 @@ private fun StackedBar(cats: List<CategoryBreakdown>, total: Double) {
 }
 
 @Composable
-private fun CategoryRow(cat: CategoryBreakdown, total: Double, previous: CategoryBreakdown?) {
+private fun CategoryRow(cat: CategoryBreakdown, total: Double, previous: CategoryBreakdown?, onClick: () -> Unit) {
     val c = Wimg.colors
     val wc = WimgCategory.fromId(cat.id)
     val isOther = cat.id == WimgCategory.UNCATEGORIZED.id || cat.id == WimgCategory.OTHER.id
     val pct = (abs(cat.amount) / total * 100).roundToInt()
-    Column {
+    Column(Modifier.clickable(onClick = onClick)) {
         Row(Modifier.fillMaxWidth().height(60.dp), verticalAlignment = Alignment.CenterVertically) {
             IconTile(if (isOther) Icons.Outlined.LocalOffer else wc.icon, c.category(cat.id), Modifier.size(34.dp))
             Spacer(Modifier.width(12.dp))

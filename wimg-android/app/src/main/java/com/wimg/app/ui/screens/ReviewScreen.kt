@@ -200,7 +200,11 @@ fun ReviewScreen(selectedAccount: String?, navController: NavController? = null)
                     val share = if (expenses != 0.0) (abs(cat.amount) / abs(expenses) * 100).roundToInt() else 0
                     if (!first) RowDivider(); first = false
                     Item(Icons.Outlined.LocalOffer, c.text2, L("Noch nicht zugeordnet"),
-                        "${L(WimgCategory.UNCATEGORIZED.label)} · $share %", amountText(abs(cat.amount), showPlus = false)) { navController?.navigate("transactions") }
+                        "${L(WimgCategory.UNCATEGORIZED.label)} · $share %", amountText(abs(cat.amount), showPlus = false)) {
+                        TxTarget.category = 0
+                        TxTarget.period = monthPeriod(year, month)
+                        navController?.navigate("transactions") { popUpTo("dashboard") }
+                    }
                 }
                 if (d.fixedPaid.isNotEmpty()) {
                     if (!first) RowDivider(); first = false

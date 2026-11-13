@@ -417,7 +417,7 @@ private val FAQ = listOf(
             Faq("Welche Banken gehen?", "Fast alle deutschen Banken mit FinTS, rund 1.700. Am meisten getestet ist comdirect. Ohne FinTS kannst du CSV-Dateien von Comdirect, Trade Republic und Scalable importieren."),
             Faq("Warum verlangt meine Bank eine TAN?", "Banken verlangen eine TAN beim ersten Anmelden und für Umsätze, die älter als 90 Tage sind. Die Schnellabfrage holt deshalb nur die letzten 90 Tage, meist ohne TAN."),
             Faq("Warum fehlen ältere Umsätze?", "Beim ersten Abruf holt wimg so weit zurück, wie du gewählt hast und deine Bank erlaubt. Danach nur noch die letzten 90 Tage. Ältere Umsätze kannst du per CSV ergänzen."),
-            Faq("Wo liegt meine Bank-PIN?", "Nur auf diesem Telefon, im privaten Speicher der App, und nur, wenn du „PIN merken“ einschaltest. Sie wird nie synchronisiert. Geschützt ist sie durch die Verschlüsselung deines Telefons; wimg verschlüsselt sie nicht zusätzlich."),
+            Faq("Wo liegt meine Bank-PIN?", "Nur auf diesem Telefon, und nur, wenn du „PIN merken“ einschaltest. wimg verschlüsselt sie mit einem Schlüssel, der den sicheren Speicher deines Telefons (Android Keystore) nie verlässt. Sie wird nie synchronisiert und landet in keinem Backup."),
         ),
     ),
     FaqGroup(
@@ -511,7 +511,7 @@ fun AboutPrivacyScreen(navController: NavController?) {
     val context = LocalContext.current
     val c = Wimg.colors
     val places = listOf(
-        Triple(Icons.Outlined.PhoneAndroid, L("Auf diesem Telefon"), L("Alles: Umsätze, Kategorien, Regeln und, wenn du sie merkst, deine Bank-PIN. Im privaten Speicher der App, geschützt durch die Verschlüsselung deines Telefons.")),
+        Triple(Icons.Outlined.PhoneAndroid, L("Auf diesem Telefon"), L("Alles: Umsätze, Kategorien, Regeln und, wenn du sie merkst, deine Bank-PIN, zusätzlich verschlüsselt. Nichts davon geht in ein Google-Backup.")),
         Triple(Icons.Outlined.Cloud, L("Auf dem Sync-Server"), L("Nur wenn du Sync nutzt, und nur verschlüsselt. Ohne deinen Schlüssel unlesbar. Verbindest du Claude per MCP, entschlüsselt der Server deine Daten für diese Anfrage.")),
         Triple(Icons.Outlined.AccountBalance, L("Bei deiner Bank"), L("Was sie ohnehin hat. wimg fragt direkt bei ihr an, ohne Dienst dazwischen.")),
         Triple(Icons.Outlined.Close, L("Sonst nirgends"), L("Keine Kopie bei Dritten, kein Konto, das man hacken könnte.")),
@@ -573,6 +573,7 @@ private const val OFL = "https://openfontlicense.org/open-font-license-official-
 
 /** What the Android app actually ships (app/build.gradle.kts, libwimg, res/font). */
 private val LIBS = listOf(
+    Lib("wimg", "MIT", "$REPO/blob/main/LICENSE"),
     Lib("SQLite", "Public Domain", "https://sqlite.org/copyright.html"),
     Lib("Zig Standardbibliothek", "MIT", "https://github.com/ziglang/zig/blob/master/LICENSE"),
     Lib("Kotlin", "Apache-2.0", APACHE),

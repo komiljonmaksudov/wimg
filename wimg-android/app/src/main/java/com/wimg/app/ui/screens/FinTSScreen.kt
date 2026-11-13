@@ -71,6 +71,7 @@ import com.wimg.app.i18n.__t
 import com.wimg.app.models.Account
 import com.wimg.app.services.BackgroundRefresh
 import com.wimg.app.services.FintsHttpCallback
+import com.wimg.app.services.PinStore
 import com.wimg.app.ui.components.Amount
 import com.wimg.app.ui.components.BandScreen
 import com.wimg.app.ui.components.BarClearance
@@ -142,7 +143,6 @@ private suspend fun <T> withFintsThread(block: () -> T): T {
 private const val PREFS = "wimg_fints"
 private const val KEY_BLZ = "fints_blz"
 private const val KEY_KENNUNG = "fints_kennung"
-private const val KEY_PIN = "fints_pin"
 private const val KEY_TAN_MEDIUM = "fints_tan_medium"
 private const val KEY_LAST_FETCH = "fints_last_fetch_at"
 private const val KEY_LAST_NEW = "fints_last_fetch_new"
@@ -179,7 +179,7 @@ private fun bankText(r: FintsResult?): String = when {
 private fun forgetPin(context: Context) {
     // A wrong stored PIN must not be retried (daily background fetch), or the
     // bank locks the account after a few attempts.
-    context.getSharedPreferences(PREFS, 0).edit().remove(KEY_PIN).apply()
+    PinStore.clear(context)
     BackgroundRefresh.cancel(context)
 }
 
@@ -312,7 +312,7 @@ fun FinTSScreen(navController: NavController? = null) {
 
     fun quickRefresh() {
         val b = bank ?: return
-        val saved = prefs.getString(KEY_PIN, null)
+        val saved = PinStore.get(context)
         if (saved == null) { setup = true; step = Step.Login; return }
         if (FintsJob.running) return
         busy = true; error = null
@@ -341,7 +341,7 @@ fun FinTSScreen(navController: NavController? = null) {
 
     fun fetchOlder() {
         val b = bank ?: return
-        val saved = prefs.getString(KEY_PIN, null)
+        val saved = PinStore.get(context)
         if (FintsJob.running || busy) return
         older = true; rangeChoice = 365; error = null
         if (saved == null) { setup = true; step = Step.Login; return }
@@ -373,12 +373,12 @@ fun FinTSScreen(navController: NavController? = null) {
             when (r?.status) {
                 "ok" -> {
                     prefs.edit().putString(KEY_BLZ, b.blz).putString(KEY_KENNUNG, kennung.trim()).apply()
-                    if (rememberPin) prefs.edit().putString(KEY_PIN, pin).apply() else prefs.edit().remove(KEY_PIN).apply()
+                    if (rememberPin) PinStore.set(context, pin) else PinStore.clear(context)
                     afterLogin(r, quick = false)
                 }
                 "tan_required" -> {
                     prefs.edit().putString(KEY_BLZ, b.blz).putString(KEY_KENNUNG, kennung.trim()).apply()
-                    if (rememberPin) prefs.edit().putString(KEY_PIN, pin).apply()
+                    if (rememberPin) PinStore.set(context, pin)
                     goTan(r, "connect")
                 }
                 else -> error = bankText(r)
@@ -515,7 +515,7 @@ fun FinTSScreen(navController: NavController? = null) {
                 Row(Modifier.fillMaxWidth().padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(L("PIN merken"), style = WimgType.rowTitle.copy(fontSize = WimgType.rowTitle.fontSize * 1.07f), color = c.text)
-                        Text(L("Nur auf diesem Gerät, nie synchronisiert · nötig für Schnellabfrage und Hintergrund-Abruf"), style = WimgType.desc, color = c.text2)
+                        Text(L("Verschlüsselt, nur auf diesem Gerät · nötig für Schnellabfrage und Hintergrund-Abruf"), style = WimgType.desc, color = c.text2)
                     }
                     Spacer(Modifier.width(12.dp))
                     WimgToggle(rememberPin, { rememberPin = it }, label = L("PIN merken"))
@@ -705,7 +705,7 @@ private fun BankDetail(b: BankInfo, prefs: android.content.SharedPreferences, re
     var accounts by remember { mutableStateOf<List<Account>>(emptyList()) }
     var count by remember { mutableIntStateOf(0) }
     var bg by remember { mutableStateOf(BackgroundRefresh.isEnabled(context)) }
-    val hasPin = prefs.getString(KEY_PIN, null) != null
+    val hasPin = PinStore.has(context)
     LaunchedEffect(Changes.version, reload) {
         accounts = LibWimg.getAccounts()
         count = LibWimg.getTransactions().size
@@ -728,7 +728,7 @@ private fun BankDetail(b: BankInfo, prefs: android.content.SharedPreferences, re
             WimgGroup {
                 WimgRow(L("Kennung"), trailing = { Text(prefs.getString(KEY_KENNUNG, "") ?: "", style = WimgType.mono.copy(fontSize = WimgType.mono.fontSize * 1.15f), color = c.text) })
                 RowDivider()
-                WimgRow(L("PIN"), trailing = { Text(if (hasPin) L("gespeichert · nur auf diesem Gerät") else L("nicht gespeichert"), style = WimgType.body, color = c.text) })
+                WimgRow(L("PIN"), trailing = { Text(if (hasPin) L("verschlüsselt gespeichert · nur hier") else L("nicht gespeichert"), style = WimgType.body, color = c.text) })
                 prefs.getString(KEY_TAN_MEDIUM, null)?.let { m ->
                     RowDivider()
                     WimgRow(L("TAN-Gerät"), trailing = { Text(m, style = WimgType.body, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis) })
@@ -790,7 +790,8 @@ private fun RemovePanel(bankName: String, onCancel: () -> Unit, onRemove: () -> 
 private fun removeConnection(context: Context) {
     val p = context.getSharedPreferences(PREFS, 0)
     val saved = p.all.toMap()
-    p.edit().remove(KEY_BLZ).remove(KEY_KENNUNG).remove(KEY_PIN).remove(KEY_TAN_MEDIUM).apply()
+    p.edit().remove(KEY_BLZ).remove(KEY_KENNUNG).remove(KEY_TAN_MEDIUM).apply()
+    PinStore.clear(context)
     val bgWasOn = BackgroundRefresh.isEnabled(context)
     BackgroundRefresh.cancel(context)
     Dock.undo(__t("Verbindung entfernt"), __t("Umsätze bleiben")) {

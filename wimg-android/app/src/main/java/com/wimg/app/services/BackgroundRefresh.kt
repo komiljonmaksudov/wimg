@@ -60,7 +60,6 @@ object BackgroundRefresh {
     private const val FINTS_PREFS = "wimg_fints"
     private const val KEY_BLZ = "fints_blz"
     private const val KEY_KENNUNG = "fints_kennung"
-    private const val KEY_PIN = "fints_pin"
     private const val KEY_TAN_MEDIUM = "fints_tan_medium"
 
     /** Dedupe TAN notifications so a daily run on a TAN bank doesn't produce
@@ -92,7 +91,7 @@ object BackgroundRefresh {
         val prefs = context.getSharedPreferences(FINTS_PREFS, Context.MODE_PRIVATE)
         return prefs.getString(KEY_BLZ, null) != null &&
             prefs.getString(KEY_KENNUNG, null) != null &&
-            prefs.getString(KEY_PIN, null) != null
+            PinStore.has(context)
     }
 
     // MARK: - Scheduling
@@ -253,7 +252,7 @@ object BackgroundRefresh {
         val prefs = context.getSharedPreferences(FINTS_PREFS, Context.MODE_PRIVATE)
         val blz = prefs.getString(KEY_BLZ, null) ?: return Outcome.Silent
         val kennung = prefs.getString(KEY_KENNUNG, null) ?: return Outcome.Silent
-        val pin = prefs.getString(KEY_PIN, null) ?: return Outcome.Silent
+        val pin = PinStore.get(context) ?: return Outcome.Silent
 
         return try {
             val connect = withFintsThread {
@@ -270,7 +269,7 @@ object BackgroundRefresh {
                     // gets the account locked). Anything else may be the bank being
                     // briefly down: try again tomorrow.
                     if (!isAuthRejected(connect)) return Outcome.Silent
-                    prefs.edit().remove(KEY_PIN).apply()
+                    PinStore.clear(context)
                     cancel(context)
                     return Outcome.AuthFailed
                 }
@@ -296,7 +295,7 @@ object BackgroundRefresh {
 
             if (fetch.status == "tan_required") return Outcome.TanRequired
             if (isAuthRejected(fetch)) {
-                prefs.edit().remove(KEY_PIN).apply()
+                PinStore.clear(context)
                 cancel(context)
                 return Outcome.AuthFailed
             }
