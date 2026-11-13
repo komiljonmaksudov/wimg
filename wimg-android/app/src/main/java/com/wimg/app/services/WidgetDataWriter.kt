@@ -1,72 +1,53 @@
 package com.wimg.app.services
 
 import android.content.Context
-import androidx.glance.appwidget.updateAll
 import com.wimg.app.bridge.LibWimg
+import com.wimg.app.widget.WidgetData
+import com.wimg.app.widget.updateAllWidgets
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import java.util.Calendar
 import kotlin.math.abs
 
+/** Computes what the widgets show and hands it to them (they never touch libwimg). */
 object WidgetDataWriter {
-    private const val PREFS = "wimg_widget"
-    private const val KEY = "wimg_widget_data"
-
     fun writeSummary(context: Context) {
         val cal = Calendar.getInstance()
         val year = cal.get(Calendar.YEAR)
         val month = cal.get(Calendar.MONTH) + 1
+        val monthKey = "%04d-%02d".format(year, month)
+        val today = "%s-%02d".format(monthKey, cal.get(Calendar.DAY_OF_MONTH))
 
         val summary = LibWimg.getSummaryFiltered(year, month, null) ?: return
-        val income = summary.income
-        val expenses = summary.expenses
-        val savingsRate = if (income > 0) ((income - expenses) / income * 100).toInt() else 0
+        val spent = abs(summary.expenses)
+        // by_category holds spending as positive amounts (same filter as Home).
+        val byCategory = summary.by_category.filter { it.amount > 0.004 && it.id != com.wimg.app.models.WimgCategory.INCOME.id }.sortedByDescending { it.amount }
 
-        val recurring = LibWimg.getRecurring()
-            .filter { it.active != 0 && it.next_due != null }
-            .sortedBy { it.next_due }
+        // Same rule as the recurring page's "Noch offen".
+        val fixed = LibWimg.getRecurring().filter { it.active == 1 && it.amount < 0 }
+        val due = fixed.filter { it.last_seen.startsWith(monthKey) || (it.next_due ?: "").startsWith(monthKey) || it.interval == "monthly" }
+        val open = due.filter { !it.last_seen.startsWith(monthKey) }.sumOf { abs(it.amount) }
+        val next = fixed.filter { (it.next_due ?: "") >= today }.minByOrNull { it.next_due!! }
 
-        val recent = LibWimg.getTransactions()
-            .filter { !it.isExcluded }
-            .sortedByDescending { it.date }
-            .take(5)
+        val todayTx = LibWimg.getTransactions().filter { it.date == today && !it.isExcluded }
 
-        val data = buildJsonObject {
-            put("available", summary.available)
-            put("income", income)
-            put("expenses", expenses)
-            put("savings_rate", savingsRate)
-            put("updated_at", System.currentTimeMillis() / 1000)
-            recurring.firstOrNull()?.let { next ->
-                put("next_recurring_merchant", next.merchant)
-                put("next_recurring_amount", next.amount)
-                put("next_recurring_date", next.next_due)
-            }
-            put("recent", buildJsonArray {
-                recent.forEach { tx ->
-                    add(buildJsonObject {
-                        put("desc", tx.description)
-                        put("amount", tx.amount)
-                    })
-                }
-            })
-        }
-
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString(KEY, data.toString()).apply()
-
-        // Trigger widget refresh
+        val data = WidgetData(
+            month = month,
+            available = summary.available,
+            expenses = spent,
+            perDay = spent / cal.get(Calendar.DAY_OF_MONTH),
+            categories = byCategory.map { it.id to abs(it.amount) },
+            fixedOpen = open,
+            nextMerchant = next?.merchant,
+            nextDate = next?.next_due,
+            todaySum = todayTx.sumOf { it.amount },
+            todayCount = todayTx.size,
+            updatedAt = System.currentTimeMillis(),
+        )
+        WidgetData.save(context, data)
         CoroutineScope(Dispatchers.IO).launch {
-            try {
-                com.wimg.app.widget.WimgSmallWidget().updateAll(context)
-                com.wimg.app.widget.WimgMediumWidget().updateAll(context)
-                com.wimg.app.widget.WimgLargeWidget().updateAll(context)
-            } catch (_: Exception) { }
+            try { updateAllWidgets(context) } catch (e: Exception) { android.util.Log.w("wimg", "widget update failed", e) }
         }
     }
 }

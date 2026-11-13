@@ -384,12 +384,12 @@ fun FinTSScreen(navController: NavController? = null) {
             busy = false
             when (r?.status) {
                 "ok" -> {
-                    prefs.edit().putString(KEY_BLZ, b.blz).putString(KEY_KENNUNG, kennung.trim()).apply()
+                    prefs.edit().putString(KEY_BLZ, b.blz).putString(KEY_KENNUNG, kennung.trim()).putString("fints_bank_name", b.name).apply()
                     if (rememberPin) PinStore.set(context, pin) else PinStore.clear(context)
                     afterLogin(r, quick = false)
                 }
                 "tan_required" -> {
-                    prefs.edit().putString(KEY_BLZ, b.blz).putString(KEY_KENNUNG, kennung.trim()).apply()
+                    prefs.edit().putString(KEY_BLZ, b.blz).putString(KEY_KENNUNG, kennung.trim()).putString("fints_bank_name", b.name).apply()
                     if (rememberPin) PinStore.set(context, pin)
                     goTan(r, "connect")
                 }

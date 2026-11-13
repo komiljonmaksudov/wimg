@@ -111,7 +111,7 @@ val DarkWimgPalette = WimgPalette(
  * category id. Sonstiges/unkategorisiert use text2 for the label and their own
  * bar colour (catSonstigesBar).
  */
-private val categoryColors: Map<Int, Pair<Long, Long>> = mapOf(
+internal val categoryColors: Map<Int, Pair<Long, Long>> = mapOf(
     1 to (0xFF2E9E6A to 0xFF5CC992),   // Lebensmittel
     2 to (0xFFC2410C to 0xFFF07F5A),   // Essen gehen
     3 to (0xFF0E7490 to 0xFF4FC3D9),   // Transport

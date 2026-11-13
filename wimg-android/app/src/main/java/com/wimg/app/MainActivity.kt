@@ -38,6 +38,7 @@ class MainActivity : FragmentActivity() {
         }
         BiometricLock.initialize(this)
         applySecureFlag()
+        openRequestedRoute(intent)
         setContent {
             WimgTheme {
                 Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -58,6 +59,29 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        openRequestedRoute(intent)
+    }
+
+    /** Notifications and widgets name the page to open (e.g. "review", "fints"). */
+    private fun openRequestedRoute(intent: android.content.Intent?) {
+        val route = intent?.getStringExtra(EXTRA_ROUTE) ?: return
+        intent.removeExtra(EXTRA_ROUTE)
+        // Month-end notice: open Rückblick on the month it is about ("2026-10").
+        intent.getStringExtra(EXTRA_MONTH)?.split("-")?.mapNotNull { it.toIntOrNull() }?.takeIf { it.size == 2 }?.let {
+            com.wimg.app.ui.screens.ReviewTarget.ym = it[0] to it[1]
+        }
+        intent.removeExtra(EXTRA_MONTH)
+        if (route in OPENABLE) com.wimg.app.ui.components.NavRequest.route = route
+    }
+
+    companion object {
+        const val EXTRA_ROUTE = "wimg_route"
+        const val EXTRA_MONTH = "wimg_month"
+        private val OPENABLE = setOf("transactions", "recurring", "review", "fints")
     }
 
     override fun onPause() {

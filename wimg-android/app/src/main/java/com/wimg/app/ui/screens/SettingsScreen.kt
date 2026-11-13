@@ -391,9 +391,7 @@ fun SettingsLockScreen(navController: NavController?) {
                         maskWidgets = on
                         widgetPrefs.edit().putBoolean("wimg_widget_mask_amounts", on).apply()
                         scope.launch {
-                            com.wimg.app.widget.WimgSmallWidget().updateAll(context)
-                            com.wimg.app.widget.WimgMediumWidget().updateAll(context)
-                            com.wimg.app.widget.WimgLargeWidget().updateAll(context)
+                            com.wimg.app.widget.updateAllWidgets(context)
                         }
                     }, label = L("Beträge in Widgets ausblenden"))
                 },

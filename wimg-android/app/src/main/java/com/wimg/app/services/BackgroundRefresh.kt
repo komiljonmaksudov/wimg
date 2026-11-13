@@ -56,6 +56,8 @@ object BackgroundRefresh {
 
     private const val CHANNEL_ID = "wimg_refresh"
     private const val NOTIFICATION_ID = 4711
+    private const val MONTH_END_NOTIFICATION_ID = 4712
+    private const val MONTH_END_KEY = "wimg_month_end_notified"
     private const val SETTINGS_PREFS = "wimg_settings"
     private const val FINTS_PREFS = "wimg_fints"
     private const val KEY_BLZ = "fints_blz"
@@ -163,14 +165,17 @@ object BackgroundRefresh {
     }
 
     internal fun notify(context: Context, outcome: Outcome) {
-        val body = when (outcome) {
+        val bank = context.getSharedPreferences(FINTS_PREFS, Context.MODE_PRIVATE)
+            .getString("fints_bank_name", null) ?: tr(context, "Deine Bank")
+        when (outcome) {
             is Outcome.Imported -> {
                 if (outcome.count <= 0) return
-                if (outcome.count == 1) {
-                    tr(context, "1 neuer Umsatz")
-                } else {
-                    tr(context, "%d neue Umsätze").format(outcome.count)
-                }
+                post(
+                    context,
+                    if (outcome.count == 1) tr(context, "1 neuer Umsatz") else tr(context, "%d neue Umsätze").format(outcome.count),
+                    tr(context, "%s · Hintergrund-Abruf der letzten 14 Tage").format(bank),
+                    route = "transactions",
+                )
             }
             Outcome.TanRequired -> {
                 val prefs = context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE)
@@ -178,35 +183,84 @@ object BackgroundRefresh {
                 val now = System.currentTimeMillis()
                 if (last > 0 && now - last < TAN_COOLDOWN_MS) return
                 prefs.edit().putLong(TAN_LAST_NOTIFIED_KEY, now).apply()
-                tr(context, "TAN erforderlich — App öffnen")
+                post(
+                    context,
+                    tr(context, "TAN erforderlich"),
+                    tr(context, "%s möchte für den Abruf eine TAN. Höchstens eine solche Mitteilung pro Tag.").format(bank),
+                    route = "fints",
+                    action = tr(context, "Jetzt abrufen"),
+                )
             }
-            Outcome.AuthFailed -> tr(context, "Anmeldung abgelaufen — bitte erneut anmelden")
-            Outcome.Silent -> return
+            Outcome.AuthFailed -> post(
+                context,
+                tr(context, "Anmeldung abgelehnt"),
+                tr(context, "%s hat die gespeicherte PIN abgelehnt. Melde dich einmal neu an.").format(bank),
+                route = "fints",
+            )
+            Outcome.Silent -> Unit
         }
+    }
 
+    /** Month-end notice (board 13): once per month in its first days, opens Rückblick. */
+    internal fun notifyMonthEnd(context: Context, force: Boolean = false) {
+        val cal = Calendar.getInstance()
+        if (!force && cal.get(Calendar.DAY_OF_MONTH) > 5) return
+        cal.add(Calendar.MONTH, -1)
+        val year = cal.get(Calendar.YEAR)
+        val month = cal.get(Calendar.MONTH) + 1
+        val key = "%04d-%02d".format(year, month)
+        val prefs = context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE)
+        if (!force && prefs.getString(MONTH_END_KEY, null) == key) return
+        val summary = runCatching { com.wimg.app.bridge.LibWimg.getSummaryFiltered(year, month, null) }.getOrNull() ?: return
+        if (summary.tx_count == 0) return
+        prefs.edit().putString(MONTH_END_KEY, key).apply()
+
+        val names = java.text.DateFormatSymbols(if (LocaleState.locale == "en") java.util.Locale.ENGLISH else java.util.Locale.GERMAN).months
+        cal.add(Calendar.MONTH, -1)
+        val prev = runCatching { com.wimg.app.bridge.LibWimg.getSummaryFiltered(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, null) }.getOrNull()
+        val spent = kotlin.math.abs(summary.expenses)
+        val prevSpent = kotlin.math.abs(prev?.expenses ?: 0.0)
+        val compare = if (prevSpent > 0) {
+            val pct = kotlin.math.round((spent - prevSpent) / prevSpent * 100).toInt()
+            when {
+                pct < 0 -> tr(context, "Ausgaben %d %% unter %s.").format(-pct, names[cal.get(Calendar.MONTH)])
+                pct > 0 -> tr(context, "Ausgaben %d %% über %s.").format(pct, names[cal.get(Calendar.MONTH)])
+                else -> tr(context, "Ausgaben wie im %s.").format(names[cal.get(Calendar.MONTH)])
+            }
+        } else ""
+        post(
+            context,
+            tr(context, "Dein %s ist abgeschlossen").format(names[month - 1]),
+            listOf(compare, tr(context, "Tippe für deinen Monatsabschluss.")).filter { it.isNotEmpty() }.joinToString(" "),
+            route = "review",
+            id = MONTH_END_NOTIFICATION_ID,
+            month = key,
+        )
+    }
+
+    private fun post(context: Context, title: String, body: String, route: String, action: String? = null, id: Int = NOTIFICATION_ID, month: String? = null) {
         if (!hasNotificationPermission(context)) return
         ensureChannel(context)
-
-        val intent = Intent(context, MainActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        val pending = PendingIntent.getActivity(
+        val open = PendingIntent.getActivity(
             context,
-            0,
-            intent,
+            route.hashCode(),
+            Intent(context, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_ROUTE, route)
+                .apply { if (month != null) putExtra(MainActivity.EXTRA_MONTH, month) }
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("wimg")
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
             .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
-            .setContentIntent(pending)
-            .build()
-
+            .setContentIntent(open)
+        if (action != null) builder.addAction(0, action, open)
         try {
-            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+            NotificationManagerCompat.from(context).notify(id, builder.build())
         } catch (_: SecurityException) {
             // Permission revoked between the check above and the post — ignore.
         }
@@ -289,7 +343,7 @@ object BackgroundRefresh {
             val from = isoDate(cal)
 
             val fetch = withFintsThread {
-                WimgJni.nativeFintsFetch("""{"from":"$from","to":"$to"}""")
+                WimgJni.nativeFintsFetch(kotlinx.serialization.json.buildJsonObject { put("from", from); put("to", to) }.toString())
                     ?.let { json.decodeFromString<FintsResult>(it) }
             } ?: return Outcome.Silent
 
@@ -343,5 +397,20 @@ class BackgroundRefreshWorker(
         val outcome = BackgroundRefresh.runSilentRefresh(applicationContext)
         BackgroundRefresh.notify(applicationContext, outcome)
         return Result.success()
+    }
+}
+
+/** Daily, independent of the bank: posts the month-end notice in a month's first days. */
+class MonthEndWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
+    override suspend fun doWork(): Result {
+        runCatching { BackgroundRefresh.notifyMonthEnd(applicationContext) }
+        return Result.success()
+    }
+
+    companion object {
+        fun schedule(context: Context) {
+            val request = PeriodicWorkRequestBuilder<MonthEndWorker>(1, TimeUnit.DAYS).build()
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork("wimg-month-end", ExistingPeriodicWorkPolicy.KEEP, request)
+        }
     }
 }

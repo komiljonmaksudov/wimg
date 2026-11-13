@@ -44,6 +44,7 @@ import com.wimg.app.ui.theme.WimgType
  */
 @Composable
 fun BarPlaygroundScreen(navController: NavController?) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     // 0 = place bar, 1 = detail: back label only, 2 = back + short action,
     // 3 = back + long action, 4 = back + action + more
     var mode by remember { mutableIntStateOf(0) }
@@ -93,6 +94,12 @@ fun BarPlaygroundScreen(navController: NavController?) {
             }
             GroupLabel("Angedockte Zeile")
             WimgGroup {
+                WimgRow("Mitteilung: neue Umsätze", onClick = { com.wimg.app.services.BackgroundRefresh.notify(context, com.wimg.app.services.BackgroundRefresh.Outcome.Imported(3)) })
+                RowDivider()
+                WimgRow("Mitteilung: TAN erforderlich", desc = "Höchstens einmal pro Tag", onClick = { com.wimg.app.services.BackgroundRefresh.notify(context, com.wimg.app.services.BackgroundRefresh.Outcome.TanRequired) })
+                RowDivider()
+                WimgRow("Mitteilung: Monatsabschluss", onClick = { com.wimg.app.services.BackgroundRefresh.notifyMonthEnd(context, force = true) })
+                RowDivider()
                 WimgRow("Läuft (Sync)", onClick = { Dock.show(DockRow(DockKind.Sync, "Umsätze laden", "comdirect · läuft im Hintergrund")) })
                 RowDivider()
                 WimgRow("Info (4 s)", onClick = { Dock.info("3 neue Umsätze", "12 schon vorhanden") })

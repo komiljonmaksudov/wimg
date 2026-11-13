@@ -1,60 +1,44 @@
 package com.wimg.app.widget
 
 import android.content.Context
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
-data class RecentTx(val description: String, val amount: Double)
-
+/** What the widgets show, written by the app (WidgetDataWriter) after every change. */
+@Serializable
 data class WidgetData(
+    val month: Int = 0,
     val available: Double = 0.0,
-    val income: Double = 0.0,
     val expenses: Double = 0.0,
-    val savingsRate: Int = 0,
+    val perDay: Double = 0.0,
+    /** Spending per category this month: (category id, amount), largest first. */
+    val categories: List<Pair<Int, Double>> = emptyList(),
+    val fixedOpen: Double = 0.0,
     val nextMerchant: String? = null,
-    val nextAmount: Double? = null,
     val nextDate: String? = null,
-    val recent: List<RecentTx> = emptyList(),
-    val hasData: Boolean = false,
-    /** User opted to hide € amounts. Lives in SharedPreferences "wimg_settings"
-     *  under "wimg_widget_mask_amounts". Read on every load so the Settings
-     *  toggle only needs `updateAll()` to be reflected. */
-    val maskAmounts: Boolean = false,
+    val todaySum: Double = 0.0,
+    val todayCount: Int = 0,
+    val updatedAt: Long = 0,
 ) {
+    val hasData get() = updatedAt > 0
+
     companion object {
-        fun load(context: Context): WidgetData {
-            val mask = context.getSharedPreferences("wimg_settings", Context.MODE_PRIVATE)
-                .getBoolean("wimg_widget_mask_amounts", false)
-            val prefs = context.getSharedPreferences("wimg_widget", Context.MODE_PRIVATE)
-            val jsonStr = prefs.getString("wimg_widget_data", null)
-                ?: return WidgetData(maskAmounts = mask)
-            return try {
-                val obj = Json.parseToJsonElement(jsonStr).jsonObject
-                WidgetData(
-                    available = obj["available"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
-                    income = obj["income"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
-                    expenses = obj["expenses"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
-                    savingsRate = obj["savings_rate"]?.jsonPrimitive?.intOrNull ?: 0,
-                    nextMerchant = obj["next_recurring_merchant"]?.jsonPrimitive?.contentOrNull,
-                    nextAmount = obj["next_recurring_amount"]?.jsonPrimitive?.doubleOrNull,
-                    nextDate = obj["next_recurring_date"]?.jsonPrimitive?.contentOrNull,
-                    recent = obj["recent"]?.jsonArray?.mapNotNull { el ->
-                        val o = el.jsonObject
-                        val d = o["desc"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-                        val a = o["amount"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null
-                        RecentTx(d, a)
-                    } ?: emptyList(),
-                    hasData = true,
-                    maskAmounts = mask,
-                )
-            } catch (_: Exception) {
-                WidgetData(maskAmounts = mask)
-            }
+        private const val PREFS = "wimg_widget"
+        private const val KEY = "wimg_widget_data_v2"
+        private val json = Json { ignoreUnknownKeys = true }
+
+        fun load(context: Context): WidgetData =
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null)
+                ?.let { runCatching { json.decodeFromString<WidgetData>(it) }.getOrNull() } ?: WidgetData()
+
+        fun save(context: Context, data: WidgetData) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY, json.encodeToString(data)).remove("wimg_widget_data").apply()
         }
+
+        /** Settings › "Beträge in Widgets ausblenden". */
+        fun masked(context: Context) =
+            context.getSharedPreferences("wimg_settings", Context.MODE_PRIVATE).getBoolean("wimg_widget_mask_amounts", false)
     }
 }
