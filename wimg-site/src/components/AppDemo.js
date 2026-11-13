@@ -248,12 +248,16 @@ class Component extends DCLogic {
   // Navigation: places replace each other (Übersicht stays the root), pages stack.
   nav(stack, extra, restore) {
     const sc = this.scroller();
-    if (sc) this.scrolls[this.state.stack.join('/')] = sc.scrollTop;
-    this.setState(Object.assign({ stack, menu: false, add: false, panel: null, compact: false, topRow: 0, sFilters: false, edit: null }, extra || {}));
+    // Keep the header state (compact band, balance row) with the scroll
+    // position, so going back draws the list exactly as it was in the first
+    // frame instead of flashing the top-of-list numbers.
+    if (sc) this.scrolls[this.state.stack.join('/')] = { top: sc.scrollTop, compact: this.state.compact, topRow: this.state.topRow };
+    const saved = restore ? this.scrolls[stack.join('/')] : null;
+    this.setState(Object.assign({ stack, menu: false, add: false, panel: null, compact: saved ? saved.compact : false, topRow: saved ? saved.topRow : 0, sFilters: false, edit: null }, extra || {}));
     const key = stack.join('/');
     requestAnimationFrame(() => {
       const el = this.scroller();
-      if (el) el.scrollTop = restore ? (this.scrolls[key] || 0) : 0;
+      if (el) el.scrollTop = restore && this.scrolls[key] ? this.scrolls[key].top : 0;
       if (restore && this.route() === 'ums') this.onScroll && this.onScroll({ target: el });
       if (stack[stack.length - 1] === 'search' && !this.still) { const inp = this.root() && this.root().querySelector('.w-sinput'); if (inp) inp.focus({ preventScroll: true }); }
     });
