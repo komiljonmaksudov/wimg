@@ -108,6 +108,13 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null) {
         data = withContext(Dispatchers.IO) { loadHome(year, month, selectedAccount) }.also { com.wimg.app.ui.components.ScreenCache.put(key, it) }
         withContext(Dispatchers.IO) { com.wimg.app.services.WidgetDataWriter.writeSummary(context) }
     }
+    // Early in a month: last month's Rückblick, once, docked on the bar.
+    LaunchedEffect(selectedAccount) {
+        offerMonthEnd(context, selectedAccount) { y, m ->
+            ReviewTarget.ym = y to m
+            navController?.navigate("review") { popUpTo("dashboard") }
+        }
+    }
 
     val locale = if (LocaleState.locale == "en") Locale.ENGLISH else Locale.GERMAN
     val months = remember(locale) { DateFormatSymbols(locale).months }
@@ -402,7 +409,7 @@ private fun DayRow(tx: Transaction, shortMonths: List<String>) {
 }
 
 @Composable
-private fun MonthPickerPanel(year: Int, month: Int, shortMonths: List<String>, now: Calendar, onPick: (Int, Int) -> Unit) {
+internal fun MonthPickerPanel(year: Int, month: Int, shortMonths: List<String>, now: Calendar, onPick: (Int, Int) -> Unit) {
     val c = Wimg.colors
     var shownYear by remember { mutableIntStateOf(year) }
     val curYear = now.get(Calendar.YEAR)
