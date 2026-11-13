@@ -78,3 +78,17 @@ release            → GitHub Release: compact WASM, XCFramework, .so, APK, wimg
 
 CI never deploys. The landing page and sync server ship from a Mac with
 `./scripts/deploy-server.sh [web|sync]`.
+
+## Google Play
+
+- Published from a **personal** developer account. Google requires a closed
+  test with ≥ 12 testers opted in for 14 consecutive days before the first
+  production release, then a production-access application (review ≤ ~7 days).
+- Signed bundle: CI builds `app-release.aab` when the secrets
+  `WIMG_KEYSTORE_BASE64`, `WIMG_KEYSTORE_PASSWORD`, `WIMG_KEY_ALIAS`,
+  `WIMG_KEY_PASSWORD` exist (upload key; Play App Signing holds the app key).
+- Package name `com.wimg.app` is permanent after the first upload.
+- **Later (postponed):** an organisation account would skip the tester rule
+  but makes the developer a trader with a public business address, needs a
+  D-U-N-S number and an Impressum on the website. Revisit if wimg earns money
+  or more apps follow; Play supports transferring the app between accounts.
