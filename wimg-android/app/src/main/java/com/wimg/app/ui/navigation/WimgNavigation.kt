@@ -36,6 +36,7 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,7 +67,7 @@ import com.wimg.app.ui.theme.WimgMotion
 private const val ONBOARDING_KEY = "wimg_onboarding_done"
 
 /** Routes already rebuilt in the redesign (band + sheet, content under the bar). */
-private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}", "recurring", "rec/{id}", "settings", "settings/lock", "settings/data", "settings/sync", "settings/sync/key", "settings/sync/link", "fints")
+private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}", "recurring", "rec/{id}", "settings", "settings/lock", "settings/data", "settings/sync", "settings/sync/key", "settings/sync/link", "fints", "import")
 
 /** Everything the place chip can switch to, in menu order. */
 val PLACES = listOf(
@@ -87,15 +88,21 @@ fun WimgNavigation() {
     val prefs = context.getSharedPreferences("wimg", 0)
     var onboardingDone by remember { mutableStateOf(prefs.getBoolean(ONBOARDING_KEY, false)) }
 
+    // Where the first start said to go next ("fints", "import", …).
+    var afterOnboarding by remember { mutableStateOf<String?>(null) }
     if (!onboardingDone) {
-        OnboardingScreen(onComplete = {
+        OnboardingScreen(onComplete = { next ->
             prefs.edit().putBoolean(ONBOARDING_KEY, true).apply()
+            afterOnboarding = next.takeIf { it != "dashboard" }
             onboardingDone = true
         })
         return
     }
 
     val navController = rememberNavController()
+    LaunchedEffect(afterOnboarding) {
+        afterOnboarding?.let { navController.navigate(it); afterOnboarding = null }
+    }
     var selectedAccount by remember { mutableStateOf<String?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
     val entry = navController.currentBackStackEntryAsState().value

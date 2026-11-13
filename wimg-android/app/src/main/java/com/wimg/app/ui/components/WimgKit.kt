@@ -186,6 +186,17 @@ fun BandScreen(
 }
 
 /** "Over" line (13, bandSub) + title, for list screens. */
+/** Band for multi-step flows: "Flow · Schritt n von m", a segmented progress line, the step title. */
+@Composable
+fun StepBand(over: String, step: Int, of: Int, title: String) {
+    val c = Wimg.colors
+    Text(L("%s · Schritt %d von %d", over, step, of), style = WimgType.bandOver, color = c.bandSub)
+    Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 14.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        for (i in 1..of) Box(Modifier.weight(1f).height(4.dp).clip(CircleShape).background(if (i <= step) Color.White else Color.White.copy(alpha = 0.18f)))
+    }
+    Text(title, style = WimgType.title.copy(fontSize = WimgType.title.fontSize * 1.15f), color = Color.White)
+}
+
 @Composable
 fun BandTitle(over: String?, title: String) {
     val c = Wimg.colors
