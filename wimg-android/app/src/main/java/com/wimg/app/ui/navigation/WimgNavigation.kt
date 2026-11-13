@@ -80,7 +80,7 @@ private fun isPlaceSwitch(from: androidx.navigation.NavBackStackEntry, to: andro
 private const val ONBOARDING_KEY = "wimg_onboarding_done"
 
 /** Routes already rebuilt in the redesign (band + sheet, content under the bar). */
-private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}", "recurring", "rec/{id}", "settings", "settings/lock", "settings/data", "settings/sync", "settings/sync/key", "settings/sync/link", "fints", "import")
+private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}", "recurring", "rec/{id}", "settings", "settings/lock", "settings/data", "settings/sync", "settings/sync/key", "settings/sync/link", "fints", "import", "dev/bar")
 
 /** Everything the place chip can switch to, in menu order. */
 val PLACES = listOf(
@@ -186,6 +186,7 @@ fun WimgNavigation() {
                     composable("settings/sync") { SettingsSyncScreen(navController) }
                     composable("settings/sync/key") { SettingsSyncKeyScreen(navController) }
                     composable("settings/sync/link") { SettingsSyncLinkScreen(navController) }
+                    composable("dev/bar") { BarPlaygroundScreen(navController) }
                     composable("about") { AboutScreen() }
                 }
             }
