@@ -37,3 +37,12 @@ data class RecurringPayment(
     val amount: Double,
 )
 
+/** A categorisation rule: a text that, found in a booking, assigns a category. */
+@Serializable
+data class Rule(
+    val id: Long,
+    val pattern: String,
+    val category: Int,
+    /** 1 = learned from a manual change; higher = shipped with wimg. */
+    val priority: Int,
+)

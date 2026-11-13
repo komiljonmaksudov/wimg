@@ -703,6 +703,79 @@ export fn wimg_delete_goal(id: [*]const u8, id_len: u32) i32 {
 }
 
 /// Undo the last action. Returns pointer to length-prefixed JSON, or null if nothing to undo.
+// --- Rules + manual entries (board 22) ---
+
+/// All categorisation rules as length-prefixed JSON [{id, pattern, category, priority}].
+export fn wimg_get_rules() ?[*]const u8 {
+    var database = global_db orelse {
+        setError("wimg_get_rules: database not initialized", .{});
+        return null;
+    };
+    const buf_size: usize = 64 * 1024;
+    const buf = fba.allocator().alloc(u8, buf_size + 4) catch {
+        setError("wimg_get_rules: failed to allocate buffer", .{});
+        return null;
+    };
+    const n = (database.getRulesJson(buf.ptr + 4, buf_size) catch null) orelse {
+        setError("wimg_get_rules: query failed", .{});
+        fba.allocator().free(buf);
+        return null;
+    };
+    const len_bytes: [4]u8 = @bitCast(@as(u32, @intCast(n)));
+    @memcpy(buf[0..4], &len_bytes);
+    return buf.ptr;
+}
+
+/// Deletes a rule; reset != 0 also makes the transactions it sorted uncategorised.
+export fn wimg_delete_rule(id: i64, reset: u8) i32 {
+    var database = global_db orelse {
+        setError("wimg_delete_rule: database not initialized", .{});
+        return -1;
+    };
+    database.deleteRule(id, reset != 0) catch |err| {
+        setError("wimg_delete_rule: failed: {s}", .{@errorName(err)});
+        return -1;
+    };
+    return 0;
+}
+
+/// Adds a transaction entered by hand (e.g. cash). [date] is "YYYY-MM-DD".
+/// Its id includes the time of entry, so two identical entries on one day stay
+/// two; it is never matched or overwritten by a bank import.
+export fn wimg_add_manual_transaction(date_ptr: [*]const u8, date_len: u32, desc_ptr: [*]const u8, desc_len: u32, amount_cents: i64, category: u8, acct_ptr: [*]const u8, acct_len: u32) i32 {
+    var database = global_db orelse {
+        setError("wimg_add_manual_transaction: database not initialized", .{});
+        return -1;
+    };
+    const date_s = date_ptr[0..date_len];
+    if (date_s.len != 10) {
+        setError("wimg_add_manual_transaction: bad date", .{});
+        return -1;
+    }
+    const date = types.Date{
+        .year = std.fmt.parseInt(u16, date_s[0..4], 10) catch return -1,
+        .month = std.fmt.parseInt(u8, date_s[5..7], 10) catch return -1,
+        .day = std.fmt.parseInt(u8, date_s[8..10], 10) catch return -1,
+    };
+    const account = acct_ptr[0..acct_len];
+    var txn: Transaction = undefined;
+    txn.date = date;
+    txn.amount_cents = amount_cents;
+    txn.currency = "EUR".*;
+    txn.category = types.Category.fromInt(category);
+    parser.setAccount(&txn, account);
+    txn.description_len = @intCast(parser.toUtf8(&txn.description, desc_ptr[0..desc_len]));
+    var seed_buf: [300]u8 = undefined;
+    const seed = std.fmt.bufPrint(&seed_buf, "manual:{d}:{s}", .{ db_mod.nowMs(), txn.descriptionSlice() }) catch txn.descriptionSlice();
+    txn.id = parser.computeHash(date, seed, amount_cents, account);
+    database.ensureAccount(account, account, "#8A857C") catch {};
+    _ = database.insertTransaction(&txn) catch |err| {
+        setError("wimg_add_manual_transaction: failed: {s}", .{@errorName(err)});
+        return -1;
+    };
+    return 0;
+}
+
 export fn wimg_undo() ?[*]const u8 {
     var database = global_db orelse {
         setError("wimg_undo: database not initialized", .{});

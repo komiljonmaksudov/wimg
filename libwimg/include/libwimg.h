@@ -152,6 +152,15 @@ const uint8_t *wimg_export_db(void);
 // --- Undo/Redo ---
 
 // Undo the last action. Returns length-prefixed JSON with undo info, or NULL.
+// Rules (JSON [{id, pattern, category, priority}]) and deleting one; reset != 0
+// makes the transactions it sorted uncategorised again.
+const uint8_t *wimg_get_rules(void);
+int32_t wimg_delete_rule(int64_t id, uint8_t reset);
+
+// A transaction entered by hand (e.g. cash). date "YYYY-MM-DD", amount signed cents.
+int32_t wimg_add_manual_transaction(const uint8_t *date, uint32_t date_len, const uint8_t *desc, uint32_t desc_len,
+                                    int64_t amount_cents, uint8_t category, const uint8_t *acct, uint32_t acct_len);
+
 const uint8_t *wimg_undo(void);
 
 // Redo the last undone action. Returns length-prefixed JSON, or NULL.

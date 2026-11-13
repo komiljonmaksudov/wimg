@@ -65,4 +65,9 @@ object WimgJni {
     external fun nativeFintsGetBanks(): String?
     external fun nativeFintsGetTanMedia(): String?
     external fun nativeFintsSetTanMedium(json: String): String?
+
+    // Rules + manual entries
+    external fun nativeGetRules(): String?
+    external fun nativeDeleteRule(id: Long, reset: Int): Int
+    external fun nativeAddManualTransaction(date: String, description: String, amountCents: Long, category: Int, account: String): Int
 }

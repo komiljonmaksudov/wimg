@@ -2507,6 +2507,29 @@ pub const Db = struct {
         return pos;
     }
 
+    /// Deletes a rule. With [reset], transactions it sorted (same category and
+    /// the pattern in the text) become uncategorised again; otherwise they stay.
+    pub fn deleteRule(self: *Db, id: i64, reset: bool) DbError!void {
+        if (reset) {
+            const sql =
+                \\UPDATE transactions SET category = 0, updated_at = ?2
+                \\WHERE (category, ?1) IN (SELECT category, id FROM rules WHERE id = ?1)
+                \\  AND instr(upper(description), (SELECT upper(pattern) FROM rules WHERE id = ?1)) > 0;
+            ;
+            var st: ?*c.sqlite3_stmt = null;
+            if (c.sqlite3_prepare_v2(self.handle, sql, -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+            defer _ = c.sqlite3_finalize(st.?);
+            _ = c.sqlite3_bind_int64(st.?, 1, id);
+            _ = c.sqlite3_bind_int64(st.?, 2, nowMs());
+            if (c.sqlite3_step(st.?) != c.SQLITE_DONE) return DbError.StepFailed;
+        }
+        var del: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, "DELETE FROM rules WHERE id = ?1;", -1, &del, null) != c.SQLITE_OK or del == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(del.?);
+        _ = c.sqlite3_bind_int64(del.?, 1, id);
+        if (c.sqlite3_step(del.?) != c.SQLITE_DONE) return DbError.StepFailed;
+    }
+
     /// Get all rules as JSON array.
     pub fn getRulesJson(self: *Db, buf: [*]u8, buf_len: usize) DbError!?usize {
         const sql = "SELECT id, pattern, category, priority FROM rules ORDER BY priority DESC;";
@@ -4695,4 +4718,19 @@ test "migration v16 converts ISO-8859-1 texts and keeps ids" {
     try std.testing.expectEqual(@as(c_int, 1), c.sqlite3_column_int(s.?, 2)); // bumped for sync
     try std.testing.expectEqual(c.SQLITE_ROW, c.sqlite3_step(s.?));
     try std.testing.expectEqual(@as(c_int, 0), c.sqlite3_column_int(s.?, 2)); // valid row untouched
+}
+
+test "deleteRule: keep or reset the transactions it sorted" {
+    var db = try Db.init(":memory:");
+    defer db.close();
+    try db.exec("DELETE FROM rules; INSERT INTO rules (id, pattern, category, priority) VALUES (7, 'KIOSK', 1, 1), (8, 'KIOSK', 1, 1);");
+    try db.exec("INSERT INTO transactions (id, date_year, date_month, date_day, description, amount_cents, category) VALUES ('a', 2026, 1, 2, 'Kiosk am Eck', -100, 1), ('b', 2026, 1, 2, 'Kiosk', -100, 2), ('c', 2026, 1, 2, 'Bäcker', -100, 1);");
+    try db.deleteRule(7, false);
+    try db.deleteRule(8, true);
+    var s: ?*c.sqlite3_stmt = null;
+    _ = c.sqlite3_prepare_v2(db.handle, "SELECT group_concat(id || category, ',') FROM (SELECT * FROM transactions ORDER BY id); ", -1, &s, null);
+    defer _ = c.sqlite3_finalize(s.?);
+    _ = c.sqlite3_step(s.?);
+    // a: reset (matched, same category) · b: other category, kept · c: no match, kept
+    try std.testing.expectEqualStrings("a0,b2,c1", std.mem.span(@as([*:0]const u8, @ptrCast(c.sqlite3_column_text(s.?, 0)))));
 }

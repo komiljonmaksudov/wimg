@@ -22,6 +22,9 @@ extern const uint8_t *wimg_get_recurring(void);
 extern int32_t wimg_detect_recurring(void);
 extern const uint8_t *wimg_get_recurring_payments(const uint8_t *id, uint32_t id_len);
 extern const uint8_t *wimg_undo(void);
+extern const uint8_t *wimg_get_rules(void);
+extern int32_t wimg_delete_rule(int64_t id, uint8_t reset);
+extern int32_t wimg_add_manual_transaction(const uint8_t *date, uint32_t date_len, const uint8_t *desc, uint32_t desc_len, int64_t amount_cents, uint8_t category, const uint8_t *acct, uint32_t acct_len);
 extern const uint8_t *wimg_export_csv(void);
 
 // Sync
@@ -147,6 +150,29 @@ JNIEXPORT jstring JNICALL JNI_FN(nativeImportCsv)(JNIEnv *env, jobject obj, jbyt
     const uint8_t *ptr = wimg_import_csv((const uint8_t *)bytes, len);
     (*env)->ReleaseByteArrayElements(env, data, bytes, JNI_ABORT);
     return ptr_to_jstring(env, ptr);
+}
+
+// --- Rules + manual entries ---
+
+JNIEXPORT jstring JNICALL JNI_FN(nativeGetRules)(JNIEnv *env, jobject obj) {
+    return ptr_to_jstring(env, wimg_get_rules());
+}
+
+JNIEXPORT jint JNICALL JNI_FN(nativeDeleteRule)(JNIEnv *env, jobject obj, jlong id, jint reset) {
+    return wimg_delete_rule((int64_t)id, (uint8_t)reset);
+}
+
+JNIEXPORT jint JNICALL JNI_FN(nativeAddManualTransaction)(JNIEnv *env, jobject obj, jstring date, jstring desc, jlong amount, jint category, jstring acct) {
+    const char *cd = (*env)->GetStringUTFChars(env, date, NULL);
+    const char *cs = (*env)->GetStringUTFChars(env, desc, NULL);
+    const char *ca = (*env)->GetStringUTFChars(env, acct, NULL);
+    int32_t rc = wimg_add_manual_transaction((const uint8_t *)cd, (*env)->GetStringUTFLength(env, date),
+        (const uint8_t *)cs, (*env)->GetStringUTFLength(env, desc), (int64_t)amount, (uint8_t)category,
+        (const uint8_t *)ca, (*env)->GetStringUTFLength(env, acct));
+    (*env)->ReleaseStringUTFChars(env, date, cd);
+    (*env)->ReleaseStringUTFChars(env, desc, cs);
+    (*env)->ReleaseStringUTFChars(env, acct, ca);
+    return rc;
 }
 
 // --- Accounts ---

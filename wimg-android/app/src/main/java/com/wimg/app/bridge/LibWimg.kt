@@ -104,6 +104,17 @@ object LibWimg {
 
     // --- Recurring ---
 
+    fun getRules(): List<Rule> = lock.withLock {
+        val str = WimgJni.nativeGetRules() ?: return emptyList()
+        json.decodeFromString(str)
+    }
+
+    fun deleteRule(id: Long, reset: Boolean): Boolean = lock.withLock { WimgJni.nativeDeleteRule(id, if (reset) 1 else 0) == 0 }
+
+    /** A transaction entered by hand; [date] "YYYY-MM-DD", amount signed in cents. */
+    fun addManualTransaction(date: String, description: String, amountCents: Long, category: Int, account: String): Boolean =
+        lock.withLock { WimgJni.nativeAddManualTransaction(date, description, amountCents, category, account) == 0 }
+
     fun getRecurring(): List<RecurringPattern> = lock.withLock {
         val str = WimgJni.nativeGetRecurring() ?: return emptyList()
         json.decodeFromString(str)
