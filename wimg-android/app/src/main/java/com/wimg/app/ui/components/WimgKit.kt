@@ -7,6 +7,11 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -483,35 +488,70 @@ fun FloatingBar(
 ) {
     val c = Wimg.colors
     val docked = Dock.row
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    // The bar's own width when nothing is docked, measured from its content.
+    var natural by remember { mutableStateOf<Dp?>(null) }
+    val target = if (docked != null) WimgDimens.barDockedWidth else natural
+    // Width changes (docking, or another place with other chips) glide instead of
+    // snapping; the very first width is taken as is, so the bar doesn't grow in.
+    val widthAnim = remember { androidx.compose.animation.core.Animatable(0f) }
+    var placed by remember { mutableStateOf(false) }
+    LaunchedEffect(target) {
+        val t = target ?: return@LaunchedEffect
+        if (!placed) { widthAnim.snapTo(t.value); placed = true }
+        else widthAnim.animateTo(t.value, WimgMotion.barWidth())
+    }
+    val width = widthAnim.value.dp
     Column(
         modifier
-            .then(if (docked != null) Modifier.width(WimgDimens.barDockedWidth) else Modifier.width(IntrinsicSize.Max))
-            .widthIn(max = WimgDimens.barDockedWidth)
+            .then(if (!placed) Modifier.width(IntrinsicSize.Max) else Modifier.width(width))
             .shadow(14.dp, WimgShape.bar, ambientColor = Color.Black.copy(alpha = 0.18f), spotColor = Color.Black.copy(alpha = 0.18f))
             .clip(WimgShape.bar)
             .background(c.card)
-            .border(1.dp, c.line, WimgShape.bar)
-            .animateContentSize(WimgMotion.dock(80f)),
+            .border(1.dp, c.line, WimgShape.bar),
     ) {
+        // Keep the last row while it animates out.
+        var last by remember { mutableStateOf(docked) }
+        if (docked != null) last = docked
         AnimatedVisibility(
             visible = docked != null,
-            enter = fadeIn(tween(WimgMotion.DOCK_CONTENT_MS, WimgMotion.DOCK_CONTENT_DELAY_MS, WimgMotion.EaseOut)) +
-                slideInVertically(tween(WimgMotion.DOCK_CONTENT_MS, WimgMotion.DOCK_CONTENT_DELAY_MS, WimgMotion.EaseOut)) { it / 8 },
-            exit = fadeOut(WimgMotion.undock()) + slideOutVertically(WimgMotion.undock()) { it / 8 },
+            // Height grows from the bar upwards (EaseOut), the content fades in and
+            // rises 6 dp a beat later; undocking is quicker and all at once.
+            enter = expandVertically(WimgMotion.dock(80f), expandFrom = Alignment.Bottom) +
+                fadeIn(tween(WimgMotion.DOCK_CONTENT_MS, WimgMotion.DOCK_CONTENT_DELAY_MS, WimgMotion.EaseOut)) +
+                slideInVertically(tween(WimgMotion.DOCK_CONTENT_MS, WimgMotion.DOCK_CONTENT_DELAY_MS, WimgMotion.EaseOut)) { with(density) { WimgMotion.DOCK_CONTENT_RISE.roundToPx() } },
+            exit = shrinkVertically(WimgMotion.undock(), shrinkTowards = Alignment.Bottom) + fadeOut(tween(120, easing = WimgMotion.EaseOut)),
         ) {
-            // Keep showing the last row while it animates out.
-            var last by remember { mutableStateOf(docked) }
-            if (docked != null) last = docked
-            last?.let { DockedRowContent(it) }
+            // One row replacing another ("Anmelden" → "Umsätze laden" → result)
+            // crossfades and resizes instead of cutting.
+            androidx.compose.animation.AnimatedContent(
+                targetState = last,
+                contentKey = { it?.kind to it?.title },
+                transitionSpec = {
+                    (fadeIn(tween(WimgMotion.DOCK_CONTENT_MS, WimgMotion.DOCK_CONTENT_DELAY_MS, WimgMotion.EaseOut)) +
+                        slideInVertically(tween(WimgMotion.DOCK_CONTENT_MS, WimgMotion.DOCK_CONTENT_DELAY_MS, WimgMotion.EaseOut)) { with(density) { WimgMotion.DOCK_CONTENT_RISE.roundToPx() } })
+                        .togetherWith(fadeOut(tween(120, easing = WimgMotion.EaseOut)))
+                        .using(androidx.compose.animation.SizeTransform(clip = false) { _, _ -> WimgMotion.dock(40f) })
+                },
+                label = "dockRow",
+            ) { r -> if (r != null) DockedRowContent(r) }
         }
         Row(
-            Modifier.height(WimgDimens.barHeight).padding(WimgDimens.barPadding),
+            Modifier
+                .then(
+                    // Docked: fill the 358 dp so the actions sit right. Otherwise measure
+                    // the natural width without the animated width squeezing it.
+                    if (docked != null) Modifier.fillMaxWidth()
+                    else Modifier.wrapContentWidth(Alignment.Start, unbounded = true).onSizeChanged { natural = with(density) { it.width.toDp() } },
+                )
+                .height(WimgDimens.barHeight)
+                .padding(WimgDimens.barPadding),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(WimgDimens.barGap),
         ) {
             left()
             if (divider) Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 24.dp).background(c.line))
-            Spacer(Modifier.weight(1f, fill = docked != null))
+            if (docked != null) Spacer(Modifier.weight(1f))
             right()
         }
     }
@@ -591,16 +631,49 @@ data class DetailBarSpec(
     val actionIcon: ImageVector?,
     val onAction: () -> Unit,
     val backLabel: String? = null,
+    /** Main action is running: show a spinner on it, keep the label. */
+    val actionBusy: Boolean = false,
     val onMore: (() -> Unit)? = null,
     val moreActive: Boolean = false,
 )
 
+/** What one screen puts into the bar. */
+data class BarSpec(
+    val chip: BarChipSpec? = null,
+    val panel: (@Composable () -> Unit)? = null,
+    val onPanelDismiss: () -> Unit = {},
+    val detail: DetailBarSpec? = null,
+)
+
+/**
+ * Bar contributions keyed by the screen (back-stack entry) that made them. During
+ * a screen change the old and new screen are both composed for a moment; keying
+ * by owner means neither can overwrite or clear the other's bar. The bar reads
+ * only the entry that is current ([current]).
+ */
 object BarState {
-    var detail by mutableStateOf<DetailBarSpec?>(null)
-    var chip by mutableStateOf<BarChipSpec?>(null)
-    /** Panel shown above the bar with a scrim; tapping the scrim calls [onPanelDismiss]. */
-    var panel by mutableStateOf<(@Composable () -> Unit)?>(null)
-    var onPanelDismiss by mutableStateOf<() -> Unit>({})
+    private val specs = androidx.compose.runtime.mutableStateMapOf<String, BarSpec>()
+    var currentOwner by mutableStateOf<String?>(null)
+
+    /**
+     * A screen registers its bar one frame after it first appears. Until then the
+     * bar keeps what it showed before, so a screen change animates the bar once
+     * (old → new) instead of twice (old → empty → new).
+     */
+    private var lastShown: BarSpec = BarSpec()
+    val current: BarSpec
+        get() {
+            val spec = currentOwner?.let { specs[it] }
+            if (spec != null) lastShown = spec
+            return spec ?: lastShown
+        }
+    val detail: DetailBarSpec? get() = current.detail
+    val chip: BarChipSpec? get() = current.chip
+    val panel: (@Composable () -> Unit)? get() = current.panel
+    fun onPanelDismiss() = current.onPanelDismiss()
+
+    internal fun put(owner: String, spec: BarSpec) { specs[owner] = spec }
+    internal fun remove(owner: String) { specs.remove(owner) }
 }
 
 @Composable
@@ -610,20 +683,9 @@ fun BarContribution(
     onPanelDismiss: () -> Unit,
     detail: DetailBarSpec? = null,
 ) {
-    androidx.compose.runtime.SideEffect {
-        BarState.detail = detail
-        BarState.chip = chip
-        BarState.panel = panel
-        BarState.onPanelDismiss = onPanelDismiss
-    }
-    DisposableEffect(Unit) {
-        onDispose {
-            BarState.detail = null
-            BarState.chip = null
-            BarState.panel = null
-            BarState.onPanelDismiss = {}
-        }
-    }
+    val owner = (androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner.current as? androidx.navigation.NavBackStackEntry)?.id ?: "root"
+    androidx.compose.runtime.SideEffect { BarState.put(owner, BarSpec(chip, panel, onPanelDismiss, detail)) }
+    DisposableEffect(owner) { onDispose { BarState.remove(owner) } }
 }
 
 /** Card that floats above the bar for pickers and filters (24 dp corners). */
@@ -646,7 +708,7 @@ fun BarPanel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() 
 
 /** Wide accent button in a detail bar ("Kategorie wählen"). */
 @Composable
-fun BarAction(label: String, icon: ImageVector?, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun BarAction(label: String, icon: ImageVector?, modifier: Modifier = Modifier, busy: Boolean = false, onClick: () -> Unit) {
     val c = Wimg.colors
     Row(
         modifier
@@ -658,7 +720,10 @@ fun BarAction(label: String, icon: ImageVector?, modifier: Modifier = Modifier, 
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
     ) {
-        if (icon != null) Icon(icon, contentDescription = null, tint = c.onAccent, modifier = Modifier.size(19.dp))
+        // The label stays put while busy so the button keeps its width; only the
+        // icon turns into a small spinner.
+        if (busy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(17.dp), color = c.onAccent, strokeWidth = 2.dp)
+        else if (icon != null) Icon(icon, contentDescription = null, tint = c.onAccent, modifier = Modifier.size(19.dp))
         Text(label, style = WimgType.button, color = c.onAccent, maxLines = 1)
     }
 }

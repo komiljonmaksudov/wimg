@@ -375,13 +375,13 @@ fun FinTSScreen(navController: NavController? = null) {
     // System back walks the setup steps like the bar's ← does.
     androidx.activity.compose.BackHandler(enabled = setup && !(step == Step.Bank && prefs.getString(KEY_BLZ, null) == null)) { back() }
     val action: Pair<String, () -> Unit>? = if (!setup) {
-        (if (busy || FintsJob.running) L("Läuft…") else L("Schnellabfrage")) to { quickRefresh() }
+        L("Schnellabfrage") to { quickRefresh() }
     } else when (step) {
         Step.Bank -> null
-        Step.Login -> (if (busy) L("Anmelden…") else L("Anmelden")) to { if (!busy && kennung.isNotBlank() && pin.isNotBlank()) login() }
+        Step.Login -> L("Anmelden") to { if (!busy && kennung.isNotBlank() && pin.isNotBlank()) login() }
         Step.Medium -> null
-        Step.Tan -> if (tan?.decoupled == true) (if (busy) L("Prüfe…") else L("Status prüfen")) to { if (!busy) sendTan() }
-        else (if (busy) L("Sende…") else L("TAN senden")) to { if (!busy && tanInput.isNotBlank()) sendTan() }
+        Step.Tan -> if (tan?.decoupled == true) L("Status prüfen") to { if (!busy) sendTan() }
+        else L("TAN senden") to { if (!busy && tanInput.isNotBlank()) sendTan() }
         Step.Range -> L("Abrufen") to { startFetch(rangeDays(rangeChoice)) }
     }
     BarContribution(
@@ -418,6 +418,7 @@ fun FinTSScreen(navController: NavController? = null) {
             onAction = action?.second ?: {},
             backLabel = if (setup) L("Zurück") else L("Einstellungen"),
             onMore = if (!setup) ({ moreOpen = !moreOpen }) else null,
+            actionBusy = busy || FintsJob.running,
         ),
     )
 

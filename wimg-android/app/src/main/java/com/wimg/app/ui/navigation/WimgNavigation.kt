@@ -97,7 +97,9 @@ fun WimgNavigation() {
     val navController = rememberNavController()
     var selectedAccount by remember { mutableStateOf<String?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
-    val route = navController.currentBackStackEntryAsState().value?.destination?.route
+    val entry = navController.currentBackStackEntryAsState().value
+    val route = entry?.destination?.route
+    androidx.compose.runtime.SideEffect { BarState.currentOwner = entry?.id }
     val place = PLACES.firstOrNull { it.route == route } ?: PLACES.first()
 
     val panel = BarState.panel
@@ -114,7 +116,14 @@ fun WimgNavigation() {
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
             Box(Modifier.weight(1f).padding(bottom = if (route?.startsWith("search") == true || underBar) 0.dp else BarClearance - 24.dp)) {
-                NavHost(navController = navController, startDestination = "dashboard") {
+                // Place switches happen dozens of times a day: a short fade, no slide.
+                NavHost(
+                    navController = navController, startDestination = "dashboard",
+                    enterTransition = { fadeIn(tween(150, easing = WimgMotion.EaseOut)) },
+                    exitTransition = { fadeOut(tween(100, easing = WimgMotion.EaseOut)) },
+                    popEnterTransition = { fadeIn(tween(150, easing = WimgMotion.EaseOut)) },
+                    popExitTransition = { fadeOut(tween(100, easing = WimgMotion.EaseOut)) },
+                ) {
                     composable(
                         "search?q={q}",
                         arguments = listOf(androidx.navigation.navArgument("q") { defaultValue = "" }),
@@ -214,7 +223,7 @@ fun WimgNavigation() {
                     left = {
                         if (detailBar.actionLabel != null) {
                             BarBack(detailBar.onBack)
-                            BarAction(detailBar.actionLabel, detailBar.actionIcon) { detailBar.onAction() }
+                            BarAction(detailBar.actionLabel, detailBar.actionIcon, busy = detailBar.actionBusy) { detailBar.onAction() }
                         } else {
                             BarChip(
                                 label = detailBar.backLabel ?: L("Zurück"),
