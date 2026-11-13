@@ -330,9 +330,7 @@ fn parseComdirectLine(line: []const u8) ?Transaction {
     txn.category = .uncategorized;
     setAccount(&txn, "comdirect");
 
-    const desc_len = @min(description_raw.len, 256);
-    @memcpy(txn.description[0..desc_len], description_raw[0..desc_len]);
-    txn.description_len = @intCast(desc_len);
+    txn.description_len = @intCast(toUtf8(&txn.description, description_raw));
 
     txn.id = computeHash(date, description_raw, amount, txn.accountSlice());
     return txn;
@@ -418,9 +416,7 @@ fn parseTradeRepublicLine(line: []const u8) ?Transaction {
     txn.category = .uncategorized;
     setAccount(&txn, "trade_republic");
 
-    const desc_len = @min(description_raw.len, 256);
-    @memcpy(txn.description[0..desc_len], description_raw[0..desc_len]);
-    txn.description_len = @intCast(desc_len);
+    txn.description_len = @intCast(toUtf8(&txn.description, description_raw));
 
     txn.id = computeHash(date, description_raw, amount, txn.accountSlice());
     return txn;
@@ -506,9 +502,7 @@ fn parseScalableLine(line: []const u8) ?Transaction {
     txn.category = .uncategorized;
     setAccount(&txn, "scalable_capital");
 
-    const desc_len = @min(description_raw.len, 256);
-    @memcpy(txn.description[0..desc_len], description_raw[0..desc_len]);
-    txn.description_len = @intCast(desc_len);
+    txn.description_len = @intCast(toUtf8(&txn.description, description_raw));
 
     txn.id = computeHash(date, description_raw, amount, txn.accountSlice());
     return txn;
@@ -651,6 +645,47 @@ fn parseEnglishAmount(s: []const u8) ?i64 {
 // ============================================================
 // Hash + Helpers
 // ============================================================
+
+/// Writes [src] into [dst] as UTF-8 and returns the length. Valid UTF-8 is
+/// copied (cut only at a character boundary); anything else is ISO-8859-1,
+/// which FinTS and the Comdirect CSV deliver, and each byte becomes its code
+/// point. Transaction ids are hashed from the raw bytes, not from this, so the
+/// conversion never changes an id.
+pub fn toUtf8(dst: []u8, src: []const u8) usize {
+    if (std.unicode.utf8ValidateSlice(src)) {
+        var n = @min(src.len, dst.len);
+        // Don't end inside a multi-byte character.
+        while (n > 0 and n < src.len and (src[n] & 0xC0) == 0x80) n -= 1;
+        @memcpy(dst[0..n], src[0..n]);
+        return n;
+    }
+    var w: usize = 0;
+    for (src) |b| {
+        if (b < 0x80) {
+            if (w + 1 > dst.len) break;
+            dst[w] = b;
+            w += 1;
+        } else {
+            if (w + 2 > dst.len) break;
+            dst[w] = 0xC0 | (b >> 6);
+            dst[w + 1] = 0x80 | (b & 0x3F);
+            w += 2;
+        }
+    }
+    return w;
+}
+
+test "toUtf8: ISO-8859-1 umlauts become UTF-8" {
+    var buf: [16]u8 = undefined;
+    const n = toUtf8(&buf, "M\xdcNCHEN");
+    try std.testing.expectEqualStrings("MÜNCHEN", buf[0..n]);
+}
+
+test "toUtf8: valid UTF-8 is kept and never cut mid-character" {
+    var buf: [2]u8 = undefined;
+    const n = toUtf8(&buf, "AÜ");
+    try std.testing.expectEqualStrings("A", buf[0..n]);
+}
 
 pub fn computeHash(date: Date, description: []const u8, amount: i64, account: []const u8) [32]u8 {
     var hasher = std.hash.Fnv1a_128.init();

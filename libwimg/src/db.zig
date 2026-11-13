@@ -4,6 +4,7 @@ const types = @import("types.zig");
 const categories = @import("categories.zig");
 const booking = @import("booking.zig");
 const c = @import("sqlite_c.zig");
+const parser_mod = @import("parser.zig");
 
 const Transaction = types.Transaction;
 const Date = types.Date;
@@ -33,7 +34,7 @@ pub const DbError = error{
     StepFailed,
 };
 
-const CURRENT_SCHEMA_VERSION = 15;
+const CURRENT_SCHEMA_VERSION = 16;
 
 pub const Db = struct {
     handle: *c.sqlite3,
@@ -296,10 +297,49 @@ pub const Db = struct {
             self.exec("ALTER TABLE accounts ADD COLUMN balance_date TEXT NOT NULL DEFAULT '';") catch {};
         }
 
+        if (version < 16) {
+            // v16: texts from FinTS and the Comdirect CSV were stored as
+            // ISO-8859-1. Convert them to UTF-8 in place; ids stay (they hash the
+            // raw bytes), updated_at moves so sync carries the fix.
+            self.repairLatin1("transactions", "description", true);
+            self.repairLatin1("pending_transactions", "description", false);
+            self.repairLatin1("rules", "pattern", true);
+            self.repairLatin1("recurring_patterns", "merchant", true);
+        }
+
         // Store current version
         if (version < CURRENT_SCHEMA_VERSION) {
-            self.setMeta("schema_version", "15") catch {};
+            self.setMeta("schema_version", "16") catch {};
         }
+    }
+
+    /// Rewrites every value of [col] that is not valid UTF-8 as UTF-8
+    /// (read as ISO-8859-1). Best effort: a failure leaves the row as it was.
+    fn repairLatin1(self: *Db, comptime table: []const u8, comptime col: []const u8, comptime bump: bool) void {
+        const sel = "SELECT rowid, " ++ col ++ " FROM " ++ table ++ ";";
+        const upd = "UPDATE " ++ table ++ " SET " ++ col ++ " = ?1" ++ (if (bump) ", updated_at = ?3" else "") ++ " WHERE rowid = ?2;";
+        var s: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, sel, -1, &s, null) != c.SQLITE_OK or s == null) return;
+        defer _ = c.sqlite3_finalize(s.?);
+        var u: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, upd, -1, &u, null) != c.SQLITE_OK or u == null) return;
+        defer _ = c.sqlite3_finalize(u.?);
+        const now = nowMs();
+        self.exec("BEGIN;") catch return;
+        while (c.sqlite3_step(s.?) == c.SQLITE_ROW) {
+            const vp = c.sqlite3_column_blob(s.?, 1) orelse continue;
+            const vlen: usize = @intCast(c.sqlite3_column_bytes(s.?, 1));
+            const val = @as([*]const u8, @ptrCast(vp))[0..vlen];
+            if (std.unicode.utf8ValidateSlice(val)) continue;
+            var buf: [1024]u8 = undefined;
+            const n = parser_mod.toUtf8(&buf, val);
+            _ = c.sqlite3_reset(u.?);
+            _ = c.sqlite3_bind_text(u.?, 1, @ptrCast(&buf), @intCast(n), c.SQLITE_STATIC);
+            _ = c.sqlite3_bind_int64(u.?, 2, c.sqlite3_column_int64(s.?, 0));
+            if (bump) _ = c.sqlite3_bind_int64(u.?, 3, now);
+            _ = c.sqlite3_step(u.?);
+        }
+        self.exec("COMMIT;") catch {};
     }
 
     pub fn getMetaInt(self: *Db, key: [*:0]const u8) ?i32 {
@@ -1854,14 +1894,13 @@ pub const Db = struct {
             if (c.sqlite3_bind_text(st, 5, @ptrCast(desc.ptr), @intCast(desc.len), c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
             _ = c.sqlite3_bind_int64(st, 6, t.amount_cents);
             if (c.sqlite3_bind_text(st, 7, @ptrCast(&t.currency), 3, c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
-            _ = c.sqlite3_bind_int(st, 8, @intFromEnum(t.category));
+            _ = c.sqlite3_bind_int(st, 8, @backingInt(t.category));
             if (c.sqlite3_bind_text(st, 9, @ptrCast(account.ptr), @intCast(account.len), c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
             if (c.sqlite3_step(st) != c.SQLITE_DONE) return DbError.StepFailed;
         }
     }
 
     fn txnRowsJson(self: *Db, sql: [*:0]const u8, has_filter: bool, acct_ptr: ?[*]const u8, acct_len: u32, buf: [*]u8, buf_len: usize) DbError!?usize {
-
         var stmt: ?*c.sqlite3_stmt = null;
         const rc = c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null);
         if (rc != c.SQLITE_OK or stmt == null) return DbError.PrepareFailed;
@@ -4623,4 +4662,20 @@ test "pending: each fetch replaces the list, booked transactions stay untouched"
     try db.replacePending("acc", &[_]Transaction{});
     n = (try db.getPendingJsonFiltered(&buf, buf.len, null, 0)).?;
     try std.testing.expectEqualStrings("[]", buf[0..n]);
+}
+
+test "migration v16 converts ISO-8859-1 texts and keeps ids" {
+    var db = try Db.init(":memory:");
+    defer db.close();
+    try db.exec("INSERT INTO transactions (id, date_year, date_month, date_day, description, amount_cents) VALUES ('a', 2026, 1, 2, CAST(X'4DDC4E4348454E' AS TEXT), -100), ('b', 2026, 1, 2, 'MÜNCHEN', -100);");
+    try db.exec("UPDATE meta SET value = '15' WHERE key = 'schema_version';");
+    try db.migrate();
+    var s: ?*c.sqlite3_stmt = null;
+    _ = c.sqlite3_prepare_v2(db.handle, "SELECT id, description, updated_at > 0 FROM transactions ORDER BY id;", -1, &s, null);
+    defer _ = c.sqlite3_finalize(s.?);
+    try std.testing.expectEqual(c.SQLITE_ROW, c.sqlite3_step(s.?));
+    try std.testing.expectEqualStrings("MÜNCHEN", std.mem.span(@as([*:0]const u8, @ptrCast(c.sqlite3_column_text(s.?, 1)))));
+    try std.testing.expectEqual(@as(c_int, 1), c.sqlite3_column_int(s.?, 2)); // bumped for sync
+    try std.testing.expectEqual(c.SQLITE_ROW, c.sqlite3_step(s.?));
+    try std.testing.expectEqual(@as(c_int, 0), c.sqlite3_column_int(s.?, 2)); // valid row untouched
 }

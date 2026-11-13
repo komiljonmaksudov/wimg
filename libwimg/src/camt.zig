@@ -136,22 +136,24 @@ fn parseEntry(entry: []const u8, account: []const u8, out_txn: *Transaction, pen
     const desc_effective = if (desc_trimmed.len > 0) desc_trimmed else "CAMT Buchung";
     // Strip NUL and other C0 control bytes (see mt940.zig finalizeTxnDescription
     // for the rationale — same JSONDecoder pitfall).
-    const cap = @min(desc_effective.len, out_txn.description.len);
+    var clean: [256]u8 = undefined;
+    const cap = @min(desc_effective.len, clean.len);
     var written: usize = 0;
     var k: usize = 0;
     while (k < cap) : (k += 1) {
         const b = desc_effective[k];
         if (b == 0) continue;
         if (b < 0x20 and b != '\t' and b != '\n' and b != '\r') continue;
-        out_txn.description[written] = b;
+        clean[written] = b;
         written += 1;
     }
-    out_txn.description_len = @intCast(written);
+    out_txn.description_len = @intCast(parser.toUtf8(&out_txn.description, clean[0..written]));
 
     setCurrency(out_txn, amount.ccy);
     out_txn.category = .uncategorized;
     parser.setAccount(out_txn, account);
-    out_txn.id = parser.computeHash(out_txn.date, out_txn.descriptionSlice(), out_txn.amount_cents, account);
+    // Hash the raw bytes, not the UTF-8 text (same rule as MT940).
+    out_txn.id = parser.computeHash(out_txn.date, clean[0..written], out_txn.amount_cents, account);
     return true;
 }
 
