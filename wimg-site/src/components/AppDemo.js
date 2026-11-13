@@ -2,7 +2,7 @@
 // (wimg-android/app/src/main/java/com/wimg/app/ui/). Same screens, bar, places
 // menu, panels and docked rows; data is invented (see DemoDataService.kt) and
 // lives only in this page. Props: start (route to open on), q (search query),
-// still ("1" for the non-interactive pictures further down the page).
+// hint ("0": no pulsing hint), still ("1": a picture, no clicks).
 
 const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
 const SHORT = ['Jan', 'Feb', 'März', 'Apr', 'Mai', 'Juni', 'Juli', 'Aug', 'Sept', 'Okt', 'Nov', 'Dez'];
@@ -196,11 +196,13 @@ class Component extends DCLogic {
     super(p);
     this.uid = 'w' + Math.random().toString(36).slice(2, 8);
     this.still = p.still === '1' || p.still === true;
+    // The pulsing "tap here" hint belongs to the big phone only (hint="0" on the others).
+    this.hintOn = !this.still && p.hint !== '0';
     this.D = makeData();
     const start = p.start || 'home';
     this.state = {
       stack: start === 'home' ? ['home'] : ['home', start],
-      menu: false, add: false, panel: null, hint: !this.still, dock: null, theme: 1,
+      menu: false, add: false, panel: null, hint: this.hintOn, dock: null, theme: 1,
       hy: TY, hm: TM, compare: 'prev', pickYear: TY,
       tf: 'all', tcats: [], period: null, picking: false, compact: false, topRow: 0,
       wkMonths: false, wkExp: true, wkInc: true, wkInactive: false, wkIv: null, wkPicked: TM, hiddenTab: false,
