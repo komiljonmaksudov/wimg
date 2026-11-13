@@ -39,7 +39,7 @@ private val translations: Map<String, String> = mapOf(
     "Datum" to "Date",
     "Verwendungszweck" to "Payment reference",
     "Aus Summen ausschließen" to "Exclude from totals",
-    "Zählt dann nicht in Übersicht und Analyse" to "Then it doesn't count in Overview and Analysis",
+    "Zählt dann nicht in der Übersicht" to "Then it doesn't count in the overview",
     "Aus Summen ausgeschlossen" to "Excluded from totals",
     "Zählt wieder mit" to "Counts again",
     "Übernehmen" to "Apply",

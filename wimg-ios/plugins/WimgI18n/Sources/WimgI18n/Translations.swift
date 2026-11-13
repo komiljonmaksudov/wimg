@@ -33,7 +33,7 @@ internal let translations: [String: String] = [
     "Datum": "Date",
     "Verwendungszweck": "Payment reference",
     "Aus Summen ausschließen": "Exclude from totals",
-    "Zählt dann nicht in Übersicht und Analyse": "Then it doesn't count in Overview and Analysis",
+    "Zählt dann nicht in der Übersicht": "Then it doesn't count in the overview",
     "Aus Summen ausgeschlossen": "Excluded from totals",
     "Zählt wieder mit": "Counts again",
     "Übernehmen": "Apply",

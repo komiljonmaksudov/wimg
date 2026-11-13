@@ -87,7 +87,6 @@ val PLACES = listOf(
     Place("dashboard", "Übersicht", Icons.Outlined.Home),
     Place("transactions", "Umsätze", Icons.AutoMirrored.Outlined.List),
     Place("recurring", "Wiederkehrend", Icons.Outlined.Refresh),
-    Place("analysis", "Analyse", Icons.Outlined.BarChart),
     Place("review", "Rückblick", Icons.Outlined.CalendarMonth),
     Place("fints", "Bankverbindung", Icons.Outlined.AccountBalance, gapBefore = true),
     Place("import", "Import", Icons.Outlined.FileUpload),
@@ -174,9 +173,7 @@ fun WimgNavigation() {
                     composable("tx/{id}") { entry ->
                         TransactionDetailScreen(id = entry.arguments?.getString("id") ?: "", navController = navController)
                     }
-                    composable("more") { MoreScreen(navController = navController) }
                     composable("import") { ImportScreen(navController = navController) }
-                    composable("analysis") { AnalysisScreen(selectedAccount = selectedAccount, navController = navController) }
                     composable("recurring") { RecurringScreen(navController = navController) }
                     composable("review") { ReviewScreen(selectedAccount = selectedAccount) }
                     composable("fints") { FinTSScreen(navController) }

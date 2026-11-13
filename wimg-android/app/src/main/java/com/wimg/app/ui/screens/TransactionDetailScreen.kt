@@ -187,7 +187,7 @@ fun TransactionDetailScreen(id: String, navController: NavController?) {
             Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(L("Aus Summen ausschließen"), style = WimgType.rowTitle.copy(fontSize = WimgType.rowTitle.fontSize * 1.07f), color = c.text)
-                    Text(L("Zählt dann nicht in Übersicht und Analyse"), style = WimgType.desc, color = c.text2, modifier = Modifier.padding(top = 2.dp))
+                    Text(L("Zählt dann nicht in der Übersicht"), style = WimgType.desc, color = c.text2, modifier = Modifier.padding(top = 2.dp))
                 }
                 Spacer(Modifier.width(12.dp))
                 WimgToggle(t.isExcluded, { on -> setExcluded(t, on) }, label = L("Aus Summen ausschließen"))

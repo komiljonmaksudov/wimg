@@ -227,6 +227,7 @@ object BackgroundRefresh {
     @Serializable
     private data class FintsResult(
         val status: String? = null,
+        val message: String? = null,
         val tan_medium_required: Boolean? = null,
         val imported: Int? = null,
     )
@@ -265,8 +266,10 @@ object BackgroundRefresh {
                 "tan_required" -> return Outcome.TanRequired
                 "ok" -> Unit
                 else -> {
-                    // Same handling as the manual Schnellabfrage: a rejected PIN
-                    // is worth clearing so the user is asked to re-enter it.
+                    // Only a real rejection clears the PIN (retrying a wrong PIN daily
+                    // gets the account locked). Anything else may be the bank being
+                    // briefly down: try again tomorrow.
+                    if (!isAuthRejected(connect)) return Outcome.Silent
                     prefs.edit().remove(KEY_PIN).apply()
                     cancel(context)
                     return Outcome.AuthFailed
@@ -292,9 +295,16 @@ object BackgroundRefresh {
             } ?: return Outcome.Silent
 
             if (fetch.status == "tan_required") return Outcome.TanRequired
+            if (isAuthRejected(fetch)) {
+                prefs.edit().remove(KEY_PIN).apply()
+                cancel(context)
+                return Outcome.AuthFailed
+            }
             if (fetch.status != "ok") return Outcome.Silent // don't spam on transient errors
 
             val imported = fetch.imported ?: 0
+            // Same fields the bank page shows as "Letzter Abruf".
+            prefs.edit().putLong("fints_last_fetch_at", System.currentTimeMillis()).putInt("fints_last_fetch_new", imported).apply()
             if (imported > 0) {
                 WidgetDataWriter.writeSummary(context)
                 Outcome.Imported(imported)
@@ -305,6 +315,10 @@ object BackgroundRefresh {
             Outcome.Silent
         }
     }
+
+    /** libwimg reports a rejected login as status "error" + "Authentication failed". */
+    private fun isAuthRejected(r: FintsResult) =
+        r.status == "error" && r.message?.contains("Authentication", ignoreCase = true) == true
 
     private fun isoDate(cal: Calendar): String = String.format(
         "%04d-%02d-%02d",
