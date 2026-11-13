@@ -96,6 +96,15 @@ private fun lastDays(days: Int, label: String, key: String): TxPeriod {
     return TxPeriod(iso(c), to, label, key)
 }
 
+private val CategorySetSaver = androidx.compose.runtime.saveable.Saver<Set<Int>, IntArray>(
+    save = { it.toIntArray() }, restore = { it.toSet() },
+)
+
+private val PeriodSaver = androidx.compose.runtime.saveable.Saver<TxPeriod?, Any>(
+    save = { p -> p?.let { arrayListOf(it.from, it.to, it.label, it.key) } ?: "" },
+    restore = { v -> (v as? List<*>)?.let { TxPeriod(it[0] as String, it[1] as String, it[2] as String, it[3] as String) } },
+)
+
 enum class TxFilter(val label: String) {
     ALL("Alle"),
     EXPENSES("Ausgaben"),
@@ -127,9 +136,12 @@ internal fun loadTx(account: String?) = TxData(
 @Composable
 fun TransactionsScreen(selectedAccount: String?, navController: NavController? = null) {
     var data by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<TxData>(txKey(selectedAccount))) }
-    var filter by remember { mutableStateOf(TxFilter.ALL) }
-    var categories by remember { mutableStateOf(TxTarget.category?.let { setOf(it) } ?: emptySet()) }
-    var period by remember { mutableStateOf(TxTarget.period) }
+    // Saveable: the filter survives opening a transaction and coming back.
+    var filter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(TxFilter.ALL) }
+    var categories by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = CategorySetSaver) {
+        mutableStateOf(TxTarget.category?.let { setOf(it) } ?: emptySet())
+    }
+    var period by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = PeriodSaver) { mutableStateOf(TxTarget.period) }
     LaunchedEffect(Unit) { TxTarget.category = null; TxTarget.period = null }
     var filterOpen by remember { mutableStateOf(false) }
 
