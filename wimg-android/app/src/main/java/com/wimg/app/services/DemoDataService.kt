@@ -16,28 +16,28 @@ object DemoDataService {
     private data class OccasionalTx(val desc: String, val min: Int, val max: Int)
 
     private val fixedMonthly = listOf(
-        FixedTx("GEHALT {MONTH} 2026 ARBEITGEBER GMBH", 325_000),
-        FixedTx("MIETE {MONTH} 2026 HAUSVERWALTUNG", -95_000),
-        FixedTx("STADTWERKE STROM GAS", null),
-        FixedTx("NETFLIX.COM", -1_799),
-        FixedTx("SPOTIFY AB", -999),
-        FixedTx("ALLIANZ VERSICHERUNG", -8_950),
-        FixedTx("GEZ BEITRAGSSERVICE", -1_836),
-        FixedTx("VODAFONE GMBH MOBILFUNK", -3_999),
+        FixedTx("GEHALT {MONTH} 2026 MUSTER GMBH", 325_000),
+        FixedTx("MIETE {MONTH} 2026 HAUSVERWALTUNG MUSTERSTADT", -95_000),
+        FixedTx("GRUENSTROM AG STROM GAS", null),
+        FixedTx("FLIMMERKISTE STREAMING", -1_799),
+        FixedTx("KLANGWELLE STREAMING", -999),
+        FixedTx("MUSTER VERSICHERUNG AG", -8_950),
+        FixedTx("RUNDFUNKBEITRAG", -1_836),
+        FixedTx("FUNKLINE MOBILFUNK", -3_999),
     )
 
     private val frequent = listOf(
-        FrequentTx("REWE SAGT DANKE {id}//MUENCHEN/DE", -8_500, -1_500, 3, 4),
-        FrequentTx("LIDL DIENSTL SAGT DANKE", -4_500, -1_200, 2, 3),
-        FrequentTx("EDEKA CENTER {id}", -5_500, -800, 2, 3),
-        FrequentTx("DM DROGERIEMARKT SAGT DANKE", -2_500, -500, 1, 2),
-        FrequentTx("DB VERTRIEB GMBH", -4_500, -1_500, 1, 2),
+        FrequentTx("SUPERMARKT AM PARK {id}//MUSTERSTADT/DE", -8_500, -1_500, 3, 4),
+        FrequentTx("KORNFELD SUPERMARKT", -4_500, -1_200, 2, 3),
+        FrequentTx("FRISCHE ECKE SUPERMARKT {id}", -5_500, -800, 2, 3),
+        FrequentTx("DROGERIE SONNENSCHEIN", -2_500, -500, 1, 2),
+        FrequentTx("MUSTERSTADT VERKEHRSBETRIEBE", -4_500, -1_500, 1, 2),
     )
 
     private val occasional = listOf(
-        OccasionalTx("LIEFERANDO.DE", -3_500, -1_200),
-        OccasionalTx("AMAZON EU SARL", -12_000, -1_500),
-        OccasionalTx("ROSSMANN SAGT DANKE", -2_000, -500),
+        OccasionalTx("PIZZERIA BELLA LUNA", -3_500, -1_200),
+        OccasionalTx("KAUFHAUS ZENTRUM", -12_000, -1_500),
+        OccasionalTx("DROGERIE AM ECK", -2_000, -500),
         OccasionalTx("APOTHEKE AM MARKT", -3_000, -500),
     )
 

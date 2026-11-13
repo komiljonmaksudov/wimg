@@ -6,28 +6,28 @@ struct DemoDataService {
     // MARK: - Fixed monthly transactions
 
     private static let fixedMonthly: [(desc: String, amount: Int?)] = [
-        ("GEHALT {MONTH} 2026 ARBEITGEBER GMBH", 325_000),
-        ("MIETE {MONTH} 2026 HAUSVERWALTUNG", -95_000),
-        ("STADTWERKE STROM GAS", nil), // random -9500...-11500
-        ("NETFLIX.COM", -1_799),
-        ("SPOTIFY AB", -999),
-        ("ALLIANZ VERSICHERUNG", -8_950),
-        ("GEZ BEITRAGSSERVICE", -1_836),
-        ("VODAFONE GMBH MOBILFUNK", -3_999),
+        ("GEHALT {MONTH} 2026 MUSTER GMBH", 325_000),
+        ("MIETE {MONTH} 2026 HAUSVERWALTUNG MUSTERSTADT", -95_000),
+        ("GRUENSTROM AG STROM GAS", nil), // random -9500...-11500
+        ("FLIMMERKISTE STREAMING", -1_799),
+        ("KLANGWELLE STREAMING", -999),
+        ("MUSTER VERSICHERUNG AG", -8_950),
+        ("RUNDFUNKBEITRAG", -1_836),
+        ("FUNKLINE MOBILFUNK", -3_999),
     ]
 
     private static let frequent: [(desc: String, min: Int, max: Int, freqMin: Int, freqMax: Int)] = [
-        ("REWE SAGT DANKE {id}//MUENCHEN/DE", -8_500, -1_500, 3, 4),
-        ("LIDL DIENSTL SAGT DANKE", -4_500, -1_200, 2, 3),
-        ("EDEKA CENTER {id}", -5_500, -800, 2, 3),
-        ("DM DROGERIEMARKT SAGT DANKE", -2_500, -500, 1, 2),
-        ("DB VERTRIEB GMBH", -4_500, -1_500, 1, 2),
+        ("SUPERMARKT AM PARK {id}//MUSTERSTADT/DE", -8_500, -1_500, 3, 4),
+        ("KORNFELD SUPERMARKT", -4_500, -1_200, 2, 3),
+        ("FRISCHE ECKE SUPERMARKT {id}", -5_500, -800, 2, 3),
+        ("DROGERIE SONNENSCHEIN", -2_500, -500, 1, 2),
+        ("MUSTERSTADT VERKEHRSBETRIEBE", -4_500, -1_500, 1, 2),
     ]
 
     private static let occasional: [(desc: String, min: Int, max: Int)] = [
-        ("LIEFERANDO.DE", -3_500, -1_200),
-        ("AMAZON EU SARL", -12_000, -1_500),
-        ("ROSSMANN SAGT DANKE", -2_000, -500),
+        ("PIZZERIA BELLA LUNA", -3_500, -1_200),
+        ("KAUFHAUS ZENTRUM", -12_000, -1_500),
+        ("DROGERIE AM ECK", -2_000, -500),
         ("APOTHEKE AM MARKT", -3_000, -500),
     ]
 

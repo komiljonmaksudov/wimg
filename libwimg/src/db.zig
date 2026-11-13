@@ -34,7 +34,7 @@ pub const DbError = error{
     StepFailed,
 };
 
-const CURRENT_SCHEMA_VERSION = 16;
+const CURRENT_SCHEMA_VERSION = 17;
 
 pub const Db = struct {
     handle: *c.sqlite3,
@@ -307,9 +307,26 @@ pub const Db = struct {
             self.repairLatin1("recurring_patterns", "merchant", true);
         }
 
+        if (version < 17) {
+            // v17: generic German words as rules (not only brand names), so
+            // bookings like "PIZZERIA …" or "… SUPERMARKT" sort without a brand.
+            const generic = [_]struct { p: []const u8, cat: u8 }{
+                .{ .p = "SUPERMARKT", .cat = 1 },
+                .{ .p = "PIZZERIA", .cat = 2 },
+                .{ .p = "VERKEHRSBETRIEBE", .cat = 3 },
+                .{ .p = "MOBILFUNK", .cat = 5 },
+                .{ .p = "DROGERIE", .cat = 7 },
+                .{ .p = "KAUFHAUS", .cat = 7 },
+                .{ .p = "STREAMING", .cat = 13 },
+            };
+            inline for (generic) |g| {
+                self.exec("INSERT INTO rules (pattern, category, priority) SELECT '" ++ g.p ++ "', " ++ std.fmt.comptimePrint("{d}", .{g.cat}) ++ ", 5 WHERE NOT EXISTS (SELECT 1 FROM rules WHERE pattern = '" ++ g.p ++ "');") catch {};
+            }
+        }
+
         // Store current version
         if (version < CURRENT_SCHEMA_VERSION) {
-            self.setMeta("schema_version", "16") catch {};
+            self.setMeta("schema_version", "17") catch {};
         }
     }
 
