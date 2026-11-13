@@ -665,6 +665,8 @@ data class BarSpec(
     val panel: (@Composable () -> Unit)? = null,
     val onPanelDismiss: () -> Unit = {},
     val detail: DetailBarSpec? = null,
+    /** Route of the page that registered this, so the place chip matches the page shown. */
+    val route: String? = null,
 )
 
 /**
@@ -713,8 +715,13 @@ fun BarContribution(
     onPanelDismiss: () -> Unit,
     detail: DetailBarSpec? = null,
 ) {
-    val owner = (androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner.current as? androidx.navigation.NavBackStackEntry)?.id ?: "root"
-    androidx.compose.runtime.SideEffect { BarState.put(owner, BarSpec(chip, panel, onPanelDismiss, detail)) }
+    val entry = androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner.current as? androidx.navigation.NavBackStackEntry
+    val owner = entry?.id ?: "root"
+    // Registered while the page composes (the bar composes after the NavHost in the
+    // same pass), so a new page and its bar appear in the same frame.
+    val spec = BarSpec(chip, panel, onPanelDismiss, detail, entry?.destination?.route)
+    BarState.put(owner, spec)
+    androidx.compose.runtime.SideEffect { BarState.put(owner, spec) }
     DisposableEffect(owner) { onDispose { BarState.remove(owner) } }
 }
 

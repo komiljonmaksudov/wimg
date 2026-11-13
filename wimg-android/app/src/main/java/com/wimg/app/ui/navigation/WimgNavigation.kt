@@ -1,5 +1,13 @@
 package com.wimg.app.ui.navigation
 
+import com.wimg.app.ui.screens.loadRecurring
+import com.wimg.app.ui.screens.REC_KEY
+import com.wimg.app.ui.screens.loadTx
+import com.wimg.app.ui.screens.txKey
+import com.wimg.app.ui.components.Changes
+import com.wimg.app.ui.components.ScreenCache
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.EnterTransition
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -64,6 +72,11 @@ import com.wimg.app.ui.screens.*
 import com.wimg.app.ui.theme.WimgDimens
 import com.wimg.app.ui.theme.WimgMotion
 
+private val PLACE_ROUTES by lazy { PLACES.map { it.route }.toSet() }
+
+private fun isPlaceSwitch(from: androidx.navigation.NavBackStackEntry, to: androidx.navigation.NavBackStackEntry) =
+    from.destination.route in PLACE_ROUTES && to.destination.route in PLACE_ROUTES
+
 private const val ONBOARDING_KEY = "wimg_onboarding_done"
 
 /** Routes already rebuilt in the redesign (band + sheet, content under the bar). */
@@ -104,15 +117,25 @@ fun WimgNavigation() {
         afterOnboarding?.let { navController.navigate(it); afterOnboarding = null }
     }
     var selectedAccount by remember { mutableStateOf<String?>(null) }
+    // Load the other places in the background, so their first visit isn't empty.
+    LaunchedEffect(Changes.version, selectedAccount) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                ScreenCache.put(txKey(selectedAccount), loadTx(selectedAccount))
+                ScreenCache.put(REC_KEY, loadRecurring())
+            }
+        }
+    }
     var menuOpen by remember { mutableStateOf(false) }
     val entry = navController.currentBackStackEntryAsState().value
     val route = entry?.destination?.route
-    androidx.compose.runtime.SideEffect { BarState.currentOwner = entry?.id }
-    // The place chip names the screen whose bar is shown (see BarState.shownOwner),
-    // so it never pairs a new name with the previous screen's chips.
-    val shownRoute = navController.currentBackStack.collectAsState().value
-        .firstOrNull { it.id == BarState.shownOwner }?.destination?.route ?: route
+    // Set before the NavHost composes, not a frame later (see BarContribution).
+    if (BarState.currentOwner != entry?.id) BarState.currentOwner = entry?.id
+    // Named after the page whose bar is shown: page, name and chips change in one frame.
+    val shownRoute = BarState.current.route ?: route
     val place = PLACES.firstOrNull { it.route == shownRoute } ?: PLACES.first()
+    // Picking a place closes the menu at once: the page change is the feedback.
+    var menuInstant by remember { mutableStateOf(false) }
 
     val panel = BarState.panel
     // Redesigned screens run their content under the bar (with a fade); the
@@ -128,13 +151,14 @@ fun WimgNavigation() {
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
             Box(Modifier.weight(1f).padding(bottom = if (route?.startsWith("search") == true || underBar) 0.dp else BarClearance - 24.dp)) {
-                // Place switches happen dozens of times a day: a short fade, no slide.
+                // Switching places happens dozens of times a day: instant, like tabs.
+                // Only going into or out of a detail page gets a short fade.
                 NavHost(
                     navController = navController, startDestination = "dashboard",
-                    enterTransition = { fadeIn(tween(150, easing = WimgMotion.EaseOut)) },
-                    exitTransition = { fadeOut(tween(100, easing = WimgMotion.EaseOut)) },
-                    popEnterTransition = { fadeIn(tween(150, easing = WimgMotion.EaseOut)) },
-                    popExitTransition = { fadeOut(tween(100, easing = WimgMotion.EaseOut)) },
+                    enterTransition = { if (isPlaceSwitch(initialState, targetState)) EnterTransition.None else fadeIn(tween(150, easing = WimgMotion.EaseOut)) },
+                    exitTransition = { if (isPlaceSwitch(initialState, targetState)) ExitTransition.None else fadeOut(tween(100, easing = WimgMotion.EaseOut)) },
+                    popEnterTransition = { if (isPlaceSwitch(initialState, targetState)) EnterTransition.None else fadeIn(tween(150, easing = WimgMotion.EaseOut)) },
+                    popExitTransition = { if (isPlaceSwitch(initialState, targetState)) ExitTransition.None else fadeOut(tween(100, easing = WimgMotion.EaseOut)) },
                 ) {
                     composable(
                         "search?q={q}",
@@ -185,7 +209,7 @@ fun WimgNavigation() {
         }
 
         // Scrim behind the place menu or a screen's panel.
-        AnimatedVisibility(menuOpen || panel != null, enter = fadeIn(tween(200)), exit = fadeOut(tween(160))) {
+        AnimatedVisibility(menuOpen || panel != null, enter = fadeIn(tween(200)), exit = if (menuInstant) ExitTransition.None else fadeOut(tween(160))) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -206,12 +230,13 @@ fun WimgNavigation() {
             AnimatedVisibility(
                 menuOpen,
                 enter = fadeIn(tween(200, easing = WimgMotion.EaseOut)) + scaleIn(tween(220, easing = WimgMotion.EaseOut), initialScale = 0.96f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.3f, 1f)),
-                exit = fadeOut(tween(150)) + scaleOut(tween(150), targetScale = 0.97f),
+                exit = if (menuInstant) ExitTransition.None else fadeOut(tween(90)) + scaleOut(tween(90), targetScale = 0.98f),
             ) {
                 PlaceMenu(
                     places = PLACES,
                     current = route,
                     onPick = { p ->
+                        menuInstant = true
                         menuOpen = false
                         navController.goTo(p.route)
                     },
@@ -252,7 +277,9 @@ fun WimgNavigation() {
             } else if (route?.startsWith("search") != true) {
                 FloatingBar(
                     left = {
-                        BarChip(label = L(place.label), icon = place.icon, unfold = true, active = menuOpen) { BarState.onPanelDismiss(); menuOpen = !menuOpen }
+                        // Read here, after the NavHost composed, so it names the page shown.
+                        val shown = PLACES.firstOrNull { it.route == (BarState.current.route ?: route) } ?: PLACES.first()
+                        BarChip(label = L(shown.label), icon = shown.icon, unfold = true, active = menuOpen) { BarState.onPanelDismiss(); menuInstant = false; menuOpen = !menuOpen }
                         BarState.chip?.let { chip ->
                             BarChip(label = chip.label, icon = chip.icon, active = chip.active && !menuOpen, contentDescription = chip.contentDescription) { menuOpen = false; chip.onClick() }
                         }

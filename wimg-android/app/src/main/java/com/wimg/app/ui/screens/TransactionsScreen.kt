@@ -78,22 +78,25 @@ private val FILTER_CATEGORIES = listOf(
     WimgCategory.SUBSCRIPTIONS, WimgCategory.HEALTH, WimgCategory.INCOME, WimgCategory.UNCATEGORIZED,
 )
 
-private data class TxData(val transactions: List<Transaction>, val accounts: List<Account>)
+internal data class TxData(val transactions: List<Transaction>, val accounts: List<Account>)
+
+internal fun txKey(account: String?) = "tx:$account"
+
+internal fun loadTx(account: String?) = TxData(
+    transactions = LibWimg.getTransactionsFiltered(account).sortedByDescending { it.date },
+    accounts = LibWimg.getAccounts().filter { account == null || it.id == account },
+)
 
 @Composable
 fun TransactionsScreen(selectedAccount: String?, navController: NavController? = null) {
-    var data by remember { mutableStateOf<TxData?>(null) }
+    var data by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<TxData>(txKey(selectedAccount))) }
     var filter by remember { mutableStateOf(TxFilter.ALL) }
     var categories by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var filterOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(selectedAccount, Changes.version) {
-        data = withContext(Dispatchers.IO) {
-            TxData(
-                transactions = LibWimg.getTransactionsFiltered(selectedAccount).sortedByDescending { it.date },
-                accounts = LibWimg.getAccounts().filter { selectedAccount == null || it.id == selectedAccount },
-            )
-        }
+        com.wimg.app.ui.components.ScreenCache.get<TxData>(txKey(selectedAccount))?.let { data = it }
+        data = withContext(Dispatchers.IO) { loadTx(selectedAccount) }.also { com.wimg.app.ui.components.ScreenCache.put(txKey(selectedAccount), it) }
     }
 
     val all = data?.transactions ?: emptyList()

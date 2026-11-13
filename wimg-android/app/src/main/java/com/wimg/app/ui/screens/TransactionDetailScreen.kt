@@ -82,8 +82,14 @@ private enum class DetailPanel { None, Category, More }
 
 @Composable
 fun TransactionDetailScreen(id: String, navController: NavController?) {
-    var tx by remember { mutableStateOf<Transaction?>(null) }
-    var account by remember { mutableStateOf<Account?>(null) }
+    // Start from the list's cached row, so the page is complete on its first frame.
+    val cached = remember(id) {
+        com.wimg.app.ui.components.ScreenCache.get<TxData>(txKey(null))?.let { d ->
+            d.transactions.firstOrNull { it.id == id }?.let { t -> t to d.accounts.firstOrNull { it.id == t.account } }
+        }
+    }
+    var tx by remember { mutableStateOf(cached?.first) }
+    var account by remember { mutableStateOf(cached?.second) }
     var panel by remember { mutableStateOf(DetailPanel.None) }
     val clipboard = LocalClipboardManager.current
 

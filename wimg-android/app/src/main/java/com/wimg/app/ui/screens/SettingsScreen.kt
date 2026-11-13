@@ -566,6 +566,7 @@ private fun deleteAllData(context: Context) {
         context.getSharedPreferences("wimg_fints", 0).edit().clear().apply()
         LibWimg.initialize(context)
     }
+    com.wimg.app.ui.components.ScreenCache.clear()
     Changes.bump()
     Dock.info(__t("Alle Daten gelöscht"))
 }

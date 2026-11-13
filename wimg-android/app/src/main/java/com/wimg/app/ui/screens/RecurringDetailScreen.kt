@@ -56,7 +56,7 @@ import kotlin.math.abs
 
 @Composable
 fun RecurringDetailScreen(id: String, navController: NavController?) {
-    var pattern by remember { mutableStateOf<RecurringPattern?>(null) }
+    var pattern by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<List<RecurringPattern>>(REC_KEY)?.firstOrNull { it.id == id }) }
     var payments by remember { mutableStateOf<List<RecurringPayment>>(emptyList()) }
 
     LaunchedEffect(id, Changes.version) {

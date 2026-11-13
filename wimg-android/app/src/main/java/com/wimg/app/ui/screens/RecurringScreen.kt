@@ -83,10 +83,23 @@ internal val INTERVALS = listOf(
 internal fun monthlyFactor(interval: String) = INTERVALS.firstOrNull { it.first == interval }?.third ?: 1.0
 internal fun intervalLabel(interval: String) = INTERVALS.firstOrNull { it.first == interval }?.second ?: interval
 
+internal const val REC_KEY = "rec"
+
+internal fun loadRecurring(): List<RecurringPattern> {
+    var list = LibWimg.getRecurring()
+    // Patterns saved by older libwimg builds have next_due before
+    // last_seen (broken date maths). Detecting again fixes them in place.
+    if (list.any { p -> p.next_due != null && p.next_due < p.last_seen }) {
+        LibWimg.detectRecurring()
+        list = LibWimg.getRecurring()
+    }
+    return list
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RecurringScreen(navController: androidx.navigation.NavController? = null) {
-    var patterns by remember { mutableStateOf<List<RecurringPattern>?>(null) }
+    var patterns by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<List<RecurringPattern>>(REC_KEY)) }
     var filterOpen by remember { mutableStateOf(false) }
     var showExpenses by remember { mutableStateOf(true) }
     var showIncome by remember { mutableStateOf(true) }
@@ -99,16 +112,7 @@ fun RecurringScreen(navController: androidx.navigation.NavController? = null) {
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Changes.version) {
-        patterns = withContext(Dispatchers.IO) {
-            var list = LibWimg.getRecurring()
-            // Patterns saved by older libwimg builds have next_due before
-            // last_seen (broken date maths). Detecting again fixes them in place.
-            if (list.any { p -> p.next_due != null && p.next_due < p.last_seen }) {
-                LibWimg.detectRecurring()
-                list = LibWimg.getRecurring()
-            }
-            list
-        }
+        patterns = withContext(Dispatchers.IO) { loadRecurring() }.also { com.wimg.app.ui.components.ScreenCache.put(REC_KEY, it) }
     }
 
     LaunchedEffect(months, patterns) {

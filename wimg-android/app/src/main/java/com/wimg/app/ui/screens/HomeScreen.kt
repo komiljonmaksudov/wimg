@@ -82,7 +82,7 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private data class HomeData(
+internal data class HomeData(
     val summary: MonthlySummary?,
     val previous: MonthlySummary?,
     /** Latest booking day in the selected month, newest first. */
@@ -95,14 +95,16 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null) {
     val now = remember { Calendar.getInstance() }
     var year by remember { mutableIntStateOf(now.get(Calendar.YEAR)) }
     var month by remember { mutableIntStateOf(now.get(Calendar.MONTH) + 1) }
-    var data by remember { mutableStateOf<HomeData?>(null) }
+    var data by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<HomeData>(homeKey(year, month, selectedAccount))) }
     var pickerOpen by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(year, month, selectedAccount, reload, com.wimg.app.ui.components.Changes.version) {
-        data = withContext(Dispatchers.IO) { loadHome(year, month, selectedAccount) }
+        val key = homeKey(year, month, selectedAccount)
+        com.wimg.app.ui.components.ScreenCache.get<HomeData>(key)?.let { data = it }
+        data = withContext(Dispatchers.IO) { loadHome(year, month, selectedAccount) }.also { com.wimg.app.ui.components.ScreenCache.put(key, it) }
         withContext(Dispatchers.IO) { com.wimg.app.services.WidgetDataWriter.writeSummary(context) }
     }
 
@@ -232,7 +234,9 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null) {
     }
 }
 
-private fun loadHome(year: Int, month: Int, account: String?): HomeData {
+internal fun homeKey(year: Int, month: Int, account: String?) = "home:$year-$month:$account"
+
+internal fun loadHome(year: Int, month: Int, account: String?): HomeData {
     val summary = LibWimg.getSummaryFiltered(year, month, account)
     val (py, pm) = if (month == 1) year - 1 to 12 else year to month - 1
     val previous = LibWimg.getSummaryFiltered(py, pm, account)
