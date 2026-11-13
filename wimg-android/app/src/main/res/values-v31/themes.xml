@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ system splash: denim with the pocket (design system §7). -->
+    <style name="Theme.Wimg" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">#1D1C1A</item>
+        <!-- wimg has its own light and dark theme. Without this, HyperOS/MIUI
+             "force dark" recolours the UI itself, e.g. the black active chip
+             turns white on white. -->
+        <item name="android:forceDarkAllowed">false</item>
+        <item name="android:windowSplashScreenBackground">#4F6F93</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+    </style>
+</resources>

@@ -1,8 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Wimg" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:statusBarColor">#FAF9F6</item>
-        <item name="android:navigationBarColor">#FAF9F6</item>
-        <item name="android:windowLightStatusBar">true</item>
+    <!-- Edge-to-edge; Compose draws everything, incl. the band under the status bar.
+         Dark base on purpose: Android/HyperOS "force dark" only recolours windows
+         with a light theme, and on Xiaomi it ignores forceDarkAllowed. -->
+    <style name="Theme.Wimg" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">#1D1C1A</item>
+        <!-- wimg has its own light and dark theme. Without this, HyperOS/MIUI
+             "force dark" recolours the UI itself, e.g. the black active chip
+             turns white on white. -->
+        <item name="android:forceDarkAllowed">false</item>
     </style>
 </resources>

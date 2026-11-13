@@ -23,6 +23,8 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Belt and braces for vendor "force dark" modes (HyperOS): wimg themes itself.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) window.decorView.isForceDarkAllowed = false
         BiometricLock.initialize(this)
         applySecureFlag()
         setContent {

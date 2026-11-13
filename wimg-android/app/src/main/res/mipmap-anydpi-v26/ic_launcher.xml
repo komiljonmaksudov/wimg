@@ -1,13 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Adaptive launcher icon. minSdk is 26, so v26 adaptive icons are the only
-  variant needed — no mipmap-{m,h,xh,xxh,xxxh}dpi PNG fallbacks.
-
-  <monochrome> supplies the Android 13+ themed-icon variant, where the
-  launcher tints the foreground to match the user's wallpaper palette.
+  Adaptive launcher icon: denim back pocket with a debit card and euro notes
+  (~/Desktop/wimg-redesign/export/16-Icon-Set). Background = denim, belt and
+  shirt; foreground = the pocket inside the 66 dp safe zone; monochrome = the
+  Android 13+ themed-icon outline.
 -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/ic_launcher_background" />
-    <foreground android:drawable="@drawable/ic_launcher_foreground" />
-    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+    <background android:drawable="@mipmap/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@mipmap/ic_launcher_monochrome" />
 </adaptive-icon>

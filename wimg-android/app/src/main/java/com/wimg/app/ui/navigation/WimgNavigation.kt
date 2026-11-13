@@ -35,6 +35,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -100,7 +101,11 @@ fun WimgNavigation() {
     val entry = navController.currentBackStackEntryAsState().value
     val route = entry?.destination?.route
     androidx.compose.runtime.SideEffect { BarState.currentOwner = entry?.id }
-    val place = PLACES.firstOrNull { it.route == route } ?: PLACES.first()
+    // The place chip names the screen whose bar is shown (see BarState.shownOwner),
+    // so it never pairs a new name with the previous screen's chips.
+    val shownRoute = navController.currentBackStack.collectAsState().value
+        .firstOrNull { it.id == BarState.shownOwner }?.destination?.route ?: route
+    val place = PLACES.firstOrNull { it.route == shownRoute } ?: PLACES.first()
 
     val panel = BarState.panel
     // Redesigned screens run their content under the bar (with a fade); the

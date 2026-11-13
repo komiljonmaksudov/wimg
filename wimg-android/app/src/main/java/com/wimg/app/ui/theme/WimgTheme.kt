@@ -331,6 +331,9 @@ fun WimgTheme(content: @Composable () -> Unit) {
     val overBand = StatusBarState.overBand // read in composition so a change recomposes
     if (!view.isInEditMode) {
         SideEffect {
+            // HyperOS recolours dark fills in otherwise light screens (the active
+            // black chip came out white). wimg themes itself: opt this view out.
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) view.isForceDarkAllowed = false
             val window = (view.context as Activity).window
             val insets = WindowCompat.getInsetsController(window, view)
             insets.isAppearanceLightStatusBars = !darkTheme && !overBand

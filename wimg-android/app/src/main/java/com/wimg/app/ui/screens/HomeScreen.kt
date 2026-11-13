@@ -103,7 +103,7 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null) {
 
     LaunchedEffect(year, month, selectedAccount, reload, com.wimg.app.ui.components.Changes.version) {
         data = withContext(Dispatchers.IO) { loadHome(year, month, selectedAccount) }
-        com.wimg.app.services.WidgetDataWriter.writeSummary(context)
+        withContext(Dispatchers.IO) { com.wimg.app.services.WidgetDataWriter.writeSummary(context) }
     }
 
     val locale = if (LocaleState.locale == "en") Locale.ENGLISH else Locale.GERMAN

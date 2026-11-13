@@ -144,8 +144,10 @@ fun Modifier.pressable(enabled: Boolean = true, role: Role = Role.Button, label:
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
     val s by animateFloatAsState(if (pressed) WimgMotion.PRESS_SCALE else 1f, WimgMotion.press(), label = "press")
+    // The scale layer exists only while the press animation runs. A permanent
+    // layer kept showing a stale picture on HyperOS (the active chip stayed light).
     return this
-        .scale(s)
+        .then(if (s != 1f) Modifier.scale(s) else Modifier)
         .clickable(interactionSource = source, indication = null, enabled = enabled, role = role, onClickLabel = label, onClick = onClick)
 }
 
@@ -496,9 +498,14 @@ fun FloatingBar(
     // snapping; the very first width is taken as is, so the bar doesn't grow in.
     val widthAnim = remember { androidx.compose.animation.core.Animatable(0f) }
     var placed by remember { mutableStateOf(false) }
+    // Only docking/undocking glides (240 ms EaseInOut). A different screen with
+    // other chips is something done many times a day: the width just follows.
+    var wasDocked by remember { mutableStateOf(docked != null) }
     LaunchedEffect(target) {
         val t = target ?: return@LaunchedEffect
-        if (!placed) { widthAnim.snapTo(t.value); placed = true }
+        val dockChange = (docked != null) != wasDocked
+        wasDocked = docked != null
+        if (!placed || !dockChange) { widthAnim.snapTo(t.value); placed = true }
         else widthAnim.animateTo(t.value, WimgMotion.barWidth())
     }
     val width = widthAnim.value.dp
@@ -509,6 +516,8 @@ fun FloatingBar(
             .clip(WimgShape.bar)
             .background(c.card)
             .border(1.dp, c.line, WimgShape.bar),
+        // Content stays centred while the width changes, so nothing slides.
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // Keep the last row while it animates out.
         var last by remember { mutableStateOf(docked) }
@@ -542,7 +551,7 @@ fun FloatingBar(
                     // Docked: fill the 358 dp so the actions sit right. Otherwise measure
                     // the natural width without the animated width squeezing it.
                     if (docked != null) Modifier.fillMaxWidth()
-                    else Modifier.wrapContentWidth(Alignment.Start, unbounded = true).onSizeChanged { natural = with(density) { it.width.toDp() } },
+                    else Modifier.wrapContentWidth(Alignment.CenterHorizontally, unbounded = true).onSizeChanged { natural = with(density) { it.width.toDp() } },
                 )
                 .height(WimgDimens.barHeight)
                 .padding(WimgDimens.barPadding),
@@ -661,12 +670,20 @@ object BarState {
      * (old → new) instead of twice (old → empty → new).
      */
     private var lastShown: BarSpec = BarSpec()
+    private var lastOwner: String? = null
     val current: BarSpec
         get() {
             val spec = currentOwner?.let { specs[it] }
-            if (spec != null) lastShown = spec
+            if (spec != null) { lastShown = spec; lastOwner = currentOwner }
             return spec ?: lastShown
         }
+
+    /**
+     * The screen whose bar is actually shown: the current one once it has
+     * registered, the previous one until then. The place chip follows this too,
+     * so name and chips always change together.
+     */
+    val shownOwner: String? get() { current; return lastOwner ?: currentOwner }
     val detail: DetailBarSpec? get() = current.detail
     val chip: BarChipSpec? get() = current.chip
     val panel: (@Composable () -> Unit)? get() = current.panel
