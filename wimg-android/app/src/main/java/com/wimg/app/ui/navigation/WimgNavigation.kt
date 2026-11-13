@@ -257,10 +257,11 @@ fun WimgNavigation() {
             if (detailBar != null) {
                 FloatingBar(
                     divider = detailBar.onMore != null,
+                    fill = detailBar.actionLabel != null,
                     left = {
                         if (detailBar.actionLabel != null) {
                             BarBack(detailBar.onBack)
-                            BarAction(detailBar.actionLabel, detailBar.actionIcon, busy = detailBar.actionBusy) { detailBar.onAction() }
+                            BarAction(detailBar.actionLabel, detailBar.actionIcon, Modifier.weight(1f), busy = detailBar.actionBusy) { detailBar.onAction() }
                         } else {
                             BarChip(
                                 label = detailBar.backLabel ?: L("Zurück"),

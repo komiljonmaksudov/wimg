@@ -52,6 +52,7 @@ import com.wimg.app.models.ImportResult
 import com.wimg.app.models.Transaction
 import com.wimg.app.ui.components.BandScreen
 import com.wimg.app.ui.components.BarClearance
+import com.wimg.app.ui.components.barClearance
 import com.wimg.app.ui.components.BarContribution
 import com.wimg.app.ui.components.Changes
 import com.wimg.app.ui.components.DetailBarSpec
@@ -178,7 +179,7 @@ fun ImportScreen(navController: NavController) {
             }
         },
     ) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BarClearance)) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = barClearance())) {
             when (step) {
                 ImportStep.Source -> {
                     GroupLabel(L("Von welcher Bank oder welchem Broker?"))

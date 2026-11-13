@@ -56,6 +56,7 @@ import com.wimg.app.ui.components.Amount
 import com.wimg.app.ui.components.BandScreen
 import com.wimg.app.ui.components.BarChipSpec
 import com.wimg.app.ui.components.BarClearance
+import com.wimg.app.ui.components.barClearance
 import com.wimg.app.ui.components.BarContribution
 import com.wimg.app.ui.components.BarPanel
 import com.wimg.app.ui.components.Changes
@@ -266,7 +267,7 @@ fun RecurringScreen(navController: androidx.navigation.NavController? = null) {
             val income = shown.filter { it.amount > 0 }
             if (income.isNotEmpty()) add(L("Einnahmen") to income)
         }
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = BarClearance)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = barClearance())) {
             sections.forEachIndexed { si, (title, items) ->
                 item(key = "s_$title") {
                     val total = items.sumOf { it.amount }
@@ -442,7 +443,7 @@ private fun YearView(
     val paidTotal = (1..curMonth).sumOf { m -> paidIn(m).sumOf { abs(it.second.amount) } }
     val expectedTotal = (curMonth..12).sumOf { m -> expectedIn(m).sumOf { abs(it.amount) } }
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = BarClearance)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = barClearance())) {
         item {
             Row(verticalAlignment = Alignment.Bottom) {
                 Text("$year", style = WimgType.section.copy(fontSize = WimgType.section.fontSize * 1.2f), color = c.text, modifier = Modifier.weight(1f))

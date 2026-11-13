@@ -62,6 +62,7 @@ import com.wimg.app.ui.components.Amount
 import com.wimg.app.ui.components.BandScreen
 import com.wimg.app.ui.components.BarChipSpec
 import com.wimg.app.ui.components.BarClearance
+import com.wimg.app.ui.components.barClearance
 import com.wimg.app.ui.components.BarContribution
 import com.wimg.app.ui.components.BarPanel
 import com.wimg.app.ui.components.IconTile
@@ -192,7 +193,7 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null) {
     ) {
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = BarClearance),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = barClearance()),
         ) {
             // by_category holds spending per category as positive amounts.
             val cats = (s?.by_category ?: emptyList()).filter { it.amount > 0.004 && it.id != WimgCategory.INCOME.id }

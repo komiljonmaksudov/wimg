@@ -1,5 +1,6 @@
 package com.wimg.app.services
 
+import kotlinx.serialization.json.put
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -256,7 +257,7 @@ object BackgroundRefresh {
         return try {
             val connect = withFintsThread {
                 val input =
-                    """{"blz":"$blz","user":"$kennung","pin":"$pin","product":"$PRODUCT_ID"}"""
+                    kotlinx.serialization.json.buildJsonObject { put("blz", blz); put("user", kennung); put("pin", pin); put("product", PRODUCT_ID) }.toString()
                 WimgJni.nativeFintsConnect(input)?.let { json.decodeFromString<FintsResult>(it) }
             } ?: return Outcome.Silent
 
@@ -275,7 +276,7 @@ object BackgroundRefresh {
             // Restore the saved TAN medium if the bank insists on one.
             if (connect.tan_medium_required == true) {
                 prefs.getString(KEY_TAN_MEDIUM, null)?.let { medium ->
-                    withFintsThread { WimgJni.nativeFintsSetTanMedium("""{"name":"$medium"}""") }
+                    withFintsThread { WimgJni.nativeFintsSetTanMedium(kotlinx.serialization.json.buildJsonObject { put("name", medium) }.toString()) }
                 }
             }
 

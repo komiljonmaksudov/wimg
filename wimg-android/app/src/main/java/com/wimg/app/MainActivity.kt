@@ -25,6 +25,17 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         // Belt and braces for vendor "force dark" modes (HyperOS): wimg themes itself.
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) window.decorView.isForceDarkAllowed = false
+        // Hand-over from the system splash: remember how big the splash drew the
+        // pocket (HyperOS draws it smaller than stock Android), so LaunchIntro can
+        // start from exactly that size.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            splashScreen.setOnExitAnimationListener { view ->
+                val icon = view.iconView
+                if (icon != null && icon.width > 0) com.wimg.app.ui.components.LaunchIntroState.splashIconPx = icon.width
+                // Two frames: the intro recomposes at the splash's size, then the splash goes.
+                view.postOnAnimation { view.postOnAnimation { view.remove() } }
+            }
+        }
         BiometricLock.initialize(this)
         applySecureFlag()
         setContent {
@@ -33,6 +44,10 @@ class MainActivity : FragmentActivity() {
                     WimgNavigation()
                     if (BiometricLock.isLocked) {
                         LockScreen(activity = this@MainActivity)
+                        // The lock is its own moment; no intro on top of it.
+                        androidx.compose.runtime.SideEffect { com.wimg.app.ui.components.LaunchIntroState.done = true }
+                    } else {
+                        com.wimg.app.ui.components.LaunchIntro()
                     }
                 }
                 // Auto-prompt on cold start when locked.

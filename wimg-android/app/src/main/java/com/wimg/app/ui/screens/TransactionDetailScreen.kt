@@ -54,6 +54,7 @@ import com.wimg.app.models.WimgCategory
 import com.wimg.app.ui.components.Amount
 import com.wimg.app.ui.components.BandScreen
 import com.wimg.app.ui.components.BarClearance
+import com.wimg.app.ui.components.barClearance
 import com.wimg.app.ui.components.BarContribution
 import com.wimg.app.ui.components.BarPanel
 import com.wimg.app.ui.components.Changes
@@ -152,7 +153,7 @@ fun TransactionDetailScreen(id: String, navController: NavController?) {
             if (accountName.isNotBlank()) Text(accountName, style = WimgType.desc, color = c.bandSub, modifier = Modifier.padding(top = 4.dp))
         },
     ) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = BarClearance)) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = barClearance())) {
             InfoRow(L("Datum")) { Text(WimgDates.full(t.date), style = WimgType.body.copy(fontWeight = FontWeight.Medium), color = c.text) }
             InfoRow(L("Kategorie")) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(WimgShape.button).clickable { panel = DetailPanel.Category }.padding(4.dp)) {

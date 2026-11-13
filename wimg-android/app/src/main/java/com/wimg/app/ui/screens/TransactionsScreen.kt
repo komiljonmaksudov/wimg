@@ -51,6 +51,7 @@ import com.wimg.app.ui.components.Amount
 import com.wimg.app.ui.components.BandScreen
 import com.wimg.app.ui.components.BarChipSpec
 import com.wimg.app.ui.components.BarClearance
+import com.wimg.app.ui.components.barClearance
 import com.wimg.app.ui.components.BarContribution
 import com.wimg.app.ui.components.BarPanel
 import com.wimg.app.ui.components.Changes
@@ -189,7 +190,7 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
             return@BandScreen
         }
         val grouped = remember(filtered) { filtered.groupBy { it.date }.toList() }
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = BarClearance)) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = barClearance())) {
             grouped.forEachIndexed { gi, (date, txs) ->
                 item(key = "h_$date") { DayHeader(date, txs.sumOf { it.amount }, first = gi == 0) }
                 items(txs, key = { it.id }) { tx ->

@@ -74,6 +74,7 @@ import com.wimg.app.services.FintsHttpCallback
 import com.wimg.app.ui.components.Amount
 import com.wimg.app.ui.components.BandScreen
 import com.wimg.app.ui.components.BarClearance
+import com.wimg.app.ui.components.barClearance
 import com.wimg.app.ui.components.BarContribution
 import com.wimg.app.ui.components.BarPanel
 import com.wimg.app.ui.components.Changes
@@ -163,6 +164,25 @@ private fun rangeDays(days: Int): Pair<String, String> {
     return iso(c) to to
 }
 
+/** The bank rejected the login (wrong Kennung/PIN, or blocked). libwimg reports it in English. */
+private fun isAuthRejected(r: FintsResult?) = r?.status == "error" && r.message?.contains("Authentication", ignoreCase = true) == true
+
+/** User-facing text for a libwimg/bank error; the bank's own (German) texts pass through. */
+private fun bankText(r: FintsResult?): String = when {
+    r == null -> __t("Bank nicht erreichbar. Prüfe die Internetverbindung und versuche es später noch einmal.")
+    isAuthRejected(r) -> __t("Die Bank hat die Anmeldung abgelehnt. Bitte Kennung und PIN neu eingeben.")
+    r.message.isNullOrBlank() -> __t("Die Bank hat den Auftrag nicht ausgeführt.")
+    r.message.all { it.code < 128 } && r.message.contains(" failed") -> __t("Die Bank hat den Auftrag nicht ausgeführt.")
+    else -> r.message
+}
+
+private fun forgetPin(context: Context) {
+    // A wrong stored PIN must not be retried (daily background fetch), or the
+    // bank locks the account after a few attempts.
+    context.getSharedPreferences(PREFS, 0).edit().remove(KEY_PIN).apply()
+    BackgroundRefresh.cancel(context)
+}
+
 private fun decode(r: String?): FintsResult? = r?.let { runCatching { json.decodeFromString<FintsResult>(it) }.getOrNull() }
 
 /**
@@ -187,7 +207,8 @@ private object FintsJob {
             val result = runCatching { withFintsThread { decode(WimgJni.nativeFintsFetch(fetchBody(range.first, range.second))) } }.getOrNull()
             running = false
             when {
-                result == null -> Dock.error(__t("Abruf fehlgeschlagen"), __t("%s · Bank nicht erreichbar").format(bankName), __t("Erneut")) { fetch(context, range, bankName, onDone) }
+                result == null -> Dock.error(__t("Abruf fehlgeschlagen"), bankText(null), __t("Erneut")) { fetch(context, range, bankName, onDone) }
+                isAuthRejected(result) -> { forgetPin(context); Dock.error(__t("Anmeldung abgelehnt"), bankText(result)) }
                 result.status == "tan_required" -> {
                     pendingTan = result
                     Dock.show(DockRow(DockKind.Prompt, __t("TAN erforderlich"), __t("Für ältere Umsätze verlangt die Bank eine TAN.")))
@@ -198,7 +219,7 @@ private object FintsJob {
                     Changes.bump()
                     Dock.info(if (n == 1) __t("1 neuer Umsatz") else __t("%d neue Umsätze").format(n), result.duplicates?.takeIf { it > 0 }?.let { __t("%d schon vorhanden").format(it) })
                 }
-                else -> Dock.error(__t("Abruf fehlgeschlagen"), result.message ?: bankName)
+                else -> Dock.error(__t("Abruf fehlgeschlagen"), bankText(result))
             }
             onDone(result)
         }
@@ -250,10 +271,10 @@ fun FinTSScreen(navController: NavController? = null) {
     }
     // A fetch that ended in a TAN request continues here.
     LaunchedEffect(FintsJob.pendingTan) {
-        FintsJob.pendingTan?.let { tan = it; tanFor = "fetch"; tanInput = ""; setup = true; step = Step.Tan; FintsJob.pendingTan = null }
+        FintsJob.pendingTan?.let { tan = it; tanFor = "fetch"; tanInput = ""; setup = true; step = Step.Tan; FintsJob.pendingTan = null; Dock.dismiss() }
     }
 
-    fun goTan(r: FintsResult, forWhat: String) { tan = r; tanFor = forWhat; tanInput = ""; step = Step.Tan }
+    fun goTan(r: FintsResult, forWhat: String) { tan = r; tanFor = forWhat; tanInput = ""; step = Step.Tan; Dock.dismiss() }
 
     fun startFetch(range: Pair<String, String>) {
         val name = bank?.name ?: "Bank"
@@ -300,13 +321,17 @@ fun FinTSScreen(navController: NavController? = null) {
             when (r?.status) {
                 "ok" -> afterLogin(r, quick = true)
                 "tan_required" -> { Dock.dismiss(); setup = true; goTan(r, "connect-quick") }
-                else -> {
-                    // Wrong stored PIN: forget it so nothing retries it in the background.
-                    prefs.edit().remove(KEY_PIN).apply()
-                    BackgroundRefresh.cancel(context)
-                    Dock.error(__t("Anmeldung fehlgeschlagen"), r?.message ?: __t("Bank nicht erreichbar"))
+                null -> {
+                    // Not reached / no answer: nothing is wrong with the PIN. Keep it.
+                    Dock.error(__t("Schnellabfrage fehlgeschlagen"), bankText(null), __t("Erneut")) { quickRefresh() }
+                }
+                else -> if (isAuthRejected(r)) {
+                    forgetPin(context)
+                    Dock.error(__t("Anmeldung abgelehnt"), bankText(r))
                     setup = true; step = Step.Login; pin = ""
-                    error = r?.message ?: __t("Anmeldung fehlgeschlagen")
+                    error = bankText(r)
+                } else {
+                    Dock.error(__t("Schnellabfrage fehlgeschlagen"), bankText(r))
                 }
             }
         }
@@ -329,8 +354,7 @@ fun FinTSScreen(navController: NavController? = null) {
                     if (rememberPin) prefs.edit().putString(KEY_PIN, pin).apply()
                     goTan(r, "connect")
                 }
-                null -> error = __t("Bank nicht erreichbar. Prüfe die Internetverbindung.")
-                else -> error = r.message ?: __t("Anmeldung fehlgeschlagen")
+                else -> error = bankText(r)
             }
         }
     }
@@ -343,7 +367,7 @@ fun FinTSScreen(navController: NavController? = null) {
             val r = runCatching { withFintsThread { decode(WimgJni.nativeFintsSendTan(tanBody(if (decoupled) "" else tanInput.trim()))) } }.getOrNull()
             busy = false
             when {
-                r == null -> error = __t("Bank nicht erreichbar. Prüfe die Internetverbindung.")
+                r == null -> error = bankText(null)
                 r.status == "tan_required" -> { tan = r; tanInput = ""; if (!decoupled) error = r.message }
                 r.imported != null -> {
                     setup = false
@@ -357,7 +381,7 @@ fun FinTSScreen(navController: NavController? = null) {
                     "connect-quick" -> afterLogin(r, quick = true)
                     else -> afterLogin(r, quick = false)
                 }
-                else -> error = r.message ?: __t("TAN abgelehnt")
+                else -> error = if (r.message.isNullOrBlank()) __t("TAN abgelehnt") else bankText(r)
             }
         }
     }
@@ -510,7 +534,7 @@ fun FinTSScreen(navController: NavController? = null) {
 
 @Composable
 private fun FormPage(content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = BarClearance), content = content)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = barClearance()), content = content)
 }
 
 @Composable
@@ -582,7 +606,7 @@ private fun BankPicker(banks: List<BankInfo>, onPick: (BankInfo) -> Unit) {
                 BasicTextField(q, { q = it }, singleLine = true, textStyle = WimgType.body.copy(color = c.text), cursorBrush = SolidColor(c.accent), modifier = Modifier.fillMaxWidth())
             }
         }
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = BarClearance)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = barClearance())) {
             items(shown, key = { it.blz + it.name }) { b ->
                 Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).clip(WimgShape.dockAction).clickable { onPick(b) }.padding(horizontal = 4.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(36.dp).clip(WimgShape.iconTile).background(c.neutralTint), contentAlignment = Alignment.Center) {

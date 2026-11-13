@@ -42,6 +42,7 @@ import com.wimg.app.models.RecurringPattern
 import com.wimg.app.ui.components.Amount
 import com.wimg.app.ui.components.BandScreen
 import com.wimg.app.ui.components.BarClearance
+import com.wimg.app.ui.components.barClearance
 import com.wimg.app.ui.components.BarContribution
 import com.wimg.app.ui.components.Changes
 import com.wimg.app.ui.components.DetailBarSpec
@@ -99,7 +100,7 @@ fun RecurringDetailScreen(id: String, navController: NavController?) {
             Text(p.merchant, style = WimgType.title.copy(fontSize = WimgType.title.fontSize * 0.92f), color = Color.White, modifier = Modifier.padding(top = 2.dp))
         },
     ) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = BarClearance)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = barClearance())) {
             if (changed && !income) {
                 item {
                     val up = newest!! > before!!

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- System splash icon: the empty pocket. The system draws this at 288dp; the
+     64dp inset leaves it at 160dp, inside the 192dp visible circle. LaunchIntro
+     draws the same image at 160dp in the screen centre and drops the notes in. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:insetLeft="64dp" android:insetTop="64dp" android:insetRight="64dp" android:insetBottom="64dp">
+    <bitmap android:src="@drawable/launch_pocket" android:gravity="fill" />
+</inset>

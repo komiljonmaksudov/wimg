@@ -1,5 +1,7 @@
 package com.wimg.app.ui.components
 
+import androidx.compose.ui.draw.blur
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
@@ -365,7 +367,7 @@ object Dock {
         show(DockRow(DockKind.Info, title, sub, timeoutMs = 4_000))
 
     fun error(title: String, sub: String? = null, action: String? = null, onAction: (() -> Unit)? = null) =
-        show(DockRow(DockKind.Error, title, sub, action, onAction))
+        show(DockRow(DockKind.Error, title, sub, action, onAction, timeoutMs = 8_000))
 }
 
 @Composable
@@ -467,8 +469,36 @@ fun BarChip(
         horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         val fg = if (active) c.inkText else c.text
-        if (icon != null) Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(if (label.isEmpty()) 20.dp else 18.dp))
-        if (label.isNotEmpty()) Text(label, style = WimgType.chip, color = fg, maxLines = 1)
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        // A new place or period: icon + label crossfade while the chip (and so the
+        // bar) moves to its new width, as one motion. Duration follows how far the
+        // width moves (Δ/500 s, 150-270 ms), ease-out; interruptible.
+        androidx.compose.animation.AnimatedContent(
+            targetState = label to icon,
+            transitionSpec = {
+                (fadeIn(tween(200, 40, WimgMotion.EaseOut)) +
+                    slideInVertically(tween(200, 40, WimgMotion.EaseOut)) { with(density) { 6.dp.roundToPx() } })
+                    .togetherWith(fadeOut(tween(100, easing = WimgMotion.EaseOut)))
+                    .using(androidx.compose.animation.SizeTransform(clip = false) { from, to ->
+                        val dp = with(density) { kotlin.math.abs(to.width - from.width).toDp().value }
+                        tween((dp * 2f).toInt().coerceIn(150, 270), easing = WimgMotion.EaseOut)
+                    })
+            },
+            contentAlignment = Alignment.CenterStart,
+            label = "chipLabel",
+        ) { (l, i) ->
+            val blur by transition.animateFloat(transitionSpec = { tween(200, easing = WimgMotion.EaseOut) }, label = "blur") {
+                if (it == androidx.compose.animation.EnterExitState.Visible) 0f else 2f
+            }
+            Row(
+                Modifier.then(if (blur > 0.01f) Modifier.blur(blur.dp, androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded) else Modifier),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                if (i != null) Icon(i, contentDescription = null, tint = fg, modifier = Modifier.size(if (l.isEmpty()) 20.dp else 18.dp))
+                if (l.isNotEmpty()) Text(l, style = WimgType.chip, color = fg, maxLines = 1)
+            }
+        }
         if (unfold) Icon(Icons.Outlined.UnfoldMore, contentDescription = null, tint = if (active) c.inkText else c.text2, modifier = Modifier.size(15.dp))
     }
 }
@@ -498,33 +528,44 @@ fun FloatingBar(
     modifier: Modifier = Modifier,
     /** Separator between "where" and "what"; off when there is nothing on the right. */
     divider: Boolean = true,
+    /** Full width (358 dp), for detail bars whose main action fills the space. */
+    fill: Boolean = false,
     left: @Composable RowScope.() -> Unit,
     right: @Composable RowScope.() -> Unit,
 ) {
     val c = Wimg.colors
     val docked = Dock.row
+    val wide = docked != null || fill
     val density = androidx.compose.ui.platform.LocalDensity.current
-    // The bar's own width when nothing is docked, measured from its content.
+    // Undocked, the bar just wraps its content, so a chip whose width animates
+    // carries the bar along in the same frame (nothing gets clipped). An explicit
+    // width only exists while gliding between that and the docked 358 dp.
     var natural by remember { mutableStateOf<Dp?>(null) }
-    val target = if (docked != null) WimgDimens.barDockedWidth else natural
-    // Width changes (docking, or another place with other chips) glide instead of
-    // snapping; the very first width is taken as is, so the bar doesn't grow in.
     val widthAnim = remember { androidx.compose.animation.core.Animatable(0f) }
-    var placed by remember { mutableStateOf(false) }
-    // Only docking/undocking glides (240 ms EaseInOut). A different screen with
-    // other chips is something done many times a day: the width just follows.
-    var wasDocked by remember { mutableStateOf(docked != null) }
-    LaunchedEffect(target) {
-        val t = target ?: return@LaunchedEffect
-        val dockChange = (docked != null) != wasDocked
-        wasDocked = docked != null
-        if (!placed || !dockChange) { widthAnim.snapTo(t.value); placed = true }
-        else widthAnim.animateTo(t.value, WimgMotion.barWidth())
+    var gliding by remember { mutableStateOf(false) }
+    var wasWide by remember { mutableStateOf(wide) }
+    LaunchedEffect(wide) {
+        if (wide == wasWide) return@LaunchedEffect
+        val from = if (wasWide) WimgDimens.barDockedWidth else natural
+        val to = if (wide) WimgDimens.barDockedWidth else natural
+        wasWide = wide
+        if (from == null || to == null) return@LaunchedEffect
+        gliding = true
+        widthAnim.snapTo(from.value)
+        widthAnim.animateTo(to.value, WimgMotion.barWidth())
+        gliding = false
     }
-    val width = widthAnim.value.dp
     Column(
         modifier
-            .then(if (!placed) Modifier.width(IntrinsicSize.Max) else Modifier.width(width))
+            .then(
+                when {
+                    gliding -> Modifier.width(widthAnim.value.dp)
+                    wide -> Modifier.width(WimgDimens.barDockedWidth)
+                    // Measured from the content itself (no intrinsics: those count the
+                    // hidden docked row and made the bar too wide).
+                    else -> Modifier.wrapContentWidth()
+                },
+            )
             .shadow(14.dp, WimgShape.bar, ambientColor = Color.Black.copy(alpha = 0.18f), spotColor = Color.Black.copy(alpha = 0.18f))
             .clip(WimgShape.bar)
             .background(c.card)
@@ -563,8 +604,8 @@ fun FloatingBar(
                 .then(
                     // Docked: fill the 358 dp so the actions sit right. Otherwise measure
                     // the natural width without the animated width squeezing it.
-                    if (docked != null) Modifier.fillMaxWidth()
-                    else Modifier.wrapContentWidth(Alignment.CenterHorizontally, unbounded = true).onSizeChanged { natural = with(density) { it.width.toDp() } },
+                    if (wide || gliding) Modifier.fillMaxWidth()
+                    else Modifier.onSizeChanged { natural = with(density) { it.width.toDp() } },
                 )
                 .height(WimgDimens.barHeight)
                 .padding(WimgDimens.barPadding),
@@ -573,7 +614,7 @@ fun FloatingBar(
         ) {
             left()
             if (divider) Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 24.dp).background(c.line))
-            if (docked != null) Spacer(Modifier.weight(1f))
+            if (wide && !fill) Spacer(Modifier.weight(1f))
             right()
         }
     }
@@ -629,6 +670,10 @@ object BarIcons {
 
 /** Space a list leaves at its end so the last row clears the floating bar. */
 val BarClearance: Dp = WimgDimens.listBottomClearance
+
+/** Space to leave under content: the bar, plus the docked row while one is shown. */
+@Composable
+fun barClearance(): Dp = BarClearance + if (Dock.row != null) 84.dp else 0.dp
 
 // ---------------------------------------------------------------------------
 // Per-screen bar contributions: a period/filter chip next to the place chip, and

@@ -88,6 +88,7 @@ import com.wimg.app.services.SyncService
 import com.wimg.app.ui.components.BandScreen
 import com.wimg.app.ui.components.BandTitle
 import com.wimg.app.ui.components.BarClearance
+import com.wimg.app.ui.components.barClearance
 import com.wimg.app.ui.components.BarContribution
 import com.wimg.app.ui.components.BarPanel
 import com.wimg.app.ui.components.Changes
@@ -120,7 +121,7 @@ import java.io.File
 private fun SettingsPage(over: String?, title: String, content: @Composable ColumnScope.() -> Unit) {
     BandScreen(band = { BandTitle(over, title) }) {
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BarClearance),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = barClearance()),
             content = content,
         )
     }

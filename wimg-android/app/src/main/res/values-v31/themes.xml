@@ -10,6 +10,6 @@
              turns white on white. -->
         <item name="android:forceDarkAllowed">false</item>
         <item name="android:windowSplashScreenBackground">#4F6F93</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_pocket</item>
     </style>
 </resources>
