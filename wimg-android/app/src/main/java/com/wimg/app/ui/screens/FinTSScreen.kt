@@ -249,6 +249,8 @@ fun FinTSScreen(navController: NavController? = null) {
     var media by remember { mutableStateOf<List<TanMedium>>(emptyList()) }
     var rangeChoice by remember { mutableIntStateOf(365) }
     var moreOpen by remember { mutableStateOf(false) }
+    // "Ältere Umsätze holen": signed in with the saved PIN, then the Zeitraum step.
+    var older by remember { mutableStateOf(false) }
     var removeOpen by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
 
@@ -278,7 +280,7 @@ fun FinTSScreen(navController: NavController? = null) {
 
     fun startFetch(range: Pair<String, String>) {
         val name = bank?.name ?: "Bank"
-        setup = false
+        setup = false; older = false
         FintsJob.fetch(context, range, name) { r -> if (r?.imported != null) armBackgroundRefresh() }
     }
 
@@ -337,6 +339,31 @@ fun FinTSScreen(navController: NavController? = null) {
         }
     }
 
+    fun fetchOlder() {
+        val b = bank ?: return
+        val saved = prefs.getString(KEY_PIN, null)
+        if (FintsJob.running || busy) return
+        older = true; rangeChoice = 365; error = null
+        if (saved == null) { setup = true; step = Step.Login; return }
+        busy = true
+        Dock.show(DockRow(DockKind.Sync, __t("Anmelden"), b.name))
+        scope.launch {
+            val r = runCatching { withFintsThread { decode(WimgJni.nativeFintsConnect(connectBody(b.blz, kennung, saved))) } }.getOrNull()
+            busy = false
+            Dock.dismiss()
+            when {
+                r?.status == "ok" -> { setup = true; afterLogin(r, quick = false) }
+                r?.status == "tan_required" -> { setup = true; goTan(r, "connect") }
+                isAuthRejected(r) -> {
+                    forgetPin(context)
+                    setup = true; step = Step.Login; pin = ""
+                    error = bankText(r)
+                }
+                else -> { older = false; Dock.error(__t("Anmeldung fehlgeschlagen"), bankText(r), __t("Erneut")) { fetchOlder() } }
+            }
+        }
+    }
+
     fun login() {
         val b = bank ?: return
         busy = true; error = null
@@ -389,6 +416,7 @@ fun FinTSScreen(navController: NavController? = null) {
     // ---- bar ----
     val back: () -> Unit = {
         if (!setup) navController?.popBackStack()
+        else if (older && step != Step.Login) { setup = false; older = false }
         else when (step) {
             Step.Bank -> if (prefs.getString(KEY_BLZ, null) != null) setup = false else navController?.popBackStack()
             Step.Login -> step = Step.Bank
@@ -447,7 +475,7 @@ fun FinTSScreen(navController: NavController? = null) {
     )
 
     if (!setup && bank != null) {
-        BankDetail(bank!!, prefs, reload)
+        BankDetail(bank!!, prefs, reload, onOlder = { fetchOlder() })
         return
     }
     if (!setup && bank == null && prefs.getString(KEY_BLZ, null) != null) {
@@ -467,9 +495,13 @@ fun FinTSScreen(navController: NavController? = null) {
     val c = Wimg.colors
     BandScreen(
         band = {
-            Text(L("Bank verbinden · Schritt %d von %d", stepIndex, 5), style = WimgType.bandOver, color = c.bandSub)
-            Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 14.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                for (i in 1..5) Box(Modifier.weight(1f).height(4.dp).clip(CircleShape).background(if (i <= stepIndex) Color.White else Color.White.copy(alpha = 0.18f)))
+            if (older) {
+                Text(bank?.name ?: "", style = WimgType.bandOver, color = c.bandSub, modifier = Modifier.padding(bottom = 6.dp))
+            } else {
+                Text(L("Bank verbinden · Schritt %d von %d", stepIndex, 5), style = WimgType.bandOver, color = c.bandSub)
+                Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 14.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (i in 1..5) Box(Modifier.weight(1f).height(4.dp).clip(CircleShape).background(if (i <= stepIndex) Color.White else Color.White.copy(alpha = 0.18f)))
+                }
             }
             Text(title, style = WimgType.title.copy(fontSize = WimgType.title.fontSize * 1.15f), color = Color.White)
         },
@@ -514,7 +546,7 @@ fun FinTSScreen(navController: NavController? = null) {
             }
             Step.Tan -> TanPage(bank?.name ?: "", tan, tanInput, { tanInput = it }, busy, error, onAutoCheck = { if (!busy) sendTan() })
             Step.Range -> FormPage {
-                Text(L("Wie weit zurück soll wimg beim ersten Abruf holen?"), style = WimgType.body, color = c.text2, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp))
+                Text((if (older) L("Wie weit zurück soll wimg holen? Schon vorhandene Umsätze werden übersprungen.") else L("Wie weit zurück soll wimg beim ersten Abruf holen?")), style = WimgType.body, color = c.text2, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp))
                 WimgGroup {
                     listOf(90 to L("3 Monate"), 182 to L("6 Monate"), 365 to L("1 Jahr"), 730 to L("2 Jahre")).forEachIndexed { i, (days, label) ->
                         if (i > 0) RowDivider()
@@ -667,7 +699,7 @@ private fun TanPage(bankName: String, tan: FintsResult?, input: String, onInput:
 }
 
 @Composable
-private fun BankDetail(b: BankInfo, prefs: android.content.SharedPreferences, reload: Int) {
+private fun BankDetail(b: BankInfo, prefs: android.content.SharedPreferences, reload: Int, onOlder: () -> Unit) {
     val context = LocalContext.current
     val c = Wimg.colors
     var accounts by remember { mutableStateOf<List<Account>>(emptyList()) }
@@ -717,6 +749,14 @@ private fun BankDetail(b: BankInfo, prefs: android.content.SharedPreferences, re
                     L("Hintergrund-Abruf"),
                     desc = if (hasPin) L("Täglich, letzte 14 Tage · Mitteilung bei neuen Umsätzen oder „TAN erforderlich“") else L("Braucht die gespeicherte PIN"),
                     trailing = { WimgToggle(bg && hasPin, { v -> if (hasPin) { bg = v; BackgroundRefresh.setEnabled(context, v) } }, label = L("Hintergrund-Abruf")) },
+                )
+            }
+            Spacer(Modifier.height(14.dp))
+            WimgGroup {
+                WimgRow(
+                    L("Ältere Umsätze holen"),
+                    desc = L("Bis zu 2 Jahre zurück, so weit die Bank erlaubt · meist mit TAN"),
+                    chevron = true, onClick = onOlder,
                 )
             }
             QuietLine(L("PIN und TAN-Gerät bleiben auf diesem Telefon. Sie werden nie synchronisiert."), icon = Icons.Outlined.Lock)

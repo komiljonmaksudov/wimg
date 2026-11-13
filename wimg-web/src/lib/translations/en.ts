@@ -85,6 +85,9 @@ export const en: Record<string, string> = {
   "Über 100 €": "Over €100",
   Ausgeschlossene: "Excluded",
   // Android redesign: Über wimg, Bankfehler
+  "Ältere Umsätze holen": "Fetch older transactions",
+  "Bis zu 2 Jahre zurück, so weit die Bank erlaubt · meist mit TAN": "Up to 2 years back, as far as the bank allows · usually with a TAN",
+  "Wie weit zurück soll wimg holen? Schon vorhandene Umsätze werden übersprungen.": "How far back should wimg fetch? Transactions you already have are skipped.",
   "%d Fragen": "%d questions",
   "%s verfügbar": "%s available",
   "1 Frage": "1 question",
