@@ -21,7 +21,6 @@ data class Transaction(
     val displayTitle: String get() = title?.takeIf { it.isNotBlank() } ?: description
     val isExpense: Boolean get() = amount < 0
     val isIncome: Boolean get() = amount > 0
-    val absAmount: Double get() = abs(amount)
     val isExcluded: Boolean get() = (excluded ?: 0) != 0
 }
 

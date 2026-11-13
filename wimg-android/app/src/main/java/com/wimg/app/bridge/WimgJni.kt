@@ -24,7 +24,6 @@ object WimgJni {
     external fun nativeAutoCategorize(): Int
 
     // Summaries
-    external fun nativeGetSummary(year: Int, month: Int): String?
     external fun nativeGetSummaryFiltered(year: Int, month: Int, account: String): String?
 
     // Import
@@ -33,9 +32,6 @@ object WimgJni {
 
     // Accounts
     external fun nativeGetAccounts(): String?
-    external fun nativeAddAccount(json: String): Int
-    external fun nativeUpdateAccount(json: String): Int
-    external fun nativeDeleteAccount(id: String): Int
 
     // Recurring
     external fun nativeGetRecurring(): String?
@@ -43,28 +39,16 @@ object WimgJni {
     external fun nativeGetRecurringPayments(id: String): String?
 
     // Snapshots
-    external fun nativeTakeSnapshot(year: Int, month: Int): Int
-    external fun nativeGetSnapshots(): String?
 
     // Undo/Redo
     external fun nativeUndo(): String?
-    external fun nativeRedo(): String?
 
     // Debts
-    external fun nativeGetDebts(): String?
-    external fun nativeAddDebt(json: String): Int
-    external fun nativeMarkDebtPaid(id: String, amountCents: Long): Int
-    external fun nativeDeleteDebt(id: String): Int
 
     // Goals
-    external fun nativeGetGoals(): String?
-    external fun nativeAddGoal(json: String): Int
-    external fun nativeContributeGoal(id: String, amountCents: Long): Int
-    external fun nativeDeleteGoal(id: String): Int
 
     // Export
     external fun nativeExportCsv(): String?
-    external fun nativeExportDb(): String?
 
     // Sync
     external fun nativeGetChanges(sinceTs: Long): String?

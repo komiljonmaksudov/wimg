@@ -17,31 +17,6 @@ data class Account(
 }
 
 @Serializable
-data class Debt(
-    val id: String,
-    val name: String,
-    val total: Double,
-    val paid: Double = 0.0,
-    val monthly: Double = 0.0,
-) {
-    val remaining: Double get() = total - paid
-    val progress: Double get() = if (total > 0) paid / total else 0.0
-}
-
-@Serializable
-data class Goal(
-    val id: String,
-    val name: String,
-    val icon: String = "🎯",
-    val target: Double,
-    val current: Double = 0.0,
-    val deadline: String? = null,
-) {
-    val remaining: Double get() = target - current
-    val progress: Double get() = if (target > 0) current / target else 0.0
-}
-
-@Serializable
 data class RecurringPattern(
     val id: String,
     val merchant: String,
@@ -62,12 +37,3 @@ data class RecurringPayment(
     val amount: Double,
 )
 
-@Serializable
-data class Snapshot(
-    val id: String,
-    val date: String,
-    val net_worth: Double,
-    val income: Double,
-    val expenses: Double,
-    val tx_count: Int,
-)

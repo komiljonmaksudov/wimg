@@ -64,11 +64,6 @@ object LibWimg {
 
     // --- Summaries ---
 
-    fun getSummary(year: Int, month: Int): MonthlySummary? = lock.withLock {
-        val str = WimgJni.nativeGetSummary(year, month) ?: return null
-        json.decodeFromString(str)
-    }
-
     fun getSummaryFiltered(year: Int, month: Int, account: String?): MonthlySummary? = lock.withLock {
         val str = WimgJni.nativeGetSummaryFiltered(year, month, account ?: "") ?: return null
         json.decodeFromString(str)
@@ -112,16 +107,6 @@ object LibWimg {
 
     // --- Snapshots ---
 
-    fun takeSnapshot(year: Int, month: Int) = lock.withLock {
-        val rc = WimgJni.nativeTakeSnapshot(year, month)
-        if (rc != 0) throw WimgException("takeSnapshot failed")
-    }
-
-    fun getSnapshots(): List<Snapshot> = lock.withLock {
-        val str = WimgJni.nativeGetSnapshots() ?: return emptyList()
-        json.decodeFromString(str)
-    }
-
     // --- Undo/Redo ---
 
     fun undo(): UndoResult? = lock.withLock {
@@ -129,10 +114,6 @@ object LibWimg {
         json.decodeFromString(str)
     }
 
-    fun redo(): UndoResult? = lock.withLock {
-        val str = WimgJni.nativeRedo() ?: return null
-        json.decodeFromString(str)
-    }
 }
 
 class WimgException(message: String) : Exception(message)

@@ -14,31 +14,15 @@ extern const uint8_t *wimg_get_pending(const uint8_t *acct, uint32_t acct_len);
 extern int32_t wimg_set_category(const uint8_t *id, uint32_t id_len, uint8_t category);
 extern int32_t wimg_set_excluded(const uint8_t *id, uint32_t id_len, uint8_t excluded);
 extern int32_t wimg_auto_categorize(void);
-extern const uint8_t *wimg_get_summary(uint32_t year, uint32_t month);
 extern const uint8_t *wimg_get_summary_filtered(uint32_t year, uint32_t month, const uint8_t *acct, uint32_t acct_len);
 extern const uint8_t *wimg_parse_csv(const uint8_t *data, uint32_t len);
 extern const uint8_t *wimg_import_csv(const uint8_t *data, uint32_t len);
 extern const uint8_t *wimg_get_accounts(void);
-extern int32_t wimg_add_account(const uint8_t *data, uint32_t len);
-extern int32_t wimg_update_account(const uint8_t *data, uint32_t len);
-extern int32_t wimg_delete_account(const uint8_t *id, uint32_t id_len);
 extern const uint8_t *wimg_get_recurring(void);
 extern int32_t wimg_detect_recurring(void);
 extern const uint8_t *wimg_get_recurring_payments(const uint8_t *id, uint32_t id_len);
-extern int32_t wimg_take_snapshot(uint32_t year, uint32_t month);
-extern const uint8_t *wimg_get_snapshots(void);
 extern const uint8_t *wimg_undo(void);
-extern const uint8_t *wimg_redo(void);
-extern const uint8_t *wimg_get_debts(void);
-extern int32_t wimg_add_debt(const uint8_t *data, uint32_t len);
-extern int32_t wimg_mark_debt_paid(const uint8_t *id, uint32_t id_len, int64_t amount_cents);
-extern int32_t wimg_delete_debt(const uint8_t *id, uint32_t id_len);
-extern const uint8_t *wimg_get_goals(void);
-extern int32_t wimg_add_goal(const uint8_t *data, uint32_t len);
-extern int32_t wimg_contribute_goal(const uint8_t *id, uint32_t id_len, int64_t amount_cents);
-extern int32_t wimg_delete_goal(const uint8_t *id, uint32_t id_len);
 extern const uint8_t *wimg_export_csv(void);
-extern const uint8_t *wimg_export_db(void);
 
 // Sync
 extern const uint8_t *wimg_get_changes(int64_t since_ts);
@@ -139,10 +123,6 @@ JNIEXPORT jint JNICALL JNI_FN(nativeAutoCategorize)(JNIEnv *env, jobject obj) {
 
 // --- Summaries ---
 
-JNIEXPORT jstring JNICALL JNI_FN(nativeGetSummary)(JNIEnv *env, jobject obj, jint year, jint month) {
-    return ptr_to_jstring(env, wimg_get_summary(year, month));
-}
-
 JNIEXPORT jstring JNICALL JNI_FN(nativeGetSummaryFiltered)(JNIEnv *env, jobject obj, jint year, jint month, jstring acct) {
     const char *a = (*env)->GetStringUTFChars(env, acct, NULL);
     jsize alen = (*env)->GetStringUTFLength(env, acct);
@@ -175,30 +155,6 @@ JNIEXPORT jstring JNICALL JNI_FN(nativeGetAccounts)(JNIEnv *env, jobject obj) {
     return ptr_to_jstring(env, wimg_get_accounts());
 }
 
-JNIEXPORT jint JNICALL JNI_FN(nativeAddAccount)(JNIEnv *env, jobject obj, jstring json) {
-    const char *data = (*env)->GetStringUTFChars(env, json, NULL);
-    jsize len = (*env)->GetStringUTFLength(env, json);
-    int32_t rc = wimg_add_account((const uint8_t *)data, len);
-    (*env)->ReleaseStringUTFChars(env, json, data);
-    return rc;
-}
-
-JNIEXPORT jint JNICALL JNI_FN(nativeUpdateAccount)(JNIEnv *env, jobject obj, jstring json) {
-    const char *data = (*env)->GetStringUTFChars(env, json, NULL);
-    jsize len = (*env)->GetStringUTFLength(env, json);
-    int32_t rc = wimg_update_account((const uint8_t *)data, len);
-    (*env)->ReleaseStringUTFChars(env, json, data);
-    return rc;
-}
-
-JNIEXPORT jint JNICALL JNI_FN(nativeDeleteAccount)(JNIEnv *env, jobject obj, jstring id) {
-    const char *cid = (*env)->GetStringUTFChars(env, id, NULL);
-    jsize len = (*env)->GetStringUTFLength(env, id);
-    int32_t rc = wimg_delete_account((const uint8_t *)cid, len);
-    (*env)->ReleaseStringUTFChars(env, id, cid);
-    return rc;
-}
-
 // --- Recurring ---
 
 JNIEXPORT jstring JNICALL JNI_FN(nativeGetRecurring)(JNIEnv *env, jobject obj) {
@@ -220,92 +176,20 @@ JNIEXPORT jstring JNICALL JNI_FN(nativeGetRecurringPayments)(JNIEnv *env, jobjec
 
 // --- Snapshots ---
 
-JNIEXPORT jint JNICALL JNI_FN(nativeTakeSnapshot)(JNIEnv *env, jobject obj, jint year, jint month) {
-    return wimg_take_snapshot(year, month);
-}
-
-JNIEXPORT jstring JNICALL JNI_FN(nativeGetSnapshots)(JNIEnv *env, jobject obj) {
-    return ptr_to_jstring(env, wimg_get_snapshots());
-}
-
 // --- Undo/Redo ---
 
 JNIEXPORT jstring JNICALL JNI_FN(nativeUndo)(JNIEnv *env, jobject obj) {
     return ptr_to_jstring(env, wimg_undo());
 }
 
-JNIEXPORT jstring JNICALL JNI_FN(nativeRedo)(JNIEnv *env, jobject obj) {
-    return ptr_to_jstring(env, wimg_redo());
-}
-
 // --- Debts ---
 
-JNIEXPORT jstring JNICALL JNI_FN(nativeGetDebts)(JNIEnv *env, jobject obj) {
-    return ptr_to_jstring(env, wimg_get_debts());
-}
-
-JNIEXPORT jint JNICALL JNI_FN(nativeAddDebt)(JNIEnv *env, jobject obj, jstring json) {
-    const char *data = (*env)->GetStringUTFChars(env, json, NULL);
-    jsize len = (*env)->GetStringUTFLength(env, json);
-    int32_t rc = wimg_add_debt((const uint8_t *)data, len);
-    (*env)->ReleaseStringUTFChars(env, json, data);
-    return rc;
-}
-
-JNIEXPORT jint JNICALL JNI_FN(nativeMarkDebtPaid)(JNIEnv *env, jobject obj, jstring id, jlong amountCents) {
-    const char *cid = (*env)->GetStringUTFChars(env, id, NULL);
-    jsize len = (*env)->GetStringUTFLength(env, id);
-    int32_t rc = wimg_mark_debt_paid((const uint8_t *)cid, len, amountCents);
-    (*env)->ReleaseStringUTFChars(env, id, cid);
-    return rc;
-}
-
-JNIEXPORT jint JNICALL JNI_FN(nativeDeleteDebt)(JNIEnv *env, jobject obj, jstring id) {
-    const char *cid = (*env)->GetStringUTFChars(env, id, NULL);
-    jsize len = (*env)->GetStringUTFLength(env, id);
-    int32_t rc = wimg_delete_debt((const uint8_t *)cid, len);
-    (*env)->ReleaseStringUTFChars(env, id, cid);
-    return rc;
-}
-
 // --- Goals ---
-
-JNIEXPORT jstring JNICALL JNI_FN(nativeGetGoals)(JNIEnv *env, jobject obj) {
-    return ptr_to_jstring(env, wimg_get_goals());
-}
-
-JNIEXPORT jint JNICALL JNI_FN(nativeAddGoal)(JNIEnv *env, jobject obj, jstring json) {
-    const char *data = (*env)->GetStringUTFChars(env, json, NULL);
-    jsize len = (*env)->GetStringUTFLength(env, json);
-    int32_t rc = wimg_add_goal((const uint8_t *)data, len);
-    (*env)->ReleaseStringUTFChars(env, json, data);
-    return rc;
-}
-
-JNIEXPORT jint JNICALL JNI_FN(nativeContributeGoal)(JNIEnv *env, jobject obj, jstring id, jlong amountCents) {
-    const char *cid = (*env)->GetStringUTFChars(env, id, NULL);
-    jsize len = (*env)->GetStringUTFLength(env, id);
-    int32_t rc = wimg_contribute_goal((const uint8_t *)cid, len, amountCents);
-    (*env)->ReleaseStringUTFChars(env, id, cid);
-    return rc;
-}
-
-JNIEXPORT jint JNICALL JNI_FN(nativeDeleteGoal)(JNIEnv *env, jobject obj, jstring id) {
-    const char *cid = (*env)->GetStringUTFChars(env, id, NULL);
-    jsize len = (*env)->GetStringUTFLength(env, id);
-    int32_t rc = wimg_delete_goal((const uint8_t *)cid, len);
-    (*env)->ReleaseStringUTFChars(env, id, cid);
-    return rc;
-}
 
 // --- Export ---
 
 JNIEXPORT jstring JNICALL JNI_FN(nativeExportCsv)(JNIEnv *env, jobject obj) {
     return ptr_to_jstring(env, wimg_export_csv());
-}
-
-JNIEXPORT jstring JNICALL JNI_FN(nativeExportDb)(JNIEnv *env, jobject obj) {
-    return ptr_to_jstring(env, wimg_export_db());
 }
 
 // --- Sync ---

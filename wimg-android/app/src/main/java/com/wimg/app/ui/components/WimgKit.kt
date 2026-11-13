@@ -207,19 +207,6 @@ fun BandTitle(over: String?, title: String) {
     Text(title, style = WimgType.title, color = Color.White)
 }
 
-/** Sub line under a band amount, with an optional status dot. */
-@Composable
-fun BandSub(text: String, dot: Color? = null) {
-    val c = Wimg.colors
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-        if (dot != null) {
-            Box(Modifier.size(7.dp).clip(CircleShape).background(dot))
-            Spacer(Modifier.width(6.dp))
-        }
-        Text(text, style = WimgType.desc, color = c.bandSub, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Groups and rows: lists, not cards.
 // ---------------------------------------------------------------------------
@@ -702,12 +689,6 @@ fun PlaceMenu(places: List<Place>, current: String?, onPick: (Place) -> Unit, mo
     }
 }
 
-/** Detail-screen bar: [←] [main action] [⋯]. */
-@Composable
-fun BackChip(label: String, onClick: () -> Unit) {
-    BarChip(label = L(label), icon = Icons.AutoMirrored.Outlined.ArrowBack, onClick = onClick)
-}
-
 // Re-exported so screens don't need the icon imports for the common bar actions.
 object BarIcons {
     val Search = Icons.Outlined.Search
@@ -752,7 +733,6 @@ data class DetailBarSpec(
     /** Main action is running: show a spinner on it, keep the label. */
     val actionBusy: Boolean = false,
     val onMore: (() -> Unit)? = null,
-    val moreActive: Boolean = false,
 )
 
 /** What one screen puts into the bar. */
@@ -781,22 +761,14 @@ object BarState {
      * (old → new) instead of twice (old → empty → new).
      */
     private var lastShown: BarSpec = BarSpec()
-    private var lastOwner: String? = null
     val current: BarSpec
         get() {
             val spec = currentOwner?.let { specs[it] }
-            if (spec != null) { lastShown = spec; lastOwner = currentOwner }
+            if (spec != null) lastShown = spec
             // The stand-in for a page that hasn't registered (or has no bar of its
             // own, like search) never carries the previous page's open menu or panel.
             return spec ?: lastShown.copy(panel = null)
         }
-
-    /**
-     * The screen whose bar is actually shown: the current one once it has
-     * registered, the previous one until then. The place chip follows this too,
-     * so name and chips always change together.
-     */
-    val shownOwner: String? get() { current; return lastOwner ?: currentOwner }
     val detail: DetailBarSpec? get() = current.detail
     val chip: BarChipSpec? get() = current.chip
     val panel: (@Composable () -> Unit)? get() = current.panel

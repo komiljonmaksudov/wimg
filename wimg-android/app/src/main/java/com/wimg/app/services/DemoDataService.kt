@@ -46,10 +46,6 @@ object DemoDataService {
         "JULI", "AUGUST", "SEPTEMBER", "OKTOBER", "NOVEMBER", "DEZEMBER",
     )
 
-    fun isDemoLoaded(context: Context): Boolean {
-        return context.getSharedPreferences("wimg", 0).getBoolean(DEMO_LOADED_KEY, false)
-    }
-
     fun loadDemoData(context: Context) {
         val csv = generateDemoCSV()
         val data = csv.toByteArray(Charsets.ISO_8859_1)

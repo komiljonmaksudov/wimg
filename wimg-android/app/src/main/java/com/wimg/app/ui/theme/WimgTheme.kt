@@ -137,17 +137,6 @@ fun WimgPalette.category(id: Int): Color =
 fun WimgPalette.categoryBar(id: Int): Color =
     categoryColors[id]?.let { Color(if (isDark) it.second else it.first) } ?: catSonstigesBar
 
-object WimgBrand {
-    val Denim = Color(0xFF4F6F93)        // splash background, icon
-    val Indigo = Color(0xFF243C61)
-    val Garn = Color(0xFFC8923F)
-    val Kupfer = Color(0xFFB9773E)
-    val Guertel = Color(0xFF6B3D1E)
-    val Note50 = Color(0xFFF2B36F)
-    val Karte = Color(0xFF8FD94A)
-    val Creme = Color(0xFFF3F0EA)
-}
-
 // Static weights cut from the Google Fonts variable files (fontTools instancer).
 // One file per weight: Android otherwise falls back to the variable font's
 // default instance (Manrope's is ExtraLight) and fakes bold on top.
@@ -363,39 +352,3 @@ fun WimgTheme(content: @Composable () -> Unit) {
         )
     }
 }
-
-// ---------------------------------------------------------------------------
-// Legacy helpers for screens that haven't been redesigned yet. They map the old
-// yellow hero/card look onto the new palette so nothing breaks in between.
-// Delete once no screen uses them (handoff §3).
-// ---------------------------------------------------------------------------
-
-object WimgColors {
-    val accent: Color @Composable get() = Wimg.colors.accentSoft
-    val heroText: Color @Composable get() = Wimg.colors.text
-    val bgLight = LightWimgPalette.sheet
-    val cardBgLight = LightWimgPalette.card
-    val textLight = LightWimgPalette.text
-    val textSecondaryLight = LightWimgPalette.text2
-    val borderLight = LightWimgPalette.line
-    val bgDark = DarkWimgPalette.sheet
-    val cardBgDark = DarkWimgPalette.card
-    val textDark = DarkWimgPalette.text
-    val textSecondaryDark = DarkWimgPalette.text2
-    val borderDark = DarkWimgPalette.line
-}
-
-object WimgShapes {
-    val small = RoundedCornerShape(14.dp)
-    val medium = RoundedCornerShape(16.dp)
-    val large = RoundedCornerShape(18.dp)
-    val xl = RoundedCornerShape(20.dp)
-}
-
-@Composable
-fun Modifier.wimgCard(radius: RoundedCornerShape = WimgShapes.medium): Modifier =
-    this.clip(radius).background(Wimg.colors.card)
-
-@Composable
-fun Modifier.wimgHero(): Modifier =
-    this.clip(WimgShapes.xl).background(Wimg.colors.accentSoft)

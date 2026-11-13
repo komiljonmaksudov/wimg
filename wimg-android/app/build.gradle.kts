@@ -90,7 +90,6 @@ dependencies {
 
     // Glance widgets
     implementation("androidx.glance:glance-appwidget:1.1.1")
-    implementation("androidx.glance:glance-material3:1.1.1")
 
     // Biometric auth (Face / Fingerprint / device credential)
     implementation("androidx.biometric:biometric:1.2.0-alpha05")

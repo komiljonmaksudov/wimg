@@ -1,5 +1,6 @@
 package com.wimg.app.ui
 
+import com.wimg.app.ui.theme.Wimg
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.foundation.background
@@ -27,8 +28,6 @@ import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
 import com.wimg.app.i18n.L
 import com.wimg.app.services.BiometricLock
-import com.wimg.app.ui.theme.WimgColors
-import com.wimg.app.ui.theme.WimgShapes
 
 /**
  * Full-screen gate shown while the app is locked. Single Entsperren button
@@ -52,7 +51,7 @@ fun LockScreen(activity: FragmentActivity) {
             modifier = Modifier
                 .size(112.dp)
                 .clip(CircleShape)
-                .background(WimgColors.accent.copy(alpha = 0.2f)),
+                .background(Wimg.colors.accentSoft.copy(alpha = 0.2f)),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -89,10 +88,10 @@ fun LockScreen(activity: FragmentActivity) {
             Button(
                 onClick = { BiometricLock.authenticate(activity) },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = WimgColors.accent,
-                    contentColor = WimgColors.heroText,
+                    containerColor = Wimg.colors.accentSoft,
+                    contentColor = Wimg.colors.text,
                 ),
-                shape = WimgShapes.small,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.Outlined.Lock, null, modifier = Modifier.size(18.dp))
@@ -105,10 +104,10 @@ fun LockScreen(activity: FragmentActivity) {
                     context.startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
                 },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = WimgColors.accent,
-                    contentColor = WimgColors.heroText,
+                    containerColor = Wimg.colors.accentSoft,
+                    contentColor = Wimg.colors.text,
                 ),
-                shape = WimgShapes.small,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(L("Geräte-Einstellungen öffnen"), fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 4.dp))
@@ -116,7 +115,7 @@ fun LockScreen(activity: FragmentActivity) {
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
                 onClick = { BiometricLock.setEnabled(context, false) },
-                shape = WimgShapes.small,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(L("App-Sperre deaktivieren"), modifier = Modifier.padding(vertical = 4.dp))
