@@ -129,7 +129,7 @@ private data class TanMediaResult(val status: String = "", val media: List<TanMe
 private val json = Json { ignoreUnknownKeys = true }
 
 /** Run a block on a thread with 2MB stack (FinTS needs large buffers for Base64/MT940). */
-private suspend fun <T> withFintsThread(block: () -> T): T {
+internal suspend fun <T> withFintsThread(block: () -> T): T {
     return kotlinx.coroutines.suspendCancellableCoroutine { cont ->
         val thread = Thread(null, {
             try {

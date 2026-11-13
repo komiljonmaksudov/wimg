@@ -53,6 +53,9 @@ import com.wimg.app.ui.components.WimgDates
 import com.wimg.app.ui.components.pressable
 import com.wimg.app.ui.theme.Wimg
 import com.wimg.app.ui.theme.WimgType
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Bankverbindungen (board 7/03): one card per bank login with its balance, PIN
@@ -69,6 +72,20 @@ fun BanksScreen(navController: NavController?) {
     }
     var accounts by remember { mutableStateOf<List<Account>>(emptyList()) }
     LaunchedEffect(Changes.version) { accounts = LibWimg.getAccounts() }
+    // Logins from older builds have no bank name: take it from the catalog once.
+    LaunchedEffect(connections) {
+        if (connections.none { it.name.isBlank() }) return@LaunchedEffect
+        val catalog = withFintsThread { com.wimg.app.bridge.WimgJni.nativeFintsGetBanks() } ?: return@LaunchedEffect
+        val names = runCatching {
+            kotlinx.serialization.json.Json.parseToJsonElement(catalog).jsonArray.associate { e ->
+                e.jsonObject["blz"]!!.jsonPrimitive.content to e.jsonObject["name"]!!.jsonPrimitive.content
+            }
+        }.getOrNull() ?: return@LaunchedEffect
+        connections.filter { it.name.isBlank() }.forEach { c ->
+            names[c.blz]?.let { n -> BankConnections.update(context, c.id) { it.copy(name = n) } }
+        }
+        Changes.bump()
+    }
 
     BarContribution(
         chip = null, panel = null, onPanelDismiss = {},
