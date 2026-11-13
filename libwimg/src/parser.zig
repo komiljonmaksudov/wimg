@@ -137,7 +137,7 @@ fn parseComdirectBatch(
         const line_end = pos;
         if (pos < data.len) pos += 1; // skip \n
 
-        const line = trimCr(data[line_start..line_end]);
+        const line = std.mem.trimEnd(u8, data[line_start..line_end], "\r");
         if (line.len == 0) continue;
         if (!looksLikeDateStart(line)) continue;
 
@@ -183,7 +183,7 @@ fn parseTRBatch(
         const line_end = pos;
         if (pos < data.len) pos += 1;
 
-        const line = trimCr(data[line_start..line_end]);
+        const line = std.mem.trimEnd(u8, data[line_start..line_end], "\r");
         if (line.len == 0) continue;
 
         // Skip header line (once)
@@ -236,7 +236,7 @@ fn parseScalableBatch(
         const line_end = pos;
         if (pos < data.len) pos += 1;
 
-        const line = trimCr(data[line_start..line_end]);
+        const line = std.mem.trimEnd(u8, data[line_start..line_end], "\r");
         if (line.len == 0) continue;
 
         if (!cursor.header_found) {
@@ -289,7 +289,7 @@ pub fn parseComdirectCsv(
     var txn_idx: u32 = 0;
 
     while (line_iter.next()) |raw_line| {
-        const line = trimCr(raw_line);
+        const line = std.mem.trimEnd(u8, raw_line, "\r");
         if (line.len == 0) continue;
 
         // Skip header/metadata lines — a transaction line starts with a date dd.MM.yyyy
@@ -362,7 +362,7 @@ fn parseTradeRepublicCsv(
     var header_skipped = false;
 
     while (line_iter.next()) |raw_line| {
-        const line = trimCr(raw_line);
+        const line = std.mem.trimEnd(u8, raw_line, "\r");
         if (line.len == 0) continue;
 
         // Skip header line
@@ -449,7 +449,7 @@ fn parseScalableCapitalCsv(
     var header_skipped = false;
 
     while (line_iter.next()) |raw_line| {
-        const line = trimCr(raw_line);
+        const line = std.mem.trimEnd(u8, raw_line, "\r");
         if (line.len == 0) continue;
 
         if (!header_skipped) {
@@ -695,13 +695,6 @@ pub fn setAccount(txn: *Transaction, name: []const u8) void {
 
 fn splitLines(data: []const u8) std.mem.SplitIterator(u8, .scalar) {
     return std.mem.splitScalar(u8, data, '\n');
-}
-
-fn trimCr(line: []const u8) []const u8 {
-    if (line.len > 0 and line[line.len - 1] == '\r') {
-        return line[0 .. line.len - 1];
-    }
-    return line;
 }
 
 fn trim(s: []const u8) []const u8 {
@@ -1148,14 +1141,6 @@ test "looksLikeDateStart: quoted date" {
 
 test "looksLikeDateStart: non-date" {
     try std.testing.expect(!looksLikeDateStart("Buchungstag;foo"));
-}
-
-test "trimCr: removes trailing CR" {
-    try std.testing.expectEqualStrings("hello", trimCr("hello\r"));
-}
-
-test "trimCr: no CR unchanged" {
-    try std.testing.expectEqualStrings("hello", trimCr("hello"));
 }
 
 // --- Stress / performance tests ---

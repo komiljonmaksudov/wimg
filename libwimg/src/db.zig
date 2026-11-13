@@ -34,7 +34,6 @@ pub const DbError = error{
 };
 
 const CURRENT_SCHEMA_VERSION = 15;
-const MAX_UNDO_ENTRIES = 50;
 
 pub const Db = struct {
     handle: *c.sqlite3,

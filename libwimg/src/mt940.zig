@@ -40,7 +40,7 @@ pub fn parseMt940(data: []const u8, account: []const u8, out: []Transaction) Mt9
 
     var pos: usize = 0;
     while (nextLine(input, &pos)) |raw_line| {
-        const line = trimCr(raw_line);
+        const line = std.mem.trimEnd(u8, raw_line, "\r");
         if (line.len == 0) continue;
 
         // Check for field tags (start with :XX:)
@@ -53,10 +53,10 @@ pub fn parseMt940(data: []const u8, account: []const u8, out: []Transaction) Mt9
                 desc_len = 0;
             }
 
-            if (startsWith(line, ":60F:") or startsWith(line, ":60M:")) {
+            if (std.mem.startsWith(u8, line, ":60F:") or std.mem.startsWith(u8, line, ":60M:")) {
                 // Opening balance: :60F:D260301EUR1234,56
                 parseBalance(line[5..], &result.opening_balance, &result.currency, null);
-            } else if (startsWith(line, ":62F:") or startsWith(line, ":62M:")) {
+            } else if (std.mem.startsWith(u8, line, ":62F:") or std.mem.startsWith(u8, line, ":62M:")) {
                 // Closing balance. A response may carry several statements; keep
                 // the one with the latest value date so the stored balance is
                 // the most recent (touchdown pages can arrive in any order).
@@ -67,7 +67,7 @@ pub fn parseMt940(data: []const u8, account: []const u8, out: []Transaction) Mt9
                     result.closing_balance = bal;
                     result.closing_balance_date = bal_date;
                 }
-            } else if (startsWith(line, ":61:")) {
+            } else if (std.mem.startsWith(u8, line, ":61:")) {
                 // Transaction line
                 if (result.count < out.len) {
                     const txn = &out[result.count];
@@ -79,7 +79,7 @@ pub fn parseMt940(data: []const u8, account: []const u8, out: []Transaction) Mt9
                         result.errors += 1;
                     }
                 }
-            } else if (startsWith(line, ":86:")) {
+            } else if (std.mem.startsWith(u8, line, ":86:")) {
                 // Structured description — may span multiple lines
                 in_field_86 = true;
                 desc_len = 0;
@@ -391,13 +391,6 @@ fn isAlpha(c: u8) bool {
     return (c >= 'A' and c <= 'Z') or (c >= 'a' and c <= 'z');
 }
 
-fn trimCr(line: []const u8) []const u8 {
-    if (line.len > 0 and line[line.len - 1] == '\r') {
-        return line[0 .. line.len - 1];
-    }
-    return line;
-}
-
 fn nextLine(data: []const u8, pos: *usize) ?[]const u8 {
     if (pos.* >= data.len) return null;
 
@@ -434,10 +427,6 @@ fn normalizeMt940Input(data: []const u8, buf: []u8) []const u8 {
         }
     }
     return buf[0..copy_len];
-}
-
-fn startsWith(haystack: []const u8, prefix: []const u8) bool {
-    return std.mem.startsWith(u8, haystack, prefix);
 }
 
 // ============================================================

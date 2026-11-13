@@ -96,17 +96,9 @@ export fn wimg_get_error() ?[*]const u8 {
     return out.ptr;
 }
 
-/// Build identifier for verifying the correct WASM is loaded.
-const WASM_BUILD_ID = "v7-bpe-scores";
-
-/// Get the build ID string (length-prefixed).
-export fn wimg_build_id() ?[*]const u8 {
-    return makeLengthPrefixed(WASM_BUILD_ID);
-}
-
 /// Initialize the database. Returns 0 on success, -1 on error.
 export fn wimg_init(path: [*:0]const u8) i32 {
-    log("wimg_init: build=" ++ WASM_BUILD_ID, .{});
+    log("wimg_init", .{});
 
     if (global_db != null) {
         global_db.?.close();
@@ -500,41 +492,6 @@ export fn wimg_set_excluded(id: [*]const u8, id_len: u32, excluded: u8) i32 {
         return -1;
     };
     return 0;
-}
-
-/// Get monthly summary as JSON.
-/// year and month are passed as integers.
-export fn wimg_get_summary(year: u32, month: u32) ?[*]const u8 {
-    const database = global_db orelse {
-        setError("wimg_get_summary: database not initialized", .{});
-        return null;
-    };
-
-    const buf_size: usize = 8 * 1024; // 8 KB should be plenty
-    const buf = fba.allocator().alloc(u8, buf_size + 4) catch {
-        setError("wimg_get_summary: failed to allocate buffer", .{});
-        return null;
-    };
-
-    const json_len = summary.getSummaryJson(
-        database.handle,
-        @intCast(year),
-        @intCast(month),
-        buf.ptr + 4,
-        buf_size,
-    ) orelse {
-        sqliteError("wimg_get_summary: failed", database.handle);
-        fba.allocator().free(buf);
-        return null;
-    };
-
-    const len_bytes: [4]u8 = @bitCast(@as(u32, @intCast(json_len)));
-    buf[0] = len_bytes[0];
-    buf[1] = len_bytes[1];
-    buf[2] = len_bytes[2];
-    buf[3] = len_bytes[3];
-
-    return buf.ptr;
 }
 
 // --- Debts ---
@@ -1395,41 +1352,6 @@ export fn wimg_query(sql_ptr: [*]const u8, sql_len: u32) ?[*]const u8 {
     return buf.ptr;
 }
 
-// --- DB persistence (OPFS) — WASM only ---
-// These functions use the in-memory VFS which only exists for wasm32.
-// On native (iOS/macOS), SQLite uses the real filesystem directly.
-
-comptime {
-    if (is_wasm) {
-        @export(&wimg_db_ptr, .{ .name = "wimg_db_ptr" });
-        @export(&wimg_db_size, .{ .name = "wimg_db_size" });
-        @export(&wimg_db_load, .{ .name = "wimg_db_load" });
-    }
-}
-
-extern fn wasm_vfs_get_db_ptr(name: [*:0]const u8) ?[*]const u8;
-extern fn wasm_vfs_get_db_size(name: [*:0]const u8) i32;
-extern fn wasm_vfs_load_db(name: [*:0]const u8, data: [*]const u8, size: i32) i32;
-
-fn wimg_db_ptr() callconv(.c) ?[*]const u8 {
-    return wasm_vfs_get_db_ptr("/wimg.db");
-}
-
-fn wimg_db_size() callconv(.c) u32 {
-    const size = wasm_vfs_get_db_size("/wimg.db");
-    return if (size > 0) @intCast(size) else 0;
-}
-
-fn wimg_db_load(data: [*]const u8, size: u32) callconv(.c) i32 {
-    log("wimg_db_load: loading {d} bytes", .{size});
-    const rc = wasm_vfs_load_db("/wimg.db", data, @intCast(size));
-    if (rc != 0) {
-        setError("wimg_db_load: failed with rc={d}", .{rc});
-        return -1;
-    }
-    return 0;
-}
-
 // --- Crypto (E2E encryption for sync) ---
 
 /// Derive a 32-byte encryption key from a sync key using HKDF-SHA256.
@@ -1698,10 +1620,10 @@ fn selectTanSecFuncFromSync(sync_resp: *const fints_mod.ParsedResponse, session:
         // Some banks (e.g. Comdirect) return only procedure labels ("photoTAN")
         // instead of numeric IDs in 3920 text. Map known labels to sec_func IDs.
         if (!has_selected) {
-            if (containsIgnoreCase(txt, "phototan") or containsIgnoreCase(txt, "photo tan")) {
+            if (categories.containsIgnoreCase(txt, "phototan") or categories.containsIgnoreCase(txt, "photo tan")) {
                 @memcpy(selected_buf[0..3], "902");
                 has_selected = true;
-            } else if (containsIgnoreCase(txt, "mobiletan") or containsIgnoreCase(txt, "sms")) {
+            } else if (categories.containsIgnoreCase(txt, "mobiletan") or categories.containsIgnoreCase(txt, "sms")) {
                 @memcpy(selected_buf[0..3], "901");
                 has_selected = true;
             }
@@ -1713,25 +1635,6 @@ fn selectTanSecFuncFromSync(sync_resp: *const fints_mod.ParsedResponse, session:
         @memcpy(session.tan_sec_func[0..3], selected_buf[0..3]);
         session.tan_sec_func_len = 3;
     }
-}
-
-fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
-    if (needle.len == 0) return true;
-    if (haystack.len < needle.len) return false;
-    const limit = haystack.len - needle.len + 1;
-    for (0..limit) |i| {
-        var ok = true;
-        for (needle, 0..) |n, j| {
-            const h = std.ascii.toLower(haystack[i + j]);
-            const nl = std.ascii.toLower(n);
-            if (h != nl) {
-                ok = false;
-                break;
-            }
-        }
-        if (ok) return true;
-    }
-    return false;
 }
 
 fn extractTouchdownToken(resp: *const fints_mod.ParsedResponse, out_buf: []u8) []const u8 {
@@ -2780,7 +2683,7 @@ fn formatImportResultEx(buf: *[512]u8, result: *const ImportResult, format: pars
 
 fn jsonExtractString(json: []const u8, key: []const u8) ?[]const u8 {
     // Find key position
-    const key_pos = findSubstring(json, key) orelse return null;
+    const key_pos = std.mem.indexOf(u8, json, key) orelse return null;
     var i = key_pos + key.len;
 
     // Skip whitespace and colon
@@ -2799,7 +2702,7 @@ fn jsonExtractString(json: []const u8, key: []const u8) ?[]const u8 {
 }
 
 fn jsonExtractNumber(json: []const u8, key: []const u8) ?i64 {
-    const key_pos = findSubstring(json, key) orelse return null;
+    const key_pos = std.mem.indexOf(u8, json, key) orelse return null;
     var i = key_pos + key.len;
 
     while (i < json.len and (json[i] == ' ' or json[i] == ':' or json[i] == '\t')) : (i += 1) {}
@@ -2830,16 +2733,6 @@ fn jsonExtractNumber(json: []const u8, key: []const u8) ?i64 {
     var cents = whole * 100 + frac;
     if (negative) cents = -cents;
     return cents;
-}
-
-fn findSubstring(haystack: []const u8, needle: []const u8) ?usize {
-    if (needle.len == 0) return 0;
-    if (haystack.len < needle.len) return null;
-    const limit = haystack.len - needle.len + 1;
-    for (0..limit) |i| {
-        if (std.mem.eql(u8, haystack[i .. i + needle.len], needle)) return i;
-    }
-    return null;
 }
 
 const AccountInfo = struct { id: []const u8, name: []const u8, color: []const u8 };

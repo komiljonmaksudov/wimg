@@ -71,7 +71,7 @@ pub fn normalizeMerchant(desc: []const u8, out_buf: []u8) ?usize {
 
     // Check known merchants first
     for (known_merchants) |km| {
-        if (containsSubstring(working, km.pattern)) {
+        if (std.mem.indexOf(u8, working, km.pattern) != null) {
             if (km.name.len > out_buf.len) return null;
             @memcpy(out_buf[0..km.name.len], km.name);
             return km.name.len;
@@ -158,15 +158,6 @@ fn isLongNumber(tok: []const u8) bool {
 
 fn asciiUpper(ch: u8) u8 {
     return if (ch >= 'a' and ch <= 'z') ch - 32 else ch;
-}
-
-fn containsSubstring(haystack: []const u8, needle: []const u8) bool {
-    if (needle.len > haystack.len) return false;
-    const limit = haystack.len - needle.len + 1;
-    for (0..limit) |i| {
-        if (std.mem.eql(u8, haystack[i .. i + needle.len], needle)) return true;
-    }
-    return false;
 }
 
 // --- Date arithmetic ---

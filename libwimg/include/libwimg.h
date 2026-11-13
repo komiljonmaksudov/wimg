@@ -59,9 +59,6 @@ int32_t wimg_auto_categorize(void);
 
 // --- Summaries ---
 
-// Get monthly summary as length-prefixed JSON.
-// Returns: {"year":N,"month":N,"income":X,"expenses":X,"available":X,"tx_count":N,"by_category":[...]}
-const uint8_t *wimg_get_summary(uint32_t year, uint32_t month);
 
 // --- Debts ---
 

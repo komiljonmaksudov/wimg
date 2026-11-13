@@ -32,21 +32,7 @@ pub fn matchRules(handle: *c.sqlite3, description: []const u8) Category {
 
 /// Case-insensitive substring search (ASCII only).
 pub fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
-    if (needle.len == 0) return true;
-    if (haystack.len < needle.len) return false;
-
-    const limit = haystack.len - needle.len + 1;
-    for (0..limit) |i| {
-        var found = true;
-        for (0..needle.len) |j| {
-            if (toLowerAscii(haystack[i + j]) != toLowerAscii(needle[j])) {
-                found = false;
-                break;
-            }
-        }
-        if (found) return true;
-    }
-    return false;
+    return std.ascii.findIgnoreCase(haystack, needle) != null;
 }
 
 fn toLowerAscii(ch: u8) u8 {

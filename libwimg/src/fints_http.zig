@@ -79,19 +79,7 @@ pub fn sendFintsMessage(
         return decoded_len;
     }
 
-    // Fallback: Zig stdlib on native, error on iOS (callback must be set)
-    return sendViaStdlib(allocator, url, enc_buf, out_buf);
-}
-
-/// Stdlib HTTP fallback is stubbed: std.http.Client requires an Io instance
-/// threaded through. All platforms wire an http_callback in production; the
-/// stdlib path was only ever a CLI/test convenience.
-fn sendViaStdlib(
-    _: std.mem.Allocator,
-    _: []const u8,
-    _: []const u8,
-    _: []u8,
-) HttpError!usize {
+    // Every platform sets the HTTP callback (URLSession on iOS, OkHttp on Android).
     return HttpError.NoCallback;
 }
 

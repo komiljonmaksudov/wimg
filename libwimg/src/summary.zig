@@ -5,12 +5,6 @@ const db_mod = @import("db.zig");
 
 const Category = types.Category;
 
-/// Generate a monthly summary as JSON into the provided buffer.
-/// Returns bytes written, or null if buffer too small.
-pub fn getSummaryJson(handle: *c.sqlite3, year: u16, month: u8, buf: [*]u8, buf_len: usize) ?usize {
-    return getSummaryJsonFiltered(handle, year, month, buf, buf_len, null, 0);
-}
-
 /// Generate a monthly summary as JSON, optionally filtered by account.
 pub fn getSummaryJsonFiltered(handle: *c.sqlite3, year: u16, month: u8, buf: [*]u8, buf_len: usize, acct_ptr: ?[*]const u8, acct_len: u32) ?usize {
     const has_filter = acct_ptr != null and acct_len > 0;

@@ -6,16 +6,6 @@ const banks_mod = if (!is_wasm) @import("banks.zig") else struct {
     pub const BankFamily = enum(u8) { standard = 0, deutsche_bank = 1, postbank = 2, norisbank = 3 };
 };
 
-pub const FintsError = error{
-    BufferTooSmall,
-    InvalidResponse,
-    AuthFailed,
-    TanRequired,
-    DialogFailed,
-    ProtocolError,
-    InvalidSegment,
-};
-
 /// FinTS 3.0 session state. Tracks dialog lifecycle and TAN flow.
 pub const FintsSession = struct {
     blz: [8]u8,
@@ -1063,11 +1053,6 @@ pub fn buildDialogEndWithSecFunc(session: *const FintsSession, sec_func: []const
     return writeAuthEnvelope(session, sec_func, buf, inner_buf[0..inner_pos], 4);
 }
 
-/// Build dialog end message with current TAN security function.
-pub fn buildDialogEnd(session: *const FintsSession, buf: []u8) ?usize {
-    return buildDialogEndWithSecFunc(session, session.tanSecFuncSlice(), buf);
-}
-
 /// Parse a FinTS response message, updating session state.
 pub fn parseResponse(session: *FintsSession, data: []const u8, out: *ParsedResponse) void {
     // Split by unescaped segment delimiter '
@@ -1076,7 +1061,7 @@ pub fn parseResponse(session: *FintsSession, data: []const u8, out: *ParsedRespo
         if (segment.len < 5) continue;
 
         // Parse segment header: ID:NUM:VER
-        if (startsWith(segment, "HNHBK")) {
+        if (std.mem.startsWith(u8, segment, "HNHBK")) {
             // Extract dialog ID from HNHBK:1:3+SIZE+300+DIALOG_ID+MSG_NUM
             // Fields (after segment header): [0]=size, [1]=hbci_ver, [2]=dialog_id, [3]=msg_num
             var field_idx: u8 = 0;
@@ -1098,7 +1083,7 @@ pub fn parseResponse(session: *FintsSession, data: []const u8, out: *ParsedRespo
                     field_start = fpos + 1;
                 }
             }
-        } else if (startsWith(segment, "HNVSD")) {
+        } else if (std.mem.startsWith(u8, segment, "HNVSD")) {
             // Security envelope contains inner segments
             if (extractEnvelopeContent(segment)) |inner| {
                 if (!is_wasm) {
@@ -1110,19 +1095,19 @@ pub fn parseResponse(session: *FintsSession, data: []const u8, out: *ParsedRespo
             } else {
                 if (!is_wasm) dbg.print("[FinTS Zig] HNVSD: extractEnvelopeContent returned null!\n", .{});
             }
-        } else if (startsWith(segment, "HIRMG") or startsWith(segment, "HIRMS")) {
+        } else if (std.mem.startsWith(u8, segment, "HIRMG") or std.mem.startsWith(u8, segment, "HIRMS")) {
             // Response codes
             parseResponseCodes(segment, out);
-        } else if (startsWith(segment, "HNVSK")) {
+        } else if (std.mem.startsWith(u8, segment, "HNVSK")) {
             // Security header — skip
-        } else if (startsWith(segment, "HISYN")) {
+        } else if (std.mem.startsWith(u8, segment, "HISYN")) {
             // System ID response
             if (!is_wasm) {
                 const plen = @min(segment.len, 80);
                 dbg.print("[FinTS Zig] HISYN segment='{s}'\n", .{segment[0..plen]});
             }
             extractSystemId(segment, out);
-        } else if (startsWith(segment, "HITANS:")) {
+        } else if (std.mem.startsWith(u8, segment, "HITANS:")) {
             // TAN method params (version advertised by bank). Track highest seen version.
             var c: usize = 0;
             var colon_count: u8 = 0;
@@ -1144,13 +1129,13 @@ pub fn parseResponse(session: *FintsSession, data: []const u8, out: *ParsedRespo
             }
             parseHitansMethods(session, segment, ver);
             applySelectedTanMethod(session);
-        } else if (startsWith(segment, "HITABS:")) {
+        } else if (std.mem.startsWith(u8, segment, "HITABS:")) {
             // HKTAB versions the bank offers: python-fints uses the highest of 4 and 5.
             if (segmentVersion(segment) == 5) session.hktab_version = 5;
-        } else if (startsWith(segment, "HITAN:")) {
+        } else if (std.mem.startsWith(u8, segment, "HITAN:")) {
             // TAN challenge / TAN submit feedback segment
             extractTanChallenge(segment, out);
-        } else if (startsWith(segment, "HIBPA")) {
+        } else if (std.mem.startsWith(u8, segment, "HIBPA")) {
             // HIBPA:...+bpd_version+...
             var p: usize = 0;
             while (p < segment.len and segment[p] != '+') : (p += 1) {}
@@ -1163,7 +1148,7 @@ pub fn parseResponse(session: *FintsSession, data: []const u8, out: *ParsedRespo
                     if (parsed > 0) session.bpd_version = parsed;
                 }
             }
-        } else if (startsWith(segment, "HIUPA")) {
+        } else if (std.mem.startsWith(u8, segment, "HIUPA")) {
             // HIUPA:...+upd_version+...
             var p: usize = 0;
             while (p < segment.len and segment[p] != '+') : (p += 1) {}
@@ -1176,10 +1161,10 @@ pub fn parseResponse(session: *FintsSession, data: []const u8, out: *ParsedRespo
                     session.upd_version = parsed;
                 }
             }
-        } else if (startsWith(segment, "HIUPD")) {
+        } else if (std.mem.startsWith(u8, segment, "HIUPD")) {
             // Account data; extract Kontoverbindung (Ktonr:Unterkonto:280:BLZ) for HKKAZ parity.
             extractAccountKtvFromHiupd(session, segment);
-        } else if (startsWith(segment, "HIKAZS:")) {
+        } else if (std.mem.startsWith(u8, segment, "HIKAZS:")) {
             // Statement parameter segment. Keep highest advertised HIKAZS/HKKAZ version.
             var c: usize = 0;
             var colon_count: u8 = 0;
@@ -1200,21 +1185,21 @@ pub fn parseResponse(session: *FintsSession, data: []const u8, out: *ParsedRespo
                 session.supports_mt940 = true;
                 if (ver > session.hikaz_version) session.hikaz_version = ver;
             }
-        } else if (startsWith(segment, "HICAZS:")) {
+        } else if (std.mem.startsWith(u8, segment, "HICAZS:")) {
             // CAMT statement parameter segment. If present, bank supports HKCAZ/HICAZ.
             session.supports_camt = true;
             extractCamtFormatFromHicazs(session, segment);
-        } else if (startsWith(segment, "HITAB")) {
+        } else if (std.mem.startsWith(u8, segment, "HITAB")) {
             // TAN media list response — parse TAN medium names.
             const remaining = out.tan_media.len - out.tan_media_count;
             if (remaining > 0) {
                 const found = parseHitab(segment, out.tan_media[out.tan_media_count..]);
                 out.tan_media_count += found;
             }
-        } else if (startsWith(segment, "HIKAZ")) {
+        } else if (std.mem.startsWith(u8, segment, "HIKAZ")) {
             // Account statements (MT940 data)
             extractMt940(segment, out);
-        } else if (startsWith(segment, "HICAZ")) {
+        } else if (std.mem.startsWith(u8, segment, "HICAZ")) {
             // Account statements (CAMT XML data)
             extractCamtXml(segment, out);
         }
@@ -2501,10 +2486,6 @@ fn countSegments(data: []const u8) u16 {
     return count;
 }
 
-fn startsWith(haystack: []const u8, prefix: []const u8) bool {
-    return std.mem.startsWith(u8, haystack, prefix);
-}
-
 /// Encode data as Base64.
 pub fn base64Encode(buf: []u8, data: []const u8) ?usize {
     const encoder = std.base64.standard.Encoder;
@@ -2580,7 +2561,7 @@ test "writeSegment basic" {
     var buf: [256]u8 = undefined;
     const len = writeHkidn(&buf, 0, 3, "20041133", "testuser", "0", "1") orelse return error.TestUnexpectedResult;
     const seg = buf[0..len];
-    try std.testing.expect(startsWith(seg, "HKIDN:3:2+"));
+    try std.testing.expect(std.mem.startsWith(u8, seg, "HKIDN:3:2+"));
     try std.testing.expect(seg[seg.len - 1] == '\'');
     try std.testing.expect(std.mem.indexOf(u8, seg, "20041133") != null);
     try std.testing.expect(std.mem.indexOf(u8, seg, "testuser") != null);
@@ -2596,7 +2577,7 @@ test "buildAnonInit produces valid envelope with 9999999999 customer_id" {
     const msg = buf[0..len];
 
     // Must start with HNHBK and end with HNHBS
-    try std.testing.expect(startsWith(msg, "HNHBK:1:3+"));
+    try std.testing.expect(std.mem.startsWith(u8, msg, "HNHBK:1:3+"));
     // Must contain HKIDN and HKVVB
     try std.testing.expect(std.mem.indexOf(u8, msg, "HKIDN") != null);
     try std.testing.expect(std.mem.indexOf(u8, msg, "HKVVB") != null);
@@ -2617,7 +2598,7 @@ test "buildAnonInitWithEnvelope wraps in HNVSK/HNVSD" {
     const msg = buf[0..len];
 
     // Must start with HNHBK
-    try std.testing.expect(startsWith(msg, "HNHBK:1:3+"));
+    try std.testing.expect(std.mem.startsWith(u8, msg, "HNHBK:1:3+"));
     // Must contain security envelope segments
     try std.testing.expect(std.mem.indexOf(u8, msg, "HNVSK:998:3+PIN:1+998") != null);
     try std.testing.expect(std.mem.indexOf(u8, msg, "HNVSD:999:1+@") != null);
@@ -2991,13 +2972,13 @@ test "SegmentIterator splits correctly" {
     var iter = SegmentIterator{ .data = data, .pos = 0 };
 
     const s1 = iter.next() orelse return error.TestUnexpectedResult;
-    try std.testing.expect(startsWith(s1, "SEG1"));
+    try std.testing.expect(std.mem.startsWith(u8, s1, "SEG1"));
 
     const s2 = iter.next() orelse return error.TestUnexpectedResult;
-    try std.testing.expect(startsWith(s2, "SEG2"));
+    try std.testing.expect(std.mem.startsWith(u8, s2, "SEG2"));
 
     const s3 = iter.next() orelse return error.TestUnexpectedResult;
-    try std.testing.expect(startsWith(s3, "SEG3"));
+    try std.testing.expect(std.mem.startsWith(u8, s3, "SEG3"));
 
     try std.testing.expect(iter.next() == null);
 }
