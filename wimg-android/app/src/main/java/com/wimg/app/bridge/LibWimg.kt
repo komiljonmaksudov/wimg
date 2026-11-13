@@ -42,6 +42,12 @@ object LibWimg {
         json.decodeFromString(str)
     }
 
+    /** Not yet booked ("vorgemerkt"), from the last bank fetch. Never counted in totals. */
+    fun getPending(account: String?): List<Transaction> = lock.withLock {
+        val str = WimgJni.nativeGetPending(account ?: "") ?: return emptyList()
+        runCatching { json.decodeFromString<List<Transaction>>(str) }.getOrDefault(emptyList())
+    }
+
     fun setCategory(id: String, category: Int) = lock.withLock {
         val rc = WimgJni.nativeSetCategory(id, category)
         if (rc != 0) throw WimgException("setCategory failed")

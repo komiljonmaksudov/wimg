@@ -18,6 +18,7 @@ object WimgJni {
     // Transactions
     external fun nativeGetTransactions(): String?
     external fun nativeGetTransactionsFiltered(account: String): String?
+    external fun nativeGetPending(account: String): String?
     external fun nativeSetCategory(id: String, category: Int): Int
     external fun nativeSetExcluded(id: String, excluded: Int): Int
     external fun nativeAutoCategorize(): Int

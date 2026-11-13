@@ -108,6 +108,9 @@ int32_t wimg_delete_account(const uint8_t *id, uint32_t id_len);
 
 // Get transactions filtered by account (empty string = all).
 const uint8_t *wimg_get_transactions_filtered(const uint8_t *acct, uint32_t acct_len);
+/* Not-yet-booked ("vorgemerkt") transactions from the last bank fetch. Same JSON
+   shape as wimg_get_transactions_filtered; device-only, never counted in totals. */
+const uint8_t *wimg_get_pending(const uint8_t *acct, uint32_t acct_len);
 
 // Get summary filtered by account.
 const uint8_t *wimg_get_summary_filtered(uint32_t year, uint32_t month, const uint8_t *acct, uint32_t acct_len);

@@ -1000,6 +1000,38 @@ export fn wimg_get_transactions_filtered(acct: [*]const u8, acct_len: u32) ?[*]c
     return buf.ptr;
 }
 
+/// Not-yet-booked transactions from the last bank fetch (device-only, never summed).
+export fn wimg_get_pending(acct: [*]const u8, acct_len: u32) ?[*]const u8 {
+    var database = global_db orelse {
+        setError("wimg_get_pending: database not initialized", .{});
+        return null;
+    };
+
+    const buf_size: usize = 512 * 1024; // pending lists are short
+    const buf = fba.allocator().alloc(u8, buf_size + 4) catch {
+        setError("wimg_get_pending: failed to allocate buffer", .{});
+        return null;
+    };
+
+    const json_len = database.getPendingJsonFiltered(buf.ptr + 4, buf_size, acct, acct_len) catch |err| {
+        setError("wimg_get_pending: query failed: {s}", .{@errorName(err)});
+        fba.allocator().free(buf);
+        return null;
+    } orelse {
+        setError("wimg_get_pending: buffer too small (4MB exceeded)", .{});
+        fba.allocator().free(buf);
+        return null;
+    };
+
+    const len_bytes: [4]u8 = @bitCast(@as(u32, @intCast(json_len)));
+    buf[0] = len_bytes[0];
+    buf[1] = len_bytes[1];
+    buf[2] = len_bytes[2];
+    buf[3] = len_bytes[3];
+
+    return buf.ptr;
+}
+
 /// Get summary filtered by account.
 export fn wimg_get_summary_filtered(year: u32, month: u32, acct: [*]const u8, acct_len: u32) ?[*]const u8 {
     const database = global_db orelse {
@@ -2038,6 +2070,10 @@ fn wimg_fints_send_tan(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     }
 }
 
+/// Pending transactions collected over all pages of one fetch (file-level, too
+/// big for the FinTS thread's stack next to the booked buffer).
+var fints_pending_store: [300]Transaction = undefined;
+
 /// Fetch bank statements. Input JSON: {"from":"2026-01-01","to":"2026-03-01"}
 /// Opens a new authenticated dialog, sends HKKAZ, parses MT940, inserts transactions.
 /// Returns length-prefixed JSON: {"imported":N,"duplicates":N} or {"status":"tan_required",...}
@@ -2250,6 +2286,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     var duplicates: u32 = 0;
     var saw_mt940 = false;
     var saw_camt = false;
+    var pending_count: usize = 0;
     // Track the latest closing balance across all statement pages. The page with
     // the newest value date carries the current account balance.
     var balance_cents: i64 = 0;
@@ -2436,6 +2473,16 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
             }
         }
 
+        // Not yet booked ("vorgemerkt"): parsed apart, never imported as booked.
+        if (resp.pending_mt940_len > 0 and pending_count < fints_pending_store.len) {
+            const r = mt940_mod.parseMt940(resp.pending_mt940_data[0..resp.pending_mt940_len], account_name, fints_pending_store[pending_count..]);
+            pending_count += r.count;
+        }
+        if (resp.pending_camt_len > 0 and pending_count < fints_pending_store.len) {
+            const r = camt_mod.parseCamtPending(resp.pending_camt_data[0..resp.pending_camt_len], account_name, fints_pending_store[pending_count..]);
+            pending_count += r.count;
+        }
+
         const next_touchdown = extractTouchdownToken(&resp, &touchdown_buf);
         if (next_touchdown.len == 0) {
             if (fetch_mode == .mt940 and !saw_mt940 and fints_session.supports_camt) {
@@ -2537,12 +2584,19 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         }
     }
 
+    // The bank answered with statements: its pending list replaces ours (an
+    // empty one clears it, those have been booked or dropped meanwhile).
+    for (fints_pending_store[0..pending_count]) |*t| {
+        if (t.category == .uncategorized) t.category = categories.matchRules(database.handle, t.descriptionSlice());
+    }
+    database.replacePending(account_name, fints_pending_store[0..pending_count]) catch {};
+
     // End dialog
     _ = sendDialogEnd(&fints_session, fints_session.tanSecFuncSlice(), &msg_buf, &resp_buf);
     fints_session.clearPin();
 
     var result_buf: [256]u8 = undefined;
-    const result_json = std.fmt.bufPrint(&result_buf, "{{\"imported\":{d},\"duplicates\":{d}}}", .{ imported, duplicates }) catch return null;
+    const result_json = std.fmt.bufPrint(&result_buf, "{{\"imported\":{d},\"duplicates\":{d},\"pending\":{d}}}", .{ imported, duplicates, pending_count }) catch return null;
     return makeLengthPrefixed(result_json);
 }
 

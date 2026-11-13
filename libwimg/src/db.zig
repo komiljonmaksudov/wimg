@@ -55,6 +55,17 @@ pub const Db = struct {
         \\);
         \\CREATE INDEX IF NOT EXISTS idx_transactions_date
         \\  ON transactions(date_year, date_month, date_day);
+        \\CREATE TABLE IF NOT EXISTS pending_transactions (
+        \\  id TEXT PRIMARY KEY,
+        \\  date_year INTEGER NOT NULL,
+        \\  date_month INTEGER NOT NULL,
+        \\  date_day INTEGER NOT NULL,
+        \\  description TEXT NOT NULL,
+        \\  amount_cents INTEGER NOT NULL,
+        \\  currency TEXT NOT NULL DEFAULT 'EUR',
+        \\  category INTEGER NOT NULL DEFAULT 0,
+        \\  account TEXT NOT NULL DEFAULT ''
+        \\);
         \\CREATE TABLE IF NOT EXISTS meta (
         \\  key TEXT PRIMARY KEY,
         \\  value TEXT NOT NULL
@@ -1794,6 +1805,63 @@ pub const Db = struct {
         ;
 
         const sql = if (has_filter) sql_filtered else sql_all;
+        return self.txnRowsJson(sql, has_filter, acct_ptr, acct_len, buf, buf_len);
+    }
+
+    /// Not-yet-booked transactions from the last bank fetch (see replacePending).
+    /// Same JSON shape as getTransactionsJsonFiltered.
+    pub fn getPendingJsonFiltered(self: *Db, buf: [*]u8, buf_len: usize, acct_ptr: ?[*]const u8, acct_len: u32) DbError!?usize {
+        const has_filter = acct_ptr != null and acct_len > 0;
+        const sql_all =
+            \\SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, 0
+            \\FROM pending_transactions
+            \\ORDER BY date_year DESC, date_month DESC, date_day DESC, rowid DESC;
+        ;
+        const sql_filtered =
+            \\SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, 0
+            \\FROM pending_transactions
+            \\WHERE account = ?1
+            \\ORDER BY date_year DESC, date_month DESC, date_day DESC, rowid DESC;
+        ;
+        return self.txnRowsJson(if (has_filter) sql_filtered else sql_all, has_filter, acct_ptr, acct_len, buf, buf_len);
+    }
+
+    /// Replaces the pending list of one account with what the bank sent now.
+    /// Pending transactions are never synced and never count in any total.
+    pub fn replacePending(self: *Db, account: []const u8, txns: []const Transaction) DbError!void {
+        {
+            const del = "DELETE FROM pending_transactions WHERE account = ?1;";
+            var stmt: ?*c.sqlite3_stmt = null;
+            if (c.sqlite3_prepare_v2(self.handle, del, -1, &stmt, null) != c.SQLITE_OK or stmt == null) return DbError.PrepareFailed;
+            defer _ = c.sqlite3_finalize(stmt.?);
+            if (c.sqlite3_bind_text(stmt.?, 1, @ptrCast(account.ptr), @intCast(account.len), c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
+            if (c.sqlite3_step(stmt.?) != c.SQLITE_DONE) return DbError.StepFailed;
+        }
+        const ins =
+            \\INSERT OR REPLACE INTO pending_transactions
+            \\  (id, date_year, date_month, date_day, description, amount_cents, currency, category, account)
+            \\VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9);
+        ;
+        for (txns) |*t| {
+            var stmt: ?*c.sqlite3_stmt = null;
+            if (c.sqlite3_prepare_v2(self.handle, ins, -1, &stmt, null) != c.SQLITE_OK or stmt == null) return DbError.PrepareFailed;
+            defer _ = c.sqlite3_finalize(stmt.?);
+            const st = stmt.?;
+            const desc = t.descriptionSlice();
+            if (c.sqlite3_bind_text(st, 1, &t.id, 32, c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
+            _ = c.sqlite3_bind_int(st, 2, @intCast(t.date.year));
+            _ = c.sqlite3_bind_int(st, 3, @intCast(t.date.month));
+            _ = c.sqlite3_bind_int(st, 4, @intCast(t.date.day));
+            if (c.sqlite3_bind_text(st, 5, @ptrCast(desc.ptr), @intCast(desc.len), c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
+            _ = c.sqlite3_bind_int64(st, 6, t.amount_cents);
+            if (c.sqlite3_bind_text(st, 7, @ptrCast(&t.currency), 3, c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
+            _ = c.sqlite3_bind_int(st, 8, @intFromEnum(t.category));
+            if (c.sqlite3_bind_text(st, 9, @ptrCast(account.ptr), @intCast(account.len), c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
+            if (c.sqlite3_step(st) != c.SQLITE_DONE) return DbError.StepFailed;
+        }
+    }
+
+    fn txnRowsJson(self: *Db, sql: [*:0]const u8, has_filter: bool, acct_ptr: ?[*]const u8, acct_len: u32, buf: [*]u8, buf_len: usize) DbError!?usize {
 
         var stmt: ?*c.sqlite3_stmt = null;
         const rc = c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null);
@@ -4515,4 +4583,45 @@ test "MT940 → DB: parse and insert transactions from bank statement" {
     try std.testing.expect(std.mem.indexOf(u8, json, "-9.90") != null or std.mem.indexOf(u8, json, "-9.9") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "3500.0") != null);
     try std.testing.expect(std.mem.indexOf(u8, json, "-750.0") != null);
+}
+
+fn testPending(id_char: u8, desc: []const u8, cents: i64) Transaction {
+    var t: Transaction = undefined;
+    @memset(&t.id, id_char);
+    t.date = .{ .year = 2026, .month = 11, .day = 12 };
+    @memcpy(t.description[0..desc.len], desc);
+    t.description_len = @intCast(desc.len);
+    t.amount_cents = cents;
+    t.currency = "EUR".*;
+    t.category = .uncategorized;
+    t.account_len = 0;
+    return t;
+}
+
+test "pending: each fetch replaces the list, booked transactions stay untouched" {
+    var db = try Db.init(":memory:");
+    defer db.close();
+    var buf: [4096]u8 = undefined;
+
+    const first = [_]Transaction{ testPending('a', "Vorgemerkt A", -500), testPending('b', "Vorgemerkt B", -700) };
+    try db.replacePending("acc", &first);
+    var n = (try db.getPendingJsonFiltered(&buf, buf.len, null, 0)).?;
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..n], "Vorgemerkt A") != null);
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..n], "Vorgemerkt B") != null);
+
+    // Next fetch: A got booked, only B is still pending.
+    const second = [_]Transaction{testPending('b', "Vorgemerkt B", -700)};
+    try db.replacePending("acc", &second);
+    n = (try db.getPendingJsonFiltered(&buf, buf.len, null, 0)).?;
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..n], "Vorgemerkt A") == null);
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..n], "Vorgemerkt B") != null);
+
+    // Never among the booked transactions.
+    n = (try db.getTransactionsJsonFiltered(&buf, buf.len, null, 0)).?;
+    try std.testing.expectEqualStrings("[]", buf[0..n]);
+
+    // An empty answer clears it.
+    try db.replacePending("acc", &[_]Transaction{});
+    n = (try db.getPendingJsonFiltered(&buf, buf.len, null, 0)).?;
+    try std.testing.expectEqualStrings("[]", buf[0..n]);
 }

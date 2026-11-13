@@ -109,13 +109,19 @@ private val FILTER_CATEGORIES = listOf(
     WimgCategory.SUBSCRIPTIONS, WimgCategory.HEALTH, WimgCategory.INCOME, WimgCategory.UNCATEGORIZED,
 )
 
-internal data class TxData(val transactions: List<Transaction>, val accounts: List<Account>)
+internal data class TxData(
+    val transactions: List<Transaction>,
+    val accounts: List<Account>,
+    /** Not yet booked: shown apart, never in a total or the running balance. */
+    val pending: List<Transaction> = emptyList(),
+)
 
 internal fun txKey(account: String?) = "tx:$account"
 
 internal fun loadTx(account: String?) = TxData(
     transactions = LibWimg.getTransactionsFiltered(account).sortedByDescending { it.date },
     accounts = LibWimg.getAccounts().filter { account == null || it.id == account },
+    pending = LibWimg.getPending(account).sortedByDescending { it.date },
 )
 
 @Composable
@@ -133,17 +139,17 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
     }
 
     val all = data?.transactions ?: emptyList()
-    val filtered = remember(all, filter, categories, period) {
-        all.filter { tx ->
-            val type = when (filter) {
-                TxFilter.ALL -> true
-                TxFilter.EXPENSES -> tx.isExpense
-                TxFilter.INCOME -> tx.isIncome
-            }
-            type && (categories.isEmpty() || tx.category in categories) &&
-                (period == null || tx.date in period!!.from..period!!.to)
+    fun matches(tx: Transaction): Boolean {
+        val type = when (filter) {
+            TxFilter.ALL -> true
+            TxFilter.EXPENSES -> tx.isExpense
+            TxFilter.INCOME -> tx.isIncome
         }
+        return type && (categories.isEmpty() || tx.category in categories) &&
+            (period == null || tx.date in period!!.from..period!!.to)
     }
+    val pending = remember(data, filter, categories, period) { data?.pending.orEmpty().filter { matches(it) } }
+    val filtered = remember(all, filter, categories, period) { all.filter { matches(it) } }
     val filterActive = filter != TxFilter.ALL || categories.isNotEmpty() || period != null
 
     // The bank's closing balance, only when every shown account has one (FinTS).
@@ -225,8 +231,14 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
         }
         val grouped = remember(filtered) { filtered.groupBy { it.date }.toList() }
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = barClearance())) {
+            if (pending.isNotEmpty()) {
+                item(key = "h_pending") { PendingHeader(pending.size, pending.sumOf { it.amount }) }
+                items(pending, key = { "p_" + it.id }) { tx ->
+                    TxRow(tx, last = tx == pending.last(), pending = true) { navController?.navigate("tx/${tx.id}") }
+                }
+            }
             grouped.forEachIndexed { gi, (date, txs) ->
-                item(key = "h_$date") { DayHeader(date, txs.sumOf { it.amount }, first = gi == 0) }
+                item(key = "h_$date") { DayHeader(date, txs.sumOf { it.amount }, first = gi == 0 && pending.isEmpty()) }
                 items(txs, key = { it.id }) { tx ->
                     TxRow(tx, last = tx == txs.last()) { navController?.navigate("tx/${tx.id}") }
                 }
@@ -247,8 +259,21 @@ private fun DayHeader(date: String, total: Double, first: Boolean) {
     }
 }
 
+/** "Vorgemerkt": what the bank has seen but not booked yet. */
 @Composable
-private fun TxRow(tx: Transaction, last: Boolean, onClick: () -> Unit) {
+private fun PendingHeader(count: Int, total: Double) {
+    val c = Wimg.colors
+    Row(
+        Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(L("Vorgemerkt · %d", count), style = WimgType.chip, color = c.text2, modifier = Modifier.weight(1f))
+        Text(amountText(total), style = WimgType.chip, color = c.text3)
+    }
+}
+
+@Composable
+private fun TxRow(tx: Transaction, last: Boolean, pending: Boolean = false, onClick: () -> Unit) {
     val c = Wimg.colors
     val wc = WimgCategory.fromId(tx.category)
     Column(Modifier.clickable(onClick = onClick)) {
@@ -270,6 +295,7 @@ private fun TxRow(tx: Transaction, last: Boolean, onClick: () -> Unit) {
                         add(L(wc.label))
                         tx.kind?.takeIf { it.isNotBlank() }?.let { add(L(it)) }
                         if (tx.isExcluded) add(L("ausgeschlossen"))
+                        if (pending) add(L("vorgemerkt"))
                     }.joinToString(" · ")
                     Text(sub, style = WimgType.desc, color = c.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
@@ -277,7 +303,7 @@ private fun TxRow(tx: Transaction, last: Boolean, onClick: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Amount(
                 tx.amount, WimgType.amountRow.copy(fontSize = WimgType.amountRow.fontSize * 1.12f), WimgType.amountRowCents,
-                color = when { tx.isExcluded -> c.text3; tx.amount > 0 -> c.pos; else -> c.text },
+                color = when { tx.isExcluded || pending -> c.text3; tx.amount > 0 -> c.pos; else -> c.text },
             )
         }
         if (!last) HorizontalDivider(thickness = 1.dp, color = c.line)

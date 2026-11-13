@@ -1,5 +1,6 @@
 package com.wimg.app.ui.screens
 
+import com.wimg.app.ui.components.QuietLine
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -86,7 +87,7 @@ fun TransactionDetailScreen(id: String, navController: NavController?) {
     // Start from the list's cached row, so the page is complete on its first frame.
     val cached = remember(id) {
         com.wimg.app.ui.components.ScreenCache.get<TxData>(txKey(null))?.let { d ->
-            d.transactions.firstOrNull { it.id == id }?.let { t -> t to d.accounts.firstOrNull { it.id == t.account } }
+            (d.transactions.firstOrNull { it.id == id } ?: d.pending.firstOrNull { it.id == id })?.let { t -> t to d.accounts.firstOrNull { it.id == t.account } }
         }
     }
     var tx by remember { mutableStateOf(cached?.first) }
@@ -94,12 +95,15 @@ fun TransactionDetailScreen(id: String, navController: NavController?) {
     var panel by remember { mutableStateOf(DetailPanel.None) }
     val clipboard = LocalClipboardManager.current
 
+    // Not yet booked: shown read-only (the bank may still change or drop it).
+    var isPending by remember { mutableStateOf(false) }
     LaunchedEffect(id, Changes.version) {
-        val (t, a) = withContext(Dispatchers.IO) {
-            val t = LibWimg.getTransactions().firstOrNull { it.id == id }
-            t to LibWimg.getAccounts().firstOrNull { it.id == t?.account }
+        val (t, a, p) = withContext(Dispatchers.IO) {
+            val booked = LibWimg.getTransactions().firstOrNull { it.id == id }
+            val t = booked ?: LibWimg.getPending(null).firstOrNull { it.id == id }
+            Triple(t, LibWimg.getAccounts().firstOrNull { it.id == t?.account }, booked == null && t != null)
         }
-        tx = t; account = a
+        tx = t; account = a; isPending = p
     }
 
     val t = tx
@@ -107,7 +111,7 @@ fun TransactionDetailScreen(id: String, navController: NavController?) {
         chip = null,
         panel = when {
             t == null -> null
-            panel == DetailPanel.Category -> { { CategoryPanel(t.category) { cat -> applyCategory(t, cat); panel = DetailPanel.None } } }
+            panel == DetailPanel.Category && !isPending -> { { CategoryPanel(t.category) { cat -> applyCategory(t, cat); panel = DetailPanel.None } } }
             panel == DetailPanel.More -> {
                 {
                     MorePanel(
@@ -125,7 +129,7 @@ fun TransactionDetailScreen(id: String, navController: NavController?) {
         onPanelDismiss = { panel = DetailPanel.None },
         detail = DetailBarSpec(
             onBack = { navController?.popBackStack() },
-            actionLabel = L("Kategorie wählen"),
+            actionLabel = if (isPending) null else L("Kategorie wählen"),
             actionIcon = Icons.Outlined.LocalOffer,
             onAction = { panel = if (panel == DetailPanel.Category) DetailPanel.None else DetailPanel.Category },
             onMore = { panel = if (panel == DetailPanel.More) DetailPanel.None else DetailPanel.More },
@@ -143,7 +147,7 @@ fun TransactionDetailScreen(id: String, navController: NavController?) {
     BandScreen(
         band = {
             Text(
-                listOfNotNull(WimgDates.full(t.date), t.kind?.takeIf { it.isNotBlank() }?.let { L(it) }).joinToString(" · "),
+                listOfNotNull(if (isPending) L("Vorgemerkt") else null, WimgDates.full(t.date), t.kind?.takeIf { it.isNotBlank() }?.let { L(it) }).joinToString(" · "),
                 style = WimgType.bandOver, color = c.bandSub,
             )
             Amount(
@@ -156,7 +160,7 @@ fun TransactionDetailScreen(id: String, navController: NavController?) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = barClearance())) {
             InfoRow(L("Datum")) { Text(WimgDates.full(t.date), style = WimgType.body.copy(fontWeight = FontWeight.Medium), color = c.text) }
             InfoRow(L("Kategorie")) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(WimgShape.button).clickable { panel = DetailPanel.Category }.padding(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clip(WimgShape.button).clickable(enabled = !isPending) { panel = DetailPanel.Category }.padding(4.dp)) {
                     Box(Modifier.size(9.dp).clip(CircleShape).background(c.categoryBar(t.category)))
                     Spacer(Modifier.width(8.dp))
                     Text(L(wc.label), style = WimgType.body.copy(fontWeight = FontWeight.Medium), color = c.text)
@@ -183,6 +187,10 @@ fun TransactionDetailScreen(id: String, navController: NavController?) {
                 Text(t.description, style = WimgType.mono.copy(fontSize = WimgType.mono.fontSize * 1.08f, lineHeight = WimgType.mono.lineHeight * 1.12f), color = c.text)
             }
 
+            if (isPending) {
+                QuietLine(L("Noch nicht gebucht. Die Bank kann Betrag oder Text noch ändern; bis zur Buchung zählt er nirgends mit."), Modifier.padding(top = 14.dp))
+                return@Column
+            }
             HorizontalDivider(Modifier.padding(top = 22.dp), thickness = 1.dp, color = c.line)
             Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {

@@ -270,10 +270,16 @@ pub const ParsedResponse = struct {
     dialog_id_len: u8,
     system_id: [32]u8,
     system_id_len: u8,
-    mt940_data: [32768]u8, // up to 32 KB of MT940 data
-    mt940_len: u16,
-    camt_data: [65536]u8, // up to 64 KB of CAMT XML data
-    camt_len: u16,
+    mt940_data: [32768]u8, // up to 32 KB of MT940 data (booked only)
+    mt940_len: u32,
+    camt_data: [65536]u8, // up to 64 KB of CAMT XML data (booked only)
+    camt_len: u32,
+    // Not yet booked ("vorgemerkt"): HIKAZ DE 2 (MT942) / HICAZ DE 4 (camt.052).
+    // Kept apart so they are never imported as booked transactions.
+    pending_mt940_data: [8192]u8,
+    pending_mt940_len: u32,
+    pending_camt_data: [16384]u8,
+    pending_camt_len: u32,
     challenge: [512]u8,
     challenge_len: u16,
     challenge_hhduc: [8192]u8, // photoTAN image data
@@ -292,6 +298,8 @@ pub const ParsedResponse = struct {
         r.system_id_len = 0;
         r.mt940_len = 0;
         r.camt_len = 0;
+        r.pending_mt940_len = 0;
+        r.pending_camt_len = 0;
         r.challenge_len = 0;
         r.challenge_hhduc_len = 0;
         r.challenge_ref_len = 0;
@@ -300,6 +308,8 @@ pub const ParsedResponse = struct {
         r.tan_media_count = 0;
         @memset(&r.mt940_data, 0);
         @memset(&r.camt_data, 0);
+        @memset(&r.pending_mt940_data, 0);
+        @memset(&r.pending_camt_data, 0);
         @memset(&r.dialog_id, 0);
         @memset(&r.system_id, 0);
         @memset(&r.challenge, 0);
@@ -2062,18 +2072,18 @@ fn extractTanChallenge(segment: []const u8, out: *ParsedResponse) void {
     }
 }
 
-fn extractMt940(segment: []const u8, out: *ParsedResponse) void {
-    // HIKAZ can contain multiple binary fields; append the one(s) that look like MT940.
+/// Calls `onBinary(field, raw)` for every binary value `@len@<bytes>` in a
+/// segment, with `field` = the 1-based data element it sits in (after the
+/// segment header). Binary values inside one data element group (separated by
+/// ':') share the element's number.
+fn forEachBinary(segment: []const u8, ctx: anytype, comptime onBinary: fn (@TypeOf(ctx), usize, []const u8) void) void {
     var pos: usize = 0;
     while (pos < segment.len and segment[pos] != '+') : (pos += 1) {}
     if (pos >= segment.len) return;
-    pos += 1; // first field after segment header
-
-    var appended_any = false;
-    var first_binary: []const u8 = "";
+    pos += 1; // first data element after the header
+    var field: usize = 1;
 
     while (pos < segment.len) {
-        // Binary field: @len@<raw bytes>
         if (segment[pos] == '@' and !isEscaped(segment, pos)) {
             var p = pos + 1;
             var bin_len: usize = 0;
@@ -2084,36 +2094,63 @@ fn extractMt940(segment: []const u8, out: *ParsedResponse) void {
             }
             if (has_digits and p < segment.len and segment[p] == '@') {
                 const data_start = p + 1;
-                if (data_start <= segment.len) {
-                    const available = segment.len - data_start;
-                    const raw = segment[data_start .. data_start + @min(bin_len, available)];
-                    if (first_binary.len == 0) first_binary = raw;
-                    if (looksLikeMt940(raw)) {
-                        appendMt940(out, raw);
-                        appended_any = true;
-                    }
-                    pos = data_start + @min(bin_len, available);
-                    if (pos < segment.len and segment[pos] == '+' and !isEscaped(segment, pos)) {
+                const available = segment.len - data_start;
+                const raw = segment[data_start .. data_start + @min(bin_len, available)];
+                onBinary(ctx, field, raw);
+                pos = data_start + @min(bin_len, available);
+                if (pos < segment.len and !isEscaped(segment, pos)) {
+                    if (segment[pos] == '+') {
+                        field += 1;
                         pos += 1;
+                    } else if (segment[pos] == ':') {
+                        pos += 1; // next value of the same group
                     }
-                    continue;
                 }
+                continue;
             }
         }
-
-        // Non-binary field: skip to next unescaped +.
+        // Non-binary value: skip to the next unescaped + (next data element)
+        // or : (next value in this group).
         while (pos < segment.len) : (pos += 1) {
-            if (segment[pos] == '+' and !isEscaped(segment, pos)) {
+            if (isEscaped(segment, pos)) continue;
+            if (segment[pos] == '+') {
+                field += 1;
+                pos += 1;
+                break;
+            }
+            if (segment[pos] == ':') {
                 pos += 1;
                 break;
             }
         }
     }
+}
 
-    // If nothing matched MT940 heuristics, keep old behavior and use the first binary block.
-    if (!appended_any and first_binary.len > 0) {
-        appendMt940(out, first_binary);
+const Mt940Collect = struct {
+    out: *ParsedResponse,
+    appended_any: bool = false,
+    first_binary: []const u8 = "",
+};
+
+fn collectMt940(c: *Mt940Collect, field: usize, raw: []const u8) void {
+    // HIKAZ: DE 1 = booked (MT940), DE 2 = not yet booked (MT942).
+    if (field == 2) {
+        if (looksLikeMt940(raw)) appendPendingMt940(c.out, raw);
+        return;
     }
+    if (field != 1) return;
+    if (c.first_binary.len == 0) c.first_binary = raw;
+    if (looksLikeMt940(raw)) {
+        appendMt940(c.out, raw);
+        c.appended_any = true;
+    }
+}
+
+fn extractMt940(segment: []const u8, out: *ParsedResponse) void {
+    var c = Mt940Collect{ .out = out };
+    forEachBinary(segment, &c, collectMt940);
+    // If nothing matched MT940 heuristics, keep old behavior and use the first booked block.
+    if (!c.appended_any and c.first_binary.len > 0) appendMt940(out, c.first_binary);
 }
 
 fn appendMt940(out: *ParsedResponse, chunk: []const u8) void {
@@ -2123,6 +2160,22 @@ fn appendMt940(out: *ParsedResponse, chunk: []const u8) void {
     const copy_len = @min(chunk.len, out.mt940_data.len - offset);
     @memcpy(out.mt940_data[offset .. offset + copy_len], chunk[0..copy_len]);
     out.mt940_len = @intCast(offset + copy_len);
+}
+
+fn appendPendingMt940(out: *ParsedResponse, chunk: []const u8) void {
+    const offset: usize = out.pending_mt940_len;
+    if (chunk.len == 0 or offset >= out.pending_mt940_data.len) return;
+    const copy_len = @min(chunk.len, out.pending_mt940_data.len - offset);
+    @memcpy(out.pending_mt940_data[offset .. offset + copy_len], chunk[0..copy_len]);
+    out.pending_mt940_len = @intCast(offset + copy_len);
+}
+
+fn appendPendingCamt(out: *ParsedResponse, chunk: []const u8) void {
+    const offset: usize = out.pending_camt_len;
+    if (chunk.len == 0 or offset >= out.pending_camt_data.len) return;
+    const copy_len = @min(chunk.len, out.pending_camt_data.len - offset);
+    @memcpy(out.pending_camt_data[offset .. offset + copy_len], chunk[0..copy_len]);
+    out.pending_camt_len = @intCast(offset + copy_len);
 }
 
 fn appendCamt(out: *ParsedResponse, chunk: []const u8) void {
@@ -2162,55 +2215,31 @@ fn looksLikeCamtXml(data: []const u8) bool {
     return false;
 }
 
+const CamtCollect = struct {
+    out: *ParsedResponse,
+    appended_any: bool = false,
+    first_binary: []const u8 = "",
+};
+
+fn collectCamt(c: *CamtCollect, field: usize, raw: []const u8) void {
+    // HICAZ: DE 1 = account, DE 2 = camt format, DE 3 = booked (one or more
+    // documents), DE 4 = not yet booked (camt.052).
+    if (field == 4) {
+        if (looksLikeCamtXml(raw)) appendPendingCamt(c.out, raw);
+        return;
+    }
+    if (field != 3) return;
+    if (c.first_binary.len == 0) c.first_binary = raw;
+    if (looksLikeCamtXml(raw)) {
+        appendCamt(c.out, raw);
+        c.appended_any = true;
+    }
+}
+
 fn extractCamtXml(segment: []const u8, out: *ParsedResponse) void {
-    // HICAZ includes multiple binary fields; append the one(s) that look like XML.
-    var pos: usize = 0;
-    while (pos < segment.len and segment[pos] != '+') : (pos += 1) {}
-    if (pos >= segment.len) return;
-    pos += 1;
-
-    var appended_any = false;
-    var first_binary: []const u8 = "";
-
-    while (pos < segment.len) {
-        if (segment[pos] == '@' and !isEscaped(segment, pos)) {
-            var p = pos + 1;
-            var bin_len: usize = 0;
-            var has_digits = false;
-            while (p < segment.len and segment[p] >= '0' and segment[p] <= '9') : (p += 1) {
-                has_digits = true;
-                bin_len = bin_len * 10 + (segment[p] - '0');
-            }
-            if (has_digits and p < segment.len and segment[p] == '@') {
-                const data_start = p + 1;
-                if (data_start <= segment.len) {
-                    const available = segment.len - data_start;
-                    const raw = segment[data_start .. data_start + @min(bin_len, available)];
-                    if (first_binary.len == 0) first_binary = raw;
-                    if (looksLikeCamtXml(raw)) {
-                        appendCamt(out, raw);
-                        appended_any = true;
-                    }
-                    pos = data_start + @min(bin_len, available);
-                    if (pos < segment.len and segment[pos] == '+' and !isEscaped(segment, pos)) {
-                        pos += 1;
-                    }
-                    continue;
-                }
-            }
-        }
-
-        while (pos < segment.len) : (pos += 1) {
-            if (segment[pos] == '+' and !isEscaped(segment, pos)) {
-                pos += 1;
-                break;
-            }
-        }
-    }
-
-    if (!appended_any and first_binary.len > 0) {
-        appendCamt(out, first_binary);
-    }
+    var c = CamtCollect{ .out = out };
+    forEachBinary(segment, &c, collectCamt);
+    if (!c.appended_any and c.first_binary.len > 0) appendCamt(out, c.first_binary);
 }
 
 fn extractCamtFormatFromHicazs(session: *FintsSession, segment: []const u8) void {
@@ -2979,16 +3008,44 @@ test "parseResponse concatenates split HIKAZ mt940 payload" {
     const data = "HIKAZ:1:5+@5@abcde'HIKAZ:2:5+@5@12345'";
     parseResponse(&s, data, &resp);
 
-    try std.testing.expectEqual(@as(u16, 10), resp.mt940_len);
+    try std.testing.expectEqual(@as(u32, 10), resp.mt940_len);
     try std.testing.expectEqualStrings("abcde12345", resp.mt940_data[0..resp.mt940_len]);
 }
 
-test "extractMt940 prefers field with MT940 markers" {
+test "HIKAZ: booked (DE 1) and not yet booked (DE 2) are kept apart" {
     var s = FintsSession.init("20041177", "https://x.de/f", "u", "p");
     var resp = ParsedResponse.init();
-    const data = "HIKAZ:1:5+@6@ABCDEF+@14@:20:START\\n:61:'";
+    const data = "HIKAZ:1:5+@11@:20:BOOKED\n+@12@:20:PENDING\n'";
     parseResponse(&s, data, &resp);
-    try std.testing.expect(std.mem.indexOf(u8, resp.mt940_data[0..resp.mt940_len], ":20:START") != null);
+    try std.testing.expectEqualStrings(":20:BOOKED\n", resp.mt940_data[0..resp.mt940_len]);
+    try std.testing.expectEqualStrings(":20:PENDING\n", resp.pending_mt940_data[0..resp.pending_mt940_len]);
+}
+
+test "HIKAZ: only pending (empty DE 1) imports nothing as booked" {
+    var s = FintsSession.init("20041177", "https://x.de/f", "u", "p");
+    var resp = ParsedResponse.init();
+    const data = "HIKAZ:1:5++@12@:20:PENDING\n'";
+    parseResponse(&s, data, &resp);
+    try std.testing.expectEqual(@as(u32, 0), resp.mt940_len);
+    try std.testing.expectEqualStrings(":20:PENDING\n", resp.pending_mt940_data[0..resp.pending_mt940_len]);
+}
+
+test "HIKAZ: DE 1 without MT940 markers still counts as booked (old fallback)" {
+    var s = FintsSession.init("20041177", "https://x.de/f", "u", "p");
+    var resp = ParsedResponse.init();
+    const data = "HIKAZ:1:5+@6@ABCDEF'";
+    parseResponse(&s, data, &resp);
+    try std.testing.expectEqualStrings("ABCDEF", resp.mt940_data[0..resp.mt940_len]);
+    try std.testing.expectEqual(@as(u32, 0), resp.pending_mt940_len);
+}
+
+test "HICAZ: booked documents (DE 3, a group) and not yet booked (DE 4) are kept apart" {
+    var s = FintsSession.init("20041177", "https://x.de/f", "u", "p");
+    var resp = ParsedResponse.init();
+    const data = "HICAZ:1:1:3+DE12::::280:1+urn?:iso?:std?:iso?:20022?:tech?:xsd?:camt.052.001.08+@11@<Document>A:@11@<Document>B+@11@<Document>P'";
+    parseResponse(&s, data, &resp);
+    try std.testing.expectEqualStrings("<Document>A<Document>B", resp.camt_data[0..resp.camt_len]);
+    try std.testing.expectEqualStrings("<Document>P", resp.pending_camt_data[0..resp.pending_camt_len]);
 }
 
 test "parseResponse extracts HICAZS camt format token" {
@@ -2999,7 +3056,7 @@ test "parseResponse extracts HICAZS camt format token" {
 
     try std.testing.expect(s.supports_camt);
     try std.testing.expect(std.mem.indexOf(u8, s.camtFormatSlice(), "camt.053.001.02") != null);
-    try std.testing.expectEqual(@as(u16, 0), resp.camt_len);
+    try std.testing.expectEqual(@as(u32, 0), resp.camt_len);
 }
 
 test "parseResponse extracts HICAZ xml payload" {
@@ -3021,7 +3078,7 @@ test "parseResponse extracts HICAZ xml payload" {
     pos += 1;
 
     parseResponse(&s, msg_buf[0..pos], &resp);
-    try std.testing.expectEqual(@as(u16, @intCast(xml.len)), resp.camt_len);
+    try std.testing.expectEqual(@as(u32, @intCast(xml.len)), resp.camt_len);
     try std.testing.expect(std.mem.indexOf(u8, resp.camt_data[0..resp.camt_len], "<Document>") != null);
 }
 

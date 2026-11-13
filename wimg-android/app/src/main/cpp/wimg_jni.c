@@ -10,6 +10,7 @@ extern void wimg_free(const uint8_t *ptr, uint32_t len);
 extern const uint8_t *wimg_get_error(void);
 extern const uint8_t *wimg_get_transactions(void);
 extern const uint8_t *wimg_get_transactions_filtered(const uint8_t *acct, uint32_t acct_len);
+extern const uint8_t *wimg_get_pending(const uint8_t *acct, uint32_t acct_len);
 extern int32_t wimg_set_category(const uint8_t *id, uint32_t id_len, uint8_t category);
 extern int32_t wimg_set_excluded(const uint8_t *id, uint32_t id_len, uint8_t excluded);
 extern int32_t wimg_auto_categorize(void);
@@ -104,6 +105,14 @@ JNIEXPORT jstring JNICALL JNI_FN(nativeGetTransactionsFiltered)(JNIEnv *env, job
     const char *a = (*env)->GetStringUTFChars(env, acct, NULL);
     jsize alen = (*env)->GetStringUTFLength(env, acct);
     const uint8_t *ptr = wimg_get_transactions_filtered((const uint8_t *)a, alen);
+    (*env)->ReleaseStringUTFChars(env, acct, a);
+    return ptr_to_jstring(env, ptr);
+}
+
+JNIEXPORT jstring JNICALL JNI_FN(nativeGetPending)(JNIEnv *env, jobject obj, jstring acct) {
+    const char *a = (*env)->GetStringUTFChars(env, acct, NULL);
+    jsize alen = (*env)->GetStringUTFLength(env, acct);
+    const uint8_t *ptr = wimg_get_pending((const uint8_t *)a, alen);
     (*env)->ReleaseStringUTFChars(env, acct, a);
     return ptr_to_jstring(env, ptr);
 }

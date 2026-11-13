@@ -90,6 +90,8 @@ internal data class HomeData(
     /** Latest booking day in the selected month, newest first. */
     val day: List<Transaction>,
     val hasAnyData: Boolean,
+    /** Not yet booked, from the last bank fetch (current month view only). */
+    val pending: List<Transaction> = emptyList(),
 )
 
 @Composable
@@ -230,6 +232,16 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null) {
                 }
             }
 
+            val pending = d?.pending ?: emptyList()
+            if (pending.isNotEmpty()) {
+                item {
+                    Spacer(Modifier.height(22.dp))
+                    SectionHeader(L("Vorgemerkt"), amountText(pending.sumOf { it.amount }), trailingStrong = false)
+                    Spacer(Modifier.height(4.dp))
+                }
+                items(pending, key = { "p_" + it.id }) { tx -> DayRow(tx, shortMonths, pending = true) { navController?.navigate("tx/${tx.id}") } }
+            }
+
             val day = d?.day ?: emptyList()
             if (day.isNotEmpty()) {
                 item {
@@ -264,6 +276,7 @@ internal fun loadHome(year: Int, month: Int, account: String?): HomeData {
         previous = previous?.takeIf { it.tx_count > 0 },
         day = if (lastDate == null) emptyList() else inMonth.filter { it.date == lastDate }.take(6),
         hasAnyData = all.isNotEmpty(),
+        pending = if (today.startsWith(prefix)) LibWimg.getPending(account) else emptyList(),
     )
 }
 
@@ -387,11 +400,11 @@ private fun CategoryRow(cat: CategoryBreakdown, total: Double, previous: Categor
 }
 
 @Composable
-private fun DayRow(tx: Transaction, shortMonths: List<String>, onClick: () -> Unit) {
+private fun DayRow(tx: Transaction, shortMonths: List<String>, pending: Boolean = false, onClick: () -> Unit) {
     val c = Wimg.colors
     val wc = WimgCategory.fromId(tx.category)
     val (_, m, d) = tx.date.split("-").map { it.toInt() }
-    val sub = listOfNotNull(dayMonth(d, m, shortMonths), L(wc.label), tx.kind?.takeIf { it.isNotBlank() }?.let { L(it) }).joinToString(" · ")
+    val sub = listOfNotNull(dayMonth(d, m, shortMonths), L(wc.label), tx.kind?.takeIf { it.isNotBlank() }?.let { L(it) }, if (pending) L("vorgemerkt") else null).joinToString(" · ")
     Column(Modifier.clickable(onClick = onClick)) {
         Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -406,7 +419,7 @@ private fun DayRow(tx: Transaction, shortMonths: List<String>, onClick: () -> Un
             Text(
                 amountText(tx.amount),
                 style = WimgType.amountRow.copy(fontSize = WimgType.amountRow.fontSize * 0.94f),
-                color = if (tx.amount > 0) c.pos else c.text,
+                color = when { pending -> c.text3; tx.amount > 0 -> c.pos; else -> c.text },
             )
         }
         HorizontalDivider(thickness = 1.dp, color = c.line)

@@ -15,6 +15,22 @@ pub const CamtResult = struct {
 /// Parse CAMT XML (camt.052/053) into Transaction structs.
 /// This intentionally supports the most common statement entry tags only.
 pub fn parseCamt(data: []const u8, account: []const u8, out: []Transaction) CamtResult {
+    return parseCamtMode(data, account, out, false);
+}
+
+/// Not-yet-booked entries (HICAZ DE 4): every entry counts, and one without a
+/// booking date falls back to its value date.
+pub fn parseCamtPending(data: []const u8, account: []const u8, out: []Transaction) CamtResult {
+    return parseCamtMode(data, account, out, true);
+}
+
+/// `<Sts>PDNG</Sts>` (camt.052/053 v2) or `<Sts><Cd>PDNG</Cd></Sts>` (v8+).
+fn isPendingEntry(entry: []const u8) bool {
+    const sts = extractTagText(entry, "Sts") orelse return false;
+    return std.mem.indexOf(u8, sts, "PDNG") != null;
+}
+
+fn parseCamtMode(data: []const u8, account: []const u8, out: []Transaction, pending: bool) CamtResult {
     var result = CamtResult{ .count = 0, .errors = 0 };
     if (data.len == 0 or out.len == 0) return result;
 
@@ -26,8 +42,11 @@ pub fn parseCamt(data: []const u8, account: []const u8, out: []Transaction) Camt
         const entry = data[start..end];
         pos = end;
 
+        // A pending entry is never a booked transaction, wherever the bank put it.
+        if (!pending and isPendingEntry(entry)) continue;
+
         var txn: Transaction = undefined;
-        if (!parseEntry(entry, account, &txn)) {
+        if (!parseEntry(entry, account, &txn, pending)) {
             result.errors += 1;
             continue;
         }
@@ -94,7 +113,7 @@ fn findBalStart(data: []const u8, from: usize) ?usize {
     };
 }
 
-fn parseEntry(entry: []const u8, account: []const u8, out_txn: *Transaction) bool {
+fn parseEntry(entry: []const u8, account: []const u8, out_txn: *Transaction, pending: bool) bool {
     const amount = extractAmountField(entry) orelse return false;
     const amount_abs = parseIsoAmount(amount.text) orelse return false;
 
@@ -102,7 +121,8 @@ fn parseEntry(entry: []const u8, account: []const u8, out_txn: *Transaction) boo
     const is_debit = std.mem.eql(u8, cdt_dbt, "DBIT");
     out_txn.amount_cents = if (is_debit) -amount_abs else amount_abs;
 
-    const date_block = extractTagText(entry, "BookgDt") orelse return false;
+    const date_block = extractTagText(entry, "BookgDt") orelse
+        (if (pending) extractTagText(entry, "ValDt") else null) orelse return false;
     const dt = extractTagText(date_block, "Dt") orelse extractTagText(date_block, "DtTm") orelse return false;
     out_txn.date = parseIsoDate(dt) orelse return false;
 
@@ -375,4 +395,25 @@ test "parseCamt reads Amt Ccy attribute" {
     const res = parseCamt(xml, "Comdirect", &txns);
     try std.testing.expectEqual(@as(u32, 1), res.count);
     try std.testing.expectEqualStrings("USD", txns[0].currency[0..]);
+}
+
+test "booked parse skips entries the bank marks as pending" {
+    const xml =
+        "<Document><Ntry><Amt Ccy=\"EUR\">10.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts><Cd>BOOK</Cd></Sts><BookgDt><Dt>2026-11-10</Dt></BookgDt><AddtlNtryInf>Gebucht</AddtlNtryInf></Ntry>" ++
+        "<Ntry><Amt Ccy=\"EUR\">5.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts><Cd>PDNG</Cd></Sts><ValDt><Dt>2026-11-12</Dt></ValDt><AddtlNtryInf>Vorgemerkt</AddtlNtryInf></Ntry></Document>";
+    var out: [4]Transaction = undefined;
+    const r = parseCamt(xml, "acc", &out);
+    try std.testing.expectEqual(@as(u32, 1), r.count);
+    try std.testing.expectEqual(@as(u32, 0), r.errors);
+    try std.testing.expectEqualStrings("Gebucht", out[0].descriptionSlice());
+}
+
+test "pending parse reads entries without booking date via value date" {
+    const xml =
+        "<Document><Ntry><Amt Ccy=\"EUR\">5.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts>PDNG</Sts><ValDt><Dt>2026-11-12</Dt></ValDt><AddtlNtryInf>Vorgemerkt</AddtlNtryInf></Ntry></Document>";
+    var out: [4]Transaction = undefined;
+    const r = parseCamtPending(xml, "acc", &out);
+    try std.testing.expectEqual(@as(u32, 1), r.count);
+    try std.testing.expectEqual(@as(i64, -500), out[0].amount_cents);
+    try std.testing.expectEqual(@as(u16, 12), @as(u16, out[0].date.day));
 }
