@@ -423,15 +423,16 @@ private fun DockedRowContent(r: DockRow) {
             }
             if (r.action != null && r.onAction != null) {
                 Spacer(Modifier.width(8.dp))
+                // A quiet text action in the row's own colour: the bar below already
+                // holds the filled buttons, a second filled style would compete.
                 Box(
                     Modifier
                         .height(40.dp)
                         .pressable { r.onAction.invoke(); Dock.dismiss(r.id) }
                         .clip(WimgShape.dockAction)
-                        .background(c.ink)
-                        .padding(horizontal = 14.dp),
+                        .padding(horizontal = 10.dp),
                     contentAlignment = Alignment.Center,
-                ) { Text(L(r.action), style = WimgType.chip, color = c.inkText) }
+                ) { Text(L(r.action), style = WimgType.chip, color = if (r.kind == DockKind.Error) c.danger else c.accent) }
             }
         }
         Box(Modifier.fillMaxWidth().height(WimgDimens.dockSeam).background(c.line)) {
@@ -485,6 +486,7 @@ fun BarChip(
                     })
             },
             contentAlignment = Alignment.CenterStart,
+            modifier = Modifier.weight(1f, fill = false),
             label = "chipLabel",
         ) { (l, i) ->
             val blur by transition.animateFloat(transitionSpec = { tween(200, easing = WimgMotion.EaseOut) }, label = "blur") {
@@ -496,7 +498,7 @@ fun BarChip(
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
             ) {
                 if (i != null) Icon(i, contentDescription = null, tint = fg, modifier = Modifier.size(if (l.isEmpty()) 20.dp else 18.dp))
-                if (l.isNotEmpty()) Text(l, style = WimgType.chip, color = fg, maxLines = 1)
+                if (l.isNotEmpty()) Text(l, style = WimgType.chip, color = fg, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
             }
         }
         if (unfold) Icon(Icons.Outlined.UnfoldMore, contentDescription = null, tint = if (active) c.inkText else c.text2, modifier = Modifier.size(15.dp))
@@ -530,6 +532,8 @@ fun FloatingBar(
     divider: Boolean = true,
     /** Full width (358 dp), for detail bars whose main action fills the space. */
     fill: Boolean = false,
+    /** Identity of what the bar shows (place bar, back bar, action bar): a new key crossfades. */
+    contentKey: Any = Unit,
     left: @Composable RowScope.() -> Unit,
     right: @Composable RowScope.() -> Unit,
 ) {
@@ -566,6 +570,7 @@ fun FloatingBar(
                     else -> Modifier.wrapContentWidth()
                 },
             )
+            .widthIn(max = (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp - 32).dp)
             .shadow(14.dp, WimgShape.bar, ambientColor = Color.Black.copy(alpha = 0.18f), spotColor = Color.Black.copy(alpha = 0.18f))
             .clip(WimgShape.bar)
             .background(c.card)
@@ -599,26 +604,41 @@ fun FloatingBar(
                 label = "dockRow",
             ) { r -> if (r != null) DockedRowContent(r) }
         }
-        Row(
-            Modifier
-                .then(
-                    // Docked: fill the 358 dp so the actions sit right. Otherwise measure
-                    // the natural width without the animated width squeezing it.
-                    if (wide || gliding) Modifier.fillMaxWidth()
-                    else Modifier.onSizeChanged { natural = with(density) { it.width.toDp() } },
-                )
-                .height(WimgDimens.barHeight)
-                .padding(WimgDimens.barPadding),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(WimgDimens.barGap),
-        ) {
-            left()
-            if (divider) Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 24.dp).background(c.line))
-            if (wide && !fill) Spacer(Modifier.weight(1f))
-            right()
+        // One bar that stays; a different kind of content (place bar ↔ back bar ↔
+        // action bar) crossfades inside while the bar moves to its new width.
+        androidx.compose.animation.AnimatedContent(
+            targetState = BarContent(contentKey, divider, left, right),
+            contentKey = { it.key },
+            transitionSpec = {
+                fadeIn(tween(160, 40, WimgMotion.EaseOut))
+                    .togetherWith(fadeOut(tween(90, easing = WimgMotion.EaseOut)))
+                    .using(androidx.compose.animation.SizeTransform(clip = false) { from, to ->
+                        val dp = with(density) { kotlin.math.abs(to.width - from.width).toDp().value }
+                        tween((dp * 2f).toInt().coerceIn(150, 270), easing = WimgMotion.EaseOut)
+                    })
+            },
+            contentAlignment = Alignment.Center,
+            modifier = if (wide || gliding) Modifier.fillMaxWidth() else Modifier.onSizeChanged { natural = with(density) { it.width.toDp() } },
+            label = "barContent",
+        ) { bc ->
+            Row(
+                Modifier
+                    .then(if (wide || gliding) Modifier.fillMaxWidth() else Modifier)
+                    .height(WimgDimens.barHeight)
+                    .padding(WimgDimens.barPadding),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(WimgDimens.barGap),
+            ) {
+                bc.left(this)
+                if (bc.divider) Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 24.dp).background(c.line))
+                if (wide && !fill) Spacer(Modifier.weight(1f))
+                bc.right(this)
+            }
         }
     }
 }
+
+private class BarContent(val key: Any, val divider: Boolean, val left: @Composable RowScope.() -> Unit, val right: @Composable RowScope.() -> Unit)
 
 /** The place switcher that opens from the bar's place chip. */
 @Composable

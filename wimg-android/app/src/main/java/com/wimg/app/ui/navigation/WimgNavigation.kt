@@ -255,40 +255,47 @@ fun WimgNavigation() {
                 Box(Modifier.padding(bottom = 10.dp)) { last?.invoke() }
             }
             val detailBar = BarState.detail
-            if (detailBar != null) {
+            if (detailBar != null || route?.startsWith("search") != true) {
+                // One FloatingBar call site for every kind of bar, so it is never torn
+                // down and rebuilt: the kind only changes its contentKey.
+                val kind = when {
+                    detailBar == null -> "place"
+                    detailBar.actionLabel != null -> "action"
+                    else -> "back"
+                }
                 FloatingBar(
-                    divider = detailBar.onMore != null,
-                    fill = detailBar.actionLabel != null,
+                    divider = detailBar == null || detailBar.onMore != null,
+                    fill = detailBar?.actionLabel != null,
+                    contentKey = kind,
                     left = {
-                        if (detailBar.actionLabel != null) {
-                            BarBack(detailBar.onBack)
-                            BarAction(detailBar.actionLabel, detailBar.actionIcon, Modifier.weight(1f), busy = detailBar.actionBusy) { detailBar.onAction() }
-                        } else {
-                            BarChip(
+                        when {
+                            detailBar == null -> {
+                                // Read here, after the NavHost composed, so it names the page shown.
+                                val shown = PLACES.firstOrNull { it.route == (BarState.current.route ?: route) } ?: PLACES.first()
+                                BarChip(label = L(shown.label), icon = shown.icon, unfold = true, active = menuOpen) { BarState.onPanelDismiss(); menuInstant = false; menuOpen = !menuOpen }
+                                BarState.chip?.let { chip ->
+                                    BarChip(label = chip.label, icon = chip.icon, modifier = Modifier.weight(1f, fill = false), active = chip.active && !menuOpen, contentDescription = chip.contentDescription) { menuOpen = false; chip.onClick() }
+                                }
+                            }
+                            detailBar.actionLabel != null -> {
+                                BarBack(detailBar.onBack)
+                                BarAction(detailBar.actionLabel, detailBar.actionIcon, Modifier.weight(1f), busy = detailBar.actionBusy) { detailBar.onAction() }
+                            }
+                            else -> BarChip(
                                 label = detailBar.backLabel ?: L("Zurück"),
                                 icon = androidx.compose.material.icons.Icons.AutoMirrored.Outlined.ArrowBack,
                             ) { detailBar.onBack() }
                         }
                     },
                     right = {
-                        detailBar.onMore?.let { more ->
-                            BarIcon(androidx.compose.material.icons.Icons.Filled.MoreHoriz, L("Mehr")) { more() }
+                        if (detailBar == null) {
+                            BarIcon(BarIcons.Search, L("Suche")) { menuOpen = false; navController.navigate("search") }
+                            BarIcon(BarIcons.Add, L("Hinzufügen"), accent = true) { menuOpen = false; navController.goTo("import") }
+                        } else {
+                            detailBar.onMore?.let { more ->
+                                BarIcon(androidx.compose.material.icons.Icons.Filled.MoreHoriz, L("Mehr")) { more() }
+                            }
                         }
-                    },
-                )
-            } else if (route?.startsWith("search") != true) {
-                FloatingBar(
-                    left = {
-                        // Read here, after the NavHost composed, so it names the page shown.
-                        val shown = PLACES.firstOrNull { it.route == (BarState.current.route ?: route) } ?: PLACES.first()
-                        BarChip(label = L(shown.label), icon = shown.icon, unfold = true, active = menuOpen) { BarState.onPanelDismiss(); menuInstant = false; menuOpen = !menuOpen }
-                        BarState.chip?.let { chip ->
-                            BarChip(label = chip.label, icon = chip.icon, active = chip.active && !menuOpen, contentDescription = chip.contentDescription) { menuOpen = false; chip.onClick() }
-                        }
-                    },
-                    right = {
-                        BarIcon(BarIcons.Search, L("Suche")) { menuOpen = false; navController.navigate("search") }
-                        BarIcon(BarIcons.Add, L("Hinzufügen"), accent = true) { menuOpen = false; navController.goTo("import") }
                     },
                 )
             }
