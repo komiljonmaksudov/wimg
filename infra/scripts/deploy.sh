@@ -58,5 +58,9 @@ if [[ $CONFIG_ONLY -eq 0 ]]; then
 	ssh "$VPS" 'systemctl restart wimg-sync'
 fi
 
+# The shared box checks file integrity daily (eigenheim-integrity); record the
+# deployed files as known-good, or it mails an alert every morning.
+ssh "$VPS" 'command -v eigenheim-integrity >/dev/null && eigenheim-integrity refresh /usr/local/bin/wimg-sync /etc/systemd/system/wimg-sync.service /etc/systemd/system/wimg-restic.service /etc/systemd/system/wimg-restic.timer /etc/caddy/conf.d/wimg-sync.caddy /etc/caddy/conf.d/wimg-web.caddy || true'
+
 echo "==> Done."
 ssh "$VPS" 'systemctl --no-pager --lines=0 status wimg-sync caddy || true'
