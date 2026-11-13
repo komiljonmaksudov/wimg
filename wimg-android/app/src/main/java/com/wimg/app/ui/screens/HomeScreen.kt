@@ -241,7 +241,7 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null) {
                     )
                     Spacer(Modifier.height(4.dp))
                 }
-                items(day, key = { it.id }) { tx -> DayRow(tx, shortMonths) }
+                items(day, key = { it.id }) { tx -> DayRow(tx, shortMonths) { navController?.navigate("tx/${tx.id}") } }
             }
         }
     }
@@ -387,12 +387,12 @@ private fun CategoryRow(cat: CategoryBreakdown, total: Double, previous: Categor
 }
 
 @Composable
-private fun DayRow(tx: Transaction, shortMonths: List<String>) {
+private fun DayRow(tx: Transaction, shortMonths: List<String>, onClick: () -> Unit) {
     val c = Wimg.colors
     val wc = WimgCategory.fromId(tx.category)
     val (_, m, d) = tx.date.split("-").map { it.toInt() }
     val sub = listOfNotNull(dayMonth(d, m, shortMonths), L(wc.label), tx.kind?.takeIf { it.isNotBlank() }?.let { L(it) }).joinToString(" · ")
-    Column {
+    Column(Modifier.clickable(onClick = onClick)) {
         Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(tx.displayTitle, style = WimgType.rowTitle.copy(fontSize = WimgType.rowTitle.fontSize * 0.94f), color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)

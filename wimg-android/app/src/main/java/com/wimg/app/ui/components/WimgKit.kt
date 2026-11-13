@@ -786,7 +786,9 @@ object BarState {
         get() {
             val spec = currentOwner?.let { specs[it] }
             if (spec != null) { lastShown = spec; lastOwner = currentOwner }
-            return spec ?: lastShown
+            // The stand-in for a page that hasn't registered (or has no bar of its
+            // own, like search) never carries the previous page's open menu or panel.
+            return spec ?: lastShown.copy(panel = null)
         }
 
     /**
@@ -843,21 +845,30 @@ fun BarPanel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() 
 @Composable
 fun BarAction(label: String, icon: ImageVector?, modifier: Modifier = Modifier, busy: Boolean = false, onClick: () -> Unit) {
     val c = Wimg.colors
-    Row(
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    androidx.compose.foundation.layout.BoxWithConstraints(
         modifier
             .height(WimgDimens.touchTarget)
             .pressable(onClick = onClick)
             .clip(WimgShape.button)
             .background(c.accent)
-            .padding(horizontal = 18.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        // The label stays put while busy so the button keeps its width; only the
-        // icon turns into a small spinner.
-        if (busy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(17.dp), color = c.onAccent, strokeWidth = 2.dp)
-        else if (icon != null) Icon(icon, contentDescription = null, tint = c.onAccent, modifier = Modifier.size(19.dp))
-        Text(label, style = WimgType.button, color = c.onAccent, maxLines = 1)
+        // Always one centred line. When space is short the icon goes first, then
+        // the label shortens with "…" (it never wraps and slides to the left).
+        val textW = with(density) { measurer.measure(label, WimgType.button, maxLines = 1, softWrap = false).size.width.toDp() }
+        val showIcon = (busy || icon != null) && textW + 27.dp <= maxWidth
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // The label stays put while busy so the button keeps its width; only the
+            // icon turns into a small spinner.
+            if (showIcon) {
+                if (busy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(17.dp), color = c.onAccent, strokeWidth = 2.dp)
+                else Icon(icon!!, contentDescription = null, tint = c.onAccent, modifier = Modifier.size(19.dp))
+            }
+            Text(label, style = WimgType.button, color = c.onAccent, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 

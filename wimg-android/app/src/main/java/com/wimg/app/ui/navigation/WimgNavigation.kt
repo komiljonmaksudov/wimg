@@ -266,7 +266,8 @@ fun WimgNavigation() {
                 }
             }
             val detailBar = BarState.detail
-            if (detailBar != null || route?.startsWith("search") != true) {
+            // Search draws its own bar; never a stand-in of the page before it.
+            if (route?.startsWith("search") != true) {
                 // One FloatingBar call site for every kind of bar, so it is never torn
                 // down and rebuilt: the kind only changes its contentKey.
                 val kind = when {
