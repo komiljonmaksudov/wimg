@@ -70,6 +70,8 @@ import com.wimg.app.i18n.L
 import com.wimg.app.i18n.__t
 import com.wimg.app.models.Account
 import com.wimg.app.services.BackgroundRefresh
+import com.wimg.app.services.BankConnection
+import com.wimg.app.services.BankConnections
 import com.wimg.app.services.FintsHttpCallback
 import com.wimg.app.services.PinStore
 import com.wimg.app.ui.components.Amount
@@ -140,12 +142,6 @@ private suspend fun <T> withFintsThread(block: () -> T): T {
     }
 }
 
-private const val PREFS = "wimg_fints"
-private const val KEY_BLZ = "fints_blz"
-private const val KEY_KENNUNG = "fints_kennung"
-private const val KEY_TAN_MEDIUM = "fints_tan_medium"
-private const val KEY_LAST_FETCH = "fints_last_fetch_at"
-private const val KEY_LAST_NEW = "fints_last_fetch_new"
 private const val PRODUCT = "F7C4049477F6136957A46EC28"
 
 // Request bodies built as JSON objects, so a PIN or login with quotes or
@@ -176,12 +172,15 @@ private fun bankText(r: FintsResult?): String = when {
     else -> r.message
 }
 
-private fun forgetPin(context: Context) {
+private fun forgetPin(context: Context, id: String) {
     // A wrong stored PIN must not be retried (daily background fetch), or the
     // bank locks the account after a few attempts.
-    PinStore.clear(context)
-    BackgroundRefresh.cancel(context)
+    PinStore.clear(context, id)
+    if (!BackgroundRefresh.hasCredentials(context)) BackgroundRefresh.cancel(context)
 }
+
+/** Route of one connection's page; the id holds the Kennung, so it is encoded. */
+fun bankRoute(id: String, quick: Boolean = false) = "fints/" + android.net.Uri.encode(id) + if (quick) "?quick=1" else ""
 
 private fun decode(r: String?): FintsResult? = r?.let { runCatching { json.decodeFromString<FintsResult>(it) }.getOrNull() }
 
@@ -194,14 +193,15 @@ private object FintsJob {
     var running by mutableStateOf(false)
         private set
 
-    /** The bank rejected the login during a fetch: the bank screen opens its login form. */
-    var loginRequested by mutableStateOf(false)
+    /** Connection whose login the bank rejected during a fetch: its page opens the login form. */
+    var loginRequested by mutableStateOf<String?>(null)
 
-    /** Last fetch needed a TAN: the challenge for the bank screen to pick up. */
+    /** Last fetch needed a TAN: the challenge for that connection's page to pick up. */
     var pendingTan by mutableStateOf<FintsResult?>(null)
+    var pendingTanFor: String? = null
     var lastRange: Pair<String, String>? = null
 
-    fun fetch(context: Context, range: Pair<String, String>, bankName: String, onDone: (FintsResult?) -> Unit = {}) {
+    fun fetch(context: Context, connId: String, range: Pair<String, String>, bankName: String, onDone: (FintsResult?) -> Unit = {}) {
         if (running) return
         running = true
         lastRange = range
@@ -210,21 +210,22 @@ private object FintsJob {
             val result = runCatching { withFintsThread { decode(WimgJni.nativeFintsFetch(fetchBody(range.first, range.second))) } }.getOrNull()
             running = false
             when {
-                result == null -> Dock.error(__t("Abruf fehlgeschlagen"), bankText(null), __t("Erneut")) { fetch(context, range, bankName, onDone) }
+                result == null -> Dock.error(__t("Abruf fehlgeschlagen"), bankText(null), __t("Erneut")) { fetch(context, connId, range, bankName, onDone) }
                 isAuthRejected(result) -> {
-                    forgetPin(context)
+                    forgetPin(context, connId)
                     Dock.error(__t("Anmeldung abgelehnt"), bankText(result), __t("Neu anmelden")) {
-                        loginRequested = true
-                        com.wimg.app.ui.components.NavRequest.route = "fints"
+                        loginRequested = connId
+                        com.wimg.app.ui.components.NavRequest.route = bankRoute(connId)
                     }
                 }
                 result.status == "tan_required" -> {
                     pendingTan = result
+                    pendingTanFor = connId
                     Dock.show(DockRow(DockKind.Prompt, __t("TAN erforderlich"), __t("Für ältere Umsätze verlangt die Bank eine TAN.")))
                 }
                 result.imported != null || result.status == "ok" -> {
                     val n = result.imported ?: 0
-                    context.getSharedPreferences(PREFS, 0).edit().putLong(KEY_LAST_FETCH, System.currentTimeMillis()).putInt(KEY_LAST_NEW, n).apply()
+                    BankConnections.recordFetch(context, connId, n)
                     Changes.bump()
                     Dock.info(if (n == 1) __t("1 neuer Umsatz") else __t("%d neue Umsätze").format(n), result.duplicates?.takeIf { it > 0 }?.let { __t("%d schon vorhanden").format(it) })
                 }
@@ -238,16 +239,19 @@ private object FintsJob {
 private enum class Step { Bank, Login, Medium, Tan, Range }
 
 @Composable
-fun FinTSScreen(navController: NavController? = null) {
+fun FinTSScreen(navController: NavController? = null, connectionId: String? = null, quickOnOpen: Boolean = false) {
     val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences(PREFS, 0) }
     val scope = rememberCoroutineScope()
 
+    // null while adding a bank; set once its login worked.
+    var connId by remember { mutableStateOf(connectionId?.takeIf { BankConnections.get(context, it) != null }) }
+    var reload by remember { mutableIntStateOf(0) }
+    val conn = remember(connId, reload, FintsJob.running) { connId?.let { BankConnections.get(context, it) } }
     var banks by remember { mutableStateOf<List<BankInfo>>(emptyList()) }
     var bank by remember { mutableStateOf<BankInfo?>(null) }
-    var setup by remember { mutableStateOf(prefs.getString(KEY_BLZ, null) == null) }
+    var setup by remember { mutableStateOf(connId == null) }
     var step by remember { mutableStateOf(Step.Bank) }
-    var kennung by remember { mutableStateOf(prefs.getString(KEY_KENNUNG, "") ?: "") }
+    var kennung by remember { mutableStateOf(conn?.kennung ?: "") }
     var pin by remember { mutableStateOf("") }
     var rememberPin by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
@@ -261,7 +265,6 @@ fun FinTSScreen(navController: NavController? = null) {
     // "Ältere Umsätze holen": signed in with the saved PIN, then the Zeitraum step.
     var older by remember { mutableStateOf(false) }
     var removeOpen by remember { mutableStateOf(false) }
-    var reload by remember { mutableIntStateOf(0) }
 
     val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
@@ -278,28 +281,30 @@ fun FinTSScreen(navController: NavController? = null) {
     LaunchedEffect(Unit) {
         WimgJni.nativeSetHttpCallback(FintsHttpCallback())
         banks = withFintsThread { WimgJni.nativeFintsGetBanks()?.let { runCatching { json.decodeFromString<List<BankInfo>>(it) }.getOrNull() } ?: emptyList() }
-        prefs.getString(KEY_BLZ, null)?.let { blz -> bank = banks.find { it.blz == blz } }
+        conn?.let { c -> bank = banks.find { it.blz == c.blz } }
     }
     LaunchedEffect(FintsJob.loginRequested) {
-        if (FintsJob.loginRequested) { FintsJob.loginRequested = false; setup = true; step = Step.Login; pin = ""; error = null }
+        if (FintsJob.loginRequested != null && FintsJob.loginRequested == connId) { FintsJob.loginRequested = null; setup = true; step = Step.Login; pin = ""; error = null }
     }
-    // A fetch that ended in a TAN request continues here.
+    // A fetch that ended in a TAN request continues on that bank's page.
     LaunchedEffect(FintsJob.pendingTan) {
+        if (FintsJob.pendingTanFor != connId) return@LaunchedEffect
         FintsJob.pendingTan?.let { tan = it; tanFor = "fetch"; tanInput = ""; setup = true; step = Step.Tan; FintsJob.pendingTan = null; Dock.dismiss() }
     }
 
     fun goTan(r: FintsResult, forWhat: String) { tan = r; tanFor = forWhat; tanInput = ""; step = Step.Tan; Dock.dismiss() }
 
     fun startFetch(range: Pair<String, String>) {
+        val id = connId ?: return
         val name = bank?.name ?: "Bank"
         setup = false; older = false
-        FintsJob.fetch(context, range, name) { r -> if (r?.imported != null) armBackgroundRefresh() }
+        FintsJob.fetch(context, id, range, name) { r -> if (r?.imported != null) armBackgroundRefresh() }
     }
 
     /** After login or TAN: pick the TAN medium first if the bank wants one. */
     fun afterLogin(r: FintsResult, quick: Boolean) {
         if (r.tan_medium_required == true) {
-            val saved = prefs.getString(KEY_TAN_MEDIUM, null)
+            val saved = connId?.let { BankConnections.get(context, it)?.tanMedium }
             if (saved != null) {
                 scope.launch {
                     withFintsThread { WimgJni.nativeFintsSetTanMedium(mediumBody(saved)) }
@@ -324,7 +329,8 @@ fun FinTSScreen(navController: NavController? = null) {
 
     fun quickRefresh() {
         val b = bank ?: return
-        val saved = PinStore.get(context)
+        val id = connId ?: return
+        val saved = PinStore.get(context, id)
         if (saved == null) { setup = true; step = Step.Login; return }
         if (FintsJob.running) return
         busy = true; error = null
@@ -340,7 +346,7 @@ fun FinTSScreen(navController: NavController? = null) {
                     Dock.error(__t("Schnellabfrage fehlgeschlagen"), bankText(null), __t("Erneut")) { quickRefresh() }
                 }
                 else -> if (isAuthRejected(r)) {
-                    forgetPin(context)
+                    forgetPin(context, id)
                     Dock.error(__t("Anmeldung abgelehnt"), bankText(r))
                     setup = true; step = Step.Login; pin = ""
                     error = bankText(r)
@@ -351,9 +357,16 @@ fun FinTSScreen(navController: NavController? = null) {
         }
     }
 
+    // ↻ on a card in Bankverbindungen: run the Schnellabfrage once the catalog is in.
+    var quickDone by remember { mutableStateOf(false) }
+    LaunchedEffect(bank) {
+        if (quickOnOpen && !quickDone && bank != null && conn != null) { quickDone = true; quickRefresh() }
+    }
+
     fun fetchOlder() {
         val b = bank ?: return
-        val saved = PinStore.get(context)
+        val id = connId ?: return
+        val saved = PinStore.get(context, id)
         if (FintsJob.running || busy) return
         older = true; rangeChoice = 365; error = null
         if (saved == null) { setup = true; step = Step.Login; return }
@@ -367,13 +380,24 @@ fun FinTSScreen(navController: NavController? = null) {
                 r?.status == "ok" -> { setup = true; afterLogin(r, quick = false) }
                 r?.status == "tan_required" -> { setup = true; goTan(r, "connect") }
                 isAuthRejected(r) -> {
-                    forgetPin(context)
+                    forgetPin(context, id)
                     setup = true; step = Step.Login; pin = ""
                     error = bankText(r)
                 }
                 else -> { older = false; Dock.error(__t("Anmeldung fehlgeschlagen"), bankText(r), __t("Erneut")) { fetchOlder() } }
             }
         }
+    }
+
+    /** The login worked: keep it as a connection (a changed Kennung replaces the old one). */
+    fun saveLogin(b: BankInfo) {
+        val id = BankConnections.idFor(b.blz, kennung.trim())
+        val old = connId?.let { BankConnections.get(context, it) }
+        if (old != null && old.id != id) BankConnections.remove(context, old.id)
+        val existing = BankConnections.get(context, id)
+        BankConnections.put(context, BankConnection(id, b.blz, kennung.trim(), b.name, existing?.tanMedium ?: old?.tanMedium, existing?.lastFetchAt ?: 0, existing?.lastFetchNew ?: 0))
+        if (rememberPin) PinStore.set(context, id, pin) else PinStore.clear(context, id)
+        connId = id
     }
 
     fun login() {
@@ -384,13 +408,11 @@ fun FinTSScreen(navController: NavController? = null) {
             busy = false
             when (r?.status) {
                 "ok" -> {
-                    prefs.edit().putString(KEY_BLZ, b.blz).putString(KEY_KENNUNG, kennung.trim()).putString("fints_bank_name", b.name).apply()
-                    if (rememberPin) PinStore.set(context, pin) else PinStore.clear(context)
+                    saveLogin(b)
                     afterLogin(r, quick = false)
                 }
                 "tan_required" -> {
-                    prefs.edit().putString(KEY_BLZ, b.blz).putString(KEY_KENNUNG, kennung.trim()).putString("fints_bank_name", b.name).apply()
-                    if (rememberPin) PinStore.set(context, pin)
+                    saveLogin(b)
                     goTan(r, "connect")
                 }
                 else -> error = bankText(r)
@@ -413,7 +435,7 @@ fun FinTSScreen(navController: NavController? = null) {
                 r.status == "tan_required" -> { tan = r; tanInput = ""; if (!decoupled) error = r.message }
                 r.imported != null -> {
                     setup = false
-                    prefs.edit().putLong(KEY_LAST_FETCH, System.currentTimeMillis()).putInt(KEY_LAST_NEW, r.imported).apply()
+                    connId?.let { BankConnections.recordFetch(context, it, r.imported) }
                     Changes.bump()
                     Dock.info(__t("%d neue Umsätze").format(r.imported))
                     armBackgroundRefresh()
@@ -433,14 +455,14 @@ fun FinTSScreen(navController: NavController? = null) {
         if (!setup) navController?.popBackStack()
         else if (older && step != Step.Login) { setup = false; older = false }
         else when (step) {
-            Step.Bank -> if (prefs.getString(KEY_BLZ, null) != null) setup = false else navController?.popBackStack()
+            Step.Bank -> if (conn != null) setup = false else navController?.popBackStack()
             Step.Login -> step = Step.Bank
             else -> step = Step.Login
         }
         error = null
     }
     // System back walks the setup steps like the bar's ← does.
-    androidx.activity.compose.BackHandler(enabled = setup && !(step == Step.Bank && prefs.getString(KEY_BLZ, null) == null)) { back() }
+    androidx.activity.compose.BackHandler(enabled = setup && !(step == Step.Bank && conn == null)) { back() }
     val action: Pair<String, () -> Unit>? = if (!setup) {
         L("Schnellabfrage") to { quickRefresh() }
     } else when (step) {
@@ -454,7 +476,7 @@ fun FinTSScreen(navController: NavController? = null) {
     BarContribution(
         chip = null,
         panel = when {
-            removeOpen -> { { RemovePanel(bank?.name ?: "", onCancel = { removeOpen = false }) { removeConnection(context); removeOpen = false; reload++; setup = true; step = Step.Bank; pin = "" } } }
+            removeOpen -> { { RemovePanel(bank?.name ?: "", onCancel = { removeOpen = false }) { connId?.let { removeConnection(context, it) }; removeOpen = false; navController?.popBackStack() } } }
             moreOpen -> { {
                 BarPanel {
                     Row(
@@ -483,17 +505,17 @@ fun FinTSScreen(navController: NavController? = null) {
             actionLabel = action?.first,
             actionIcon = if (!setup) Icons.Outlined.Refresh else null,
             onAction = action?.second ?: {},
-            backLabel = if (setup) L("Zurück") else L("Einstellungen"),
+            backLabel = if (setup) L("Zurück") else L("Banken"),
             onMore = if (!setup) ({ moreOpen = !moreOpen }) else null,
             actionBusy = busy || FintsJob.running,
         ),
     )
 
-    if (!setup && bank != null) {
-        BankDetail(bank!!, prefs, reload, onOlder = { fetchOlder() })
+    if (!setup && bank != null && conn != null) {
+        BankDetail(bank!!, conn, reload, onOlder = { fetchOlder() })
         return
     }
-    if (!setup && bank == null && prefs.getString(KEY_BLZ, null) != null) {
+    if (!setup && conn != null) {
         // Catalog still loading.
         BandScreen(band = { Text(L("Bankverbindung"), style = WimgType.title, color = Color.White) }) {}
         return
@@ -550,7 +572,7 @@ fun FinTSScreen(navController: NavController? = null) {
                                 val r = withFintsThread { decode(WimgJni.nativeFintsSetTanMedium(mediumBody(m.name))) }
                                 busy = false
                                 if (r?.status == "ok") {
-                                    prefs.edit().putString(KEY_TAN_MEDIUM, m.name).apply()
+                                    connId?.let { id -> BankConnections.update(context, id) { it.copy(tanMedium = m.name) } }
                                     if (tanFor == "connect-quick") startFetch(rangeDays(90)) else step = Step.Range
                                 } else error = r?.message ?: __t("TAN-Gerät konnte nicht gesetzt werden")
                             }
@@ -718,19 +740,20 @@ private fun TanPage(bankName: String, tan: FintsResult?, input: String, onInput:
 }
 
 @Composable
-private fun BankDetail(b: BankInfo, prefs: android.content.SharedPreferences, reload: Int, onOlder: () -> Unit) {
+private fun BankDetail(b: BankInfo, conn: BankConnection, reload: Int, onOlder: () -> Unit) {
     val context = LocalContext.current
     val c = Wimg.colors
     var accounts by remember { mutableStateOf<List<Account>>(emptyList()) }
     var count by remember { mutableIntStateOf(0) }
     var bg by remember { mutableStateOf(BackgroundRefresh.isEnabled(context)) }
-    val hasPin = PinStore.has(context)
+    val hasPin = PinStore.has(context, conn.id)
     LaunchedEffect(Changes.version, reload) {
-        accounts = LibWimg.getAccounts()
-        count = LibWimg.getTransactions().size
+        // A bank's statements land in the account named after it.
+        accounts = LibWimg.getAccounts().filter { it.id == conn.name }
+        count = LibWimg.getTransactionsFiltered(conn.name).size
     }
     val withBalance = accounts.filter { it.balance != null }
-    val lastAt = prefs.getLong(KEY_LAST_FETCH, 0)
+    val lastAt = conn.lastFetchAt
     BandScreen(
         band = {
             if (withBalance.isNotEmpty()) {
@@ -745,17 +768,17 @@ private fun BankDetail(b: BankInfo, prefs: android.content.SharedPreferences, re
     ) {
         FormPage {
             WimgGroup {
-                WimgRow(L("Kennung"), trailing = { Text(prefs.getString(KEY_KENNUNG, "") ?: "", style = WimgType.mono.copy(fontSize = WimgType.mono.fontSize * 1.15f), color = c.text) })
+                WimgRow(L("Kennung"), trailing = { Text(conn.kennung, style = WimgType.mono.copy(fontSize = WimgType.mono.fontSize * 1.15f), color = c.text) })
                 RowDivider()
                 WimgRow(L("PIN"), trailing = { Text(if (hasPin) L("verschlüsselt gespeichert · nur hier") else L("nicht gespeichert"), style = WimgType.body, color = c.text) })
-                prefs.getString(KEY_TAN_MEDIUM, null)?.let { m ->
+                conn.tanMedium?.let { m ->
                     RowDivider()
                     WimgRow(L("TAN-Gerät"), trailing = { Text(m, style = WimgType.body, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis) })
                 }
                 RowDivider()
                 WimgRow(L("Letzter Abruf"), trailing = {
                     Text(
-                        if (lastAt == 0L) L("noch keiner") else L("%s · %d neue", WimgDates.short(iso(Calendar.getInstance().apply { timeInMillis = lastAt })), prefs.getInt(KEY_LAST_NEW, 0)),
+                        if (lastAt == 0L) L("noch keiner") else L("%s · %d neue", WimgDates.short(iso(Calendar.getInstance().apply { timeInMillis = lastAt })), conn.lastFetchNew),
                         style = WimgType.body, color = c.text,
                     )
                 })
@@ -805,16 +828,16 @@ private fun RemovePanel(bankName: String, onCancel: () -> Unit, onRemove: () -> 
     }
 }
 
-/** Forgets the bank login on this device; transactions stay. Undo puts it back. */
-private fun removeConnection(context: Context) {
-    val p = context.getSharedPreferences(PREFS, 0)
-    val saved = p.all.toMap()
-    p.edit().remove(KEY_BLZ).remove(KEY_KENNUNG).remove(KEY_TAN_MEDIUM).apply()
-    PinStore.clear(context)
-    val bgWasOn = BackgroundRefresh.isEnabled(context)
-    BackgroundRefresh.cancel(context)
+/** Forgets one bank login on this device; transactions stay. Undo puts it back. */
+private fun removeConnection(context: Context, id: String) {
+    val conn = BankConnections.get(context, id) ?: return
+    val pin = PinStore.get(context, id)
+    BankConnections.remove(context, id)
+    if (!BackgroundRefresh.hasCredentials(context)) BackgroundRefresh.cancel(context)
     Dock.undo(__t("Verbindung entfernt"), __t("Umsätze bleiben")) {
-        p.edit().apply { saved.forEach { (k, v) -> when (v) { is String -> putString(k, v); is Int -> putInt(k, v); is Long -> putLong(k, v); is Boolean -> putBoolean(k, v) } } }.apply()
-        if (bgWasOn) BackgroundRefresh.enqueue(context)
+        BankConnections.put(context, conn)
+        pin?.let { PinStore.set(context, id, it) }
+        BackgroundRefresh.enqueue(context)
+        Changes.bump()
     }
 }

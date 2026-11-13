@@ -270,11 +270,12 @@ fun CategoryPanel(current: Int, onApply: (Int) -> Unit) {
                             style = WimgType.rowTitle.copy(fontWeight = if (on || cat.id == current) FontWeight.Bold else FontWeight.Medium),
                             color = if (on) c.inkText else c.text,
                             modifier = Modifier.weight(1f), maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         )
                         if (on) Icon(Icons.Outlined.Check, contentDescription = null, tint = c.inkText, modifier = Modifier.size(18.dp))
                     }
                 }
-                if (pair.size == 1) Spacer(Modifier.weight(1f))
+                // A lone last entry ("Unkategorisiert") takes the whole row.
             }
         }
         Box(

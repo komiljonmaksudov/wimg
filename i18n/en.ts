@@ -1339,4 +1339,16 @@ export const en: Record<string, string> = {
   "Keine festen Zahlungen erkannt": "No fixed payments found",
   "Fixkosten offen": "Fixed costs due",
   "1 Umsatz": "1 transaction",
+  // Several bank connections
+  "Banken": "Banks",
+  "Bank hinzufügen": "Add bank",
+  "Kontostand · Stand %s": "Balance · as of %s",
+  "Kontostand nach dem ersten Abruf": "Balance after the first fetch",
+  "PIN gespeichert": "PIN saved",
+  "PIN nicht gespeichert": "PIN not saved",
+  "noch nicht abgerufen": "not fetched yet",
+  "zuletzt abgerufen %s": "last fetched %s",
+  "Abruf nur mit Anmeldung": "fetch needs sign-in",
+  "Schnellabfrage (↻) holt die letzten 90 Tage und geht direkt zur TAN, falls die Bank eine verlangt. Nur mit gespeicherter PIN.": "Quick fetch (↻) gets the last 90 days and goes straight to the TAN if the bank asks for one. Only with a saved PIN.",
+  "Deine Banken": "Your banks",
 };

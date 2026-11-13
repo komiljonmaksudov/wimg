@@ -571,7 +571,7 @@ private fun deleteAllData(context: Context) {
         listOf("wimg.db", "wimg.db-wal", "wimg.db-shm").forEach { File(context.filesDir, it).delete() }
         SyncService.clearSync(context)
         BackgroundRefresh.cancel(context)
-        com.wimg.app.services.PinStore.clear(context)
+        com.wimg.app.services.PinStore.clearAll(context)
         context.getSharedPreferences("wimg_fints", 0).edit().clear().apply()
         LibWimg.initialize(context)
     }

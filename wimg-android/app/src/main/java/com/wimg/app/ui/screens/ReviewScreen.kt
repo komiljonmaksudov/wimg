@@ -74,7 +74,7 @@ object ReviewTarget {
     var ym by mutableStateOf<Pair<Int, Int>?>(null)
 }
 
-private class ReviewData(
+internal class ReviewData(
     val summary: MonthlySummary?,
     val previous: MonthlySummary?,
     val biggest: Transaction?,
@@ -84,7 +84,9 @@ private class ReviewData(
 
 private fun prevMonth(y: Int, m: Int) = if (m == 1) y - 1 to 12 else y to m - 1
 
-private fun loadReview(year: Int, month: Int, account: String?): ReviewData {
+internal fun reviewKey(year: Int, month: Int, account: String?) = "review:$year-$month:$account"
+
+internal fun loadReview(year: Int, month: Int, account: String?): ReviewData {
     val summary = LibWimg.getSummaryFiltered(year, month, account)
     val (py, pm) = prevMonth(year, month)
     val previous = LibWimg.getSummaryFiltered(py, pm, account)?.takeIf { it.tx_count > 0 }
@@ -110,10 +112,13 @@ fun ReviewScreen(selectedAccount: String?, navController: NavController? = null)
     var year by remember { mutableIntStateOf(start.first) }
     var month by remember { mutableIntStateOf(start.second) }
     var pickerOpen by remember { mutableStateOf(false) }
-    var data by remember { mutableStateOf<ReviewData?>(null) }
+    // Last result first (loaded ahead in the background), fresh data replaces it.
+    var data by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<ReviewData>(reviewKey(year, month, selectedAccount))) }
     LaunchedEffect(Unit) { ReviewTarget.ym = null }
     LaunchedEffect(year, month, selectedAccount, Changes.version) {
+        com.wimg.app.ui.components.ScreenCache.get<ReviewData>(reviewKey(year, month, selectedAccount))?.let { data = it }
         data = withContext(Dispatchers.IO) { loadReview(year, month, selectedAccount) }
+            .also { com.wimg.app.ui.components.ScreenCache.put(reviewKey(year, month, selectedAccount), it) }
     }
 
     val locale = if (LocaleState.locale == "en") Locale.ENGLISH else Locale.GERMAN

@@ -81,7 +81,7 @@ private fun isPlaceSwitch(from: androidx.navigation.NavBackStackEntry, to: andro
 private const val ONBOARDING_KEY = "wimg_onboarding_done"
 
 /** Routes already rebuilt in the redesign (band + sheet, content under the bar). */
-private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}", "recurring", "rec/{id}", "settings", "settings/lock", "settings/data", "settings/sync", "settings/sync/key", "settings/sync/link", "fints", "import", "dev/bar", "about", "about/news", "about/faq", "about/privacy", "about/licenses", "review")
+private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}", "recurring", "rec/{id}", "settings", "settings/lock", "settings/data", "settings/sync", "settings/sync/key", "settings/sync/link", "fints", "fints/add", "fints/{id}?quick={quick}", "import", "dev/bar", "about", "about/news", "about/faq", "about/privacy", "about/licenses", "review")
 
 /** Everything the place chip can switch to, in menu order. */
 val PLACES = listOf(
@@ -89,7 +89,7 @@ val PLACES = listOf(
     Place("transactions", "Umsätze", Icons.AutoMirrored.Outlined.List),
     Place("recurring", "Wiederkehrend", Icons.Outlined.Refresh),
     Place("review", "Rückblick", Icons.Outlined.CalendarMonth),
-    Place("fints", "Bankverbindung", Icons.Outlined.AccountBalance, gapBefore = true),
+    Place("fints", "Banken", Icons.Outlined.AccountBalance, gapBefore = true),
     Place("import", "Import", Icons.Outlined.FileUpload),
     Place("settings", "Einstellungen", Icons.Outlined.Settings),
     Place("about", "Über wimg", Icons.Outlined.Info),
@@ -126,6 +126,9 @@ fun WimgNavigation() {
             runCatching {
                 ScreenCache.put(txKey(selectedAccount), loadTx(selectedAccount))
                 ScreenCache.put(REC_KEY, loadRecurring())
+                val now = java.util.Calendar.getInstance()
+                val y = now.get(java.util.Calendar.YEAR); val m = now.get(java.util.Calendar.MONTH) + 1
+                ScreenCache.put(com.wimg.app.ui.screens.reviewKey(y, m, selectedAccount), com.wimg.app.ui.screens.loadReview(y, m, selectedAccount))
             }
         }
     }
@@ -182,7 +185,17 @@ fun WimgNavigation() {
                     composable("import") { ImportScreen(navController = navController) }
                     composable("recurring") { RecurringScreen(navController = navController) }
                     composable("review") { ReviewScreen(selectedAccount = selectedAccount, navController = navController) }
-                    composable("fints") { FinTSScreen(navController) }
+                    composable("fints") { BanksScreen(navController) }
+                    composable("fints/add") { FinTSScreen(navController) }
+                    composable(
+                        "fints/{id}?quick={quick}",
+                        arguments = listOf(
+                            androidx.navigation.navArgument("id") { type = androidx.navigation.NavType.StringType },
+                            androidx.navigation.navArgument("quick") { type = androidx.navigation.NavType.StringType; nullable = true; defaultValue = null },
+                        ),
+                    ) { entry ->
+                        FinTSScreen(navController, entry.arguments?.getString("id"), quickOnOpen = entry.arguments?.getString("quick") == "1")
+                    }
                     composable("settings") { SettingsScreen(navController = navController) }
                     composable("settings/lock") { SettingsLockScreen(navController) }
                     composable("settings/data") { SettingsDataScreen(navController) }
@@ -277,7 +290,7 @@ fun WimgNavigation() {
                 }
                 // Search is reachable from every page, except inside a flow that a
                 // detour would break (bank setup mid-TAN, CSV import).
-                val searchHere = detailBar == null || (route != "fints" && route != "import")
+                val searchHere = detailBar == null || (route?.startsWith("fints") != true && route != "import")
                 FloatingBar(
                     divider = detailBar == null || detailBar.onMore != null || searchHere,
                     fill = detailBar?.actionLabel != null,
@@ -305,7 +318,8 @@ fun WimgNavigation() {
                     right = {
                         if (detailBar == null) {
                             BarIcon(BarIcons.Search, L("Suche")) { menuOpen = false; navController.navigate("search") }
-                            BarIcon(BarIcons.Add, L("Hinzufügen"), accent = true) { menuOpen = false; navController.goTo("import") }
+                            val add = BarState.current.onAdd
+                            BarIcon(BarIcons.Add, BarState.current.addLabel ?: L("Hinzufügen"), accent = true) { menuOpen = false; if (add != null) add() else navController.goTo("import") }
                         } else {
                             if (searchHere) BarIcon(BarIcons.Search, L("Suche")) { navController.navigate("search") }
                             detailBar.onMore?.let { more ->

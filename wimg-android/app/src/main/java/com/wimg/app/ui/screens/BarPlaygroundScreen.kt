@@ -94,9 +94,9 @@ fun BarPlaygroundScreen(navController: NavController?) {
             }
             GroupLabel("Angedockte Zeile")
             WimgGroup {
-                WimgRow("Mitteilung: neue Umsätze", onClick = { com.wimg.app.services.BackgroundRefresh.notify(context, com.wimg.app.services.BackgroundRefresh.Outcome.Imported(3)) })
+                WimgRow("Mitteilung: neue Umsätze", onClick = { com.wimg.app.services.BackgroundRefresh.notify(context, com.wimg.app.services.BackgroundRefresh.Outcome.Imported(3, "Musterbank")) })
                 RowDivider()
-                WimgRow("Mitteilung: TAN erforderlich", desc = "Höchstens einmal pro Tag", onClick = { com.wimg.app.services.BackgroundRefresh.notify(context, com.wimg.app.services.BackgroundRefresh.Outcome.TanRequired) })
+                WimgRow("Mitteilung: TAN erforderlich", desc = "Höchstens einmal pro Tag", onClick = { com.wimg.app.services.BackgroundRefresh.notify(context, com.wimg.app.services.BackgroundRefresh.Outcome.TanRequired("Musterbank")) })
                 RowDivider()
                 WimgRow("Mitteilung: Monatsabschluss", onClick = { com.wimg.app.services.BackgroundRefresh.notifyMonthEnd(context, force = true) })
                 RowDivider()

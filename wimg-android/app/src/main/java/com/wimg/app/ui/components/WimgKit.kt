@@ -636,9 +636,13 @@ fun FloatingBar(
                         if (wide && !fill) {
                             Row(Modifier.weight(1f, fill = false), horizontalArrangement = Arrangement.spacedBy(WimgDimens.barGap), verticalAlignment = Alignment.CenterVertically) {
                                 layer.left(this)
-                                if (layer.divider) Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 24.dp).background(c.line))
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(WimgDimens.barGap), verticalAlignment = Alignment.CenterVertically) { layer.right(this) }
+                            // The divider belongs to "what" (board 13): it stays beside the
+                            // icons while the extra width opens up after "where".
+                            Row(horizontalArrangement = Arrangement.spacedBy(WimgDimens.barGap), verticalAlignment = Alignment.CenterVertically) {
+                                if (layer.divider) Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 24.dp).background(c.line))
+                                layer.right(this)
+                            }
                         } else {
                             layer.left(this)
                             if (layer.divider) Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 24.dp).background(c.line))
@@ -743,6 +747,9 @@ data class BarSpec(
     val detail: DetailBarSpec? = null,
     /** Route of the page that registered this, so the place chip matches the page shown. */
     val route: String? = null,
+    /** What the place bar's "+" does on this page (default: CSV import). */
+    val onAdd: (() -> Unit)? = null,
+    val addLabel: String? = null,
 )
 
 /**
@@ -784,12 +791,14 @@ fun BarContribution(
     panel: (@Composable () -> Unit)?,
     onPanelDismiss: () -> Unit,
     detail: DetailBarSpec? = null,
+    onAdd: (() -> Unit)? = null,
+    addLabel: String? = null,
 ) {
     val entry = androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner.current as? androidx.navigation.NavBackStackEntry
     val owner = entry?.id ?: "root"
     // Registered while the page composes (the bar composes after the NavHost in the
     // same pass), so a new page and its bar appear in the same frame.
-    val spec = BarSpec(chip, panel, onPanelDismiss, detail, entry?.destination?.route)
+    val spec = BarSpec(chip, panel, onPanelDismiss, detail, entry?.destination?.route, onAdd, addLabel)
     BarState.put(owner, spec)
     androidx.compose.runtime.SideEffect { BarState.put(owner, spec) }
     DisposableEffect(owner) { onDispose { BarState.remove(owner) } }

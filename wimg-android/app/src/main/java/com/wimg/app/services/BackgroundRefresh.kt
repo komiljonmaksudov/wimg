@@ -59,10 +59,6 @@ object BackgroundRefresh {
     private const val MONTH_END_NOTIFICATION_ID = 4712
     private const val MONTH_END_KEY = "wimg_month_end_notified"
     private const val SETTINGS_PREFS = "wimg_settings"
-    private const val FINTS_PREFS = "wimg_fints"
-    private const val KEY_BLZ = "fints_blz"
-    private const val KEY_KENNUNG = "fints_kennung"
-    private const val KEY_TAN_MEDIUM = "fints_tan_medium"
 
     /** Dedupe TAN notifications so a daily run on a TAN bank doesn't produce
      *  seven "TAN erforderlich" banners in a week. Mirrors iOS. */
@@ -89,12 +85,8 @@ object BackgroundRefresh {
     }
 
     /** No stored PIN means nothing to refresh — don't schedule a wake-up. */
-    fun hasCredentials(context: Context): Boolean {
-        val prefs = context.getSharedPreferences(FINTS_PREFS, Context.MODE_PRIVATE)
-        return prefs.getString(KEY_BLZ, null) != null &&
-            prefs.getString(KEY_KENNUNG, null) != null &&
-            PinStore.has(context)
-    }
+    fun hasCredentials(context: Context): Boolean =
+        BankConnections.all(context).any { PinStore.has(context, it.id) }
 
     // MARK: - Scheduling
 
@@ -165,8 +157,7 @@ object BackgroundRefresh {
     }
 
     internal fun notify(context: Context, outcome: Outcome) {
-        val bank = context.getSharedPreferences(FINTS_PREFS, Context.MODE_PRIVATE)
-            .getString("fints_bank_name", null) ?: tr(context, "Deine Bank")
+        val bank = outcome.bank?.takeIf { it.isNotBlank() } ?: tr(context, "Deine Bank")
         when (outcome) {
             is Outcome.Imported -> {
                 if (outcome.count <= 0) return
@@ -177,7 +168,7 @@ object BackgroundRefresh {
                     route = "transactions",
                 )
             }
-            Outcome.TanRequired -> {
+            is Outcome.TanRequired -> {
                 val prefs = context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE)
                 val last = prefs.getLong(TAN_LAST_NOTIFIED_KEY, 0L)
                 val now = System.currentTimeMillis()
@@ -191,7 +182,7 @@ object BackgroundRefresh {
                     action = tr(context, "Jetzt abrufen"),
                 )
             }
-            Outcome.AuthFailed -> post(
+            is Outcome.AuthFailed -> post(
                 context,
                 tr(context, "Anmeldung abgelehnt"),
                 tr(context, "%s hat die gespeicherte PIN abgelehnt. Melde dich einmal neu an.").format(bank),
@@ -267,9 +258,12 @@ object BackgroundRefresh {
     }
 
     internal sealed interface Outcome {
-        data class Imported(val count: Int) : Outcome
-        data object TanRequired : Outcome
-        data object AuthFailed : Outcome
+        /** Bank the outcome is about, for the notification text. */
+        val bank: String? get() = null
+
+        data class Imported(val count: Int, override val bank: String? = null) : Outcome
+        data class TanRequired(override val bank: String? = null) : Outcome
+        data class AuthFailed(override val bank: String? = null) : Outcome
 
         /** Ran fine, nothing new (or a transient error) — don't notify. */
         data object Silent : Outcome
@@ -302,11 +296,25 @@ object BackgroundRefresh {
             thread.start()
         }
 
+    /**
+     * Every bank with a saved PIN, one after another (libwimg holds one bank
+     * session at a time). New transactions are added up into one notification;
+     * a TAN request or a rejected login is reported for the first bank it hit.
+     */
     internal suspend fun runSilentRefresh(context: Context): Outcome {
-        val prefs = context.getSharedPreferences(FINTS_PREFS, Context.MODE_PRIVATE)
-        val blz = prefs.getString(KEY_BLZ, null) ?: return Outcome.Silent
-        val kennung = prefs.getString(KEY_KENNUNG, null) ?: return Outcome.Silent
-        val pin = PinStore.get(context) ?: return Outcome.Silent
+        val outcomes = BankConnections.all(context).filter { PinStore.has(context, it.id) }.map { refreshOne(context, it) }
+        val imported = outcomes.filterIsInstance<Outcome.Imported>()
+        if (imported.isNotEmpty()) {
+            WidgetDataWriter.writeSummary(context)
+            return Outcome.Imported(imported.sumOf { it.count }, imported.singleOrNull()?.bank ?: tr(context, "Deine Banken"))
+        }
+        return outcomes.firstOrNull { it is Outcome.AuthFailed } ?: outcomes.firstOrNull { it is Outcome.TanRequired } ?: Outcome.Silent
+    }
+
+    private suspend fun refreshOne(context: Context, conn: BankConnection): Outcome {
+        val blz = conn.blz
+        val kennung = conn.kennung
+        val pin = PinStore.get(context, conn.id) ?: return Outcome.Silent
 
         return try {
             val connect = withFintsThread {
@@ -316,22 +324,22 @@ object BackgroundRefresh {
             } ?: return Outcome.Silent
 
             when (connect.status) {
-                "tan_required" -> return Outcome.TanRequired
+                "tan_required" -> return Outcome.TanRequired(conn.name)
                 "ok" -> Unit
                 else -> {
                     // Only a real rejection clears the PIN (retrying a wrong PIN daily
                     // gets the account locked). Anything else may be the bank being
                     // briefly down: try again tomorrow.
                     if (!isAuthRejected(connect)) return Outcome.Silent
-                    PinStore.clear(context)
-                    cancel(context)
-                    return Outcome.AuthFailed
+                    PinStore.clear(context, conn.id)
+                    if (!hasCredentials(context)) cancel(context)
+                    return Outcome.AuthFailed(conn.name)
                 }
             }
 
             // Restore the saved TAN medium if the bank insists on one.
             if (connect.tan_medium_required == true) {
-                prefs.getString(KEY_TAN_MEDIUM, null)?.let { medium ->
+                conn.tanMedium?.let { medium ->
                     withFintsThread { WimgJni.nativeFintsSetTanMedium(kotlinx.serialization.json.buildJsonObject { put("name", medium) }.toString()) }
                 }
             }
@@ -347,20 +355,19 @@ object BackgroundRefresh {
                     ?.let { json.decodeFromString<FintsResult>(it) }
             } ?: return Outcome.Silent
 
-            if (fetch.status == "tan_required") return Outcome.TanRequired
+            if (fetch.status == "tan_required") return Outcome.TanRequired(conn.name)
             if (isAuthRejected(fetch)) {
-                PinStore.clear(context)
-                cancel(context)
-                return Outcome.AuthFailed
+                PinStore.clear(context, conn.id)
+                if (!hasCredentials(context)) cancel(context)
+                return Outcome.AuthFailed(conn.name)
             }
             if (fetch.status != "ok") return Outcome.Silent // don't spam on transient errors
 
             val imported = fetch.imported ?: 0
             // Same fields the bank page shows as "Letzter Abruf".
-            prefs.edit().putLong("fints_last_fetch_at", System.currentTimeMillis()).putInt("fints_last_fetch_new", imported).apply()
+            BankConnections.recordFetch(context, conn.id, imported)
             if (imported > 0) {
-                WidgetDataWriter.writeSummary(context)
-                Outcome.Imported(imported)
+                Outcome.Imported(imported, conn.name)
             } else {
                 Outcome.Silent
             }

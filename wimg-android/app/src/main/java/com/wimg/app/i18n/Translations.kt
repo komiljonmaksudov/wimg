@@ -1121,6 +1121,17 @@ private val translations: Map<String, String> = mapOf(
     "Keine festen Zahlungen erkannt" to "No fixed payments found",
     "Fixkosten offen" to "Fixed costs due",
     "1 Umsatz" to "1 transaction",
+    "Banken" to "Banks",
+    "Bank hinzufügen" to "Add bank",
+    "Kontostand · Stand %s" to "Balance · as of %s",
+    "Kontostand nach dem ersten Abruf" to "Balance after the first fetch",
+    "PIN gespeichert" to "PIN saved",
+    "PIN nicht gespeichert" to "PIN not saved",
+    "noch nicht abgerufen" to "not fetched yet",
+    "zuletzt abgerufen %s" to "last fetched %s",
+    "Abruf nur mit Anmeldung" to "fetch needs sign-in",
+    "Schnellabfrage (↻) holt die letzten 90 Tage und geht direkt zur TAN, falls die Bank eine verlangt. Nur mit gespeicherter PIN." to "Quick fetch (↻) gets the last 90 days and goes straight to the TAN if the bank asks for one. Only with a saved PIN.",
+    "Deine Banken" to "Your banks",
 )
 
 /** Composable lookup — recomposes when LocaleState.locale flips. */
