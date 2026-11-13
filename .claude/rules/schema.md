@@ -83,6 +83,29 @@ CREATE TABLE recurring_patterns (
   updated_at INTEGER NOT NULL DEFAULT 0
 );
 
+-- What the user decided about a detected pattern (board 26). Detection
+-- rewrites recurring_patterns; these survive it and are synced (LWW).
+CREATE TABLE recurring_overrides (
+  id TEXT PRIMARY KEY,                       -- recurring_patterns.id
+  name TEXT,                                 -- NULL = detected merchant
+  category INTEGER,
+  interval TEXT,
+  fixed_amount INTEGER,                      -- NULL = automatic (last payment)
+  hidden INTEGER NOT NULL DEFAULT 0,         -- "Nicht wiederkehrend"
+  hidden_at INTEGER,
+  accepted_amount INTEGER,                   -- "Stimmt, neuer Preis"
+  updated_at INTEGER NOT NULL DEFAULT 0
+);
+-- Payments set aside as one-offs (oneoff=1; detection also marks a lone
+-- outlier) or confirmed as belonging (oneoff=0). Sync id: pattern_id:tx_id.
+CREATE TABLE recurring_oneoffs (
+  pattern_id TEXT NOT NULL,
+  tx_id TEXT NOT NULL,
+  oneoff INTEGER NOT NULL DEFAULT 1,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (pattern_id, tx_id)
+);
+
 CREATE TABLE snapshots (
   id TEXT PRIMARY KEY,                       -- "2026-03"
   date TEXT NOT NULL,

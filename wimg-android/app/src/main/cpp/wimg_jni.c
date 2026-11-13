@@ -23,6 +23,10 @@ extern int32_t wimg_detect_recurring(void);
 extern const uint8_t *wimg_get_recurring_payments(const uint8_t *id, uint32_t id_len);
 extern const uint8_t *wimg_undo(void);
 extern const uint8_t *wimg_get_rules(void);
+extern int32_t wimg_set_recurring_hidden(const uint8_t *id, uint32_t id_len, uint8_t hidden);
+extern int32_t wimg_edit_recurring(const uint8_t *id, uint32_t id_len, const uint8_t *name, uint32_t name_len, int32_t category, const uint8_t *interval, uint32_t interval_len, int64_t fixed_cents);
+extern int32_t wimg_accept_recurring_price(const uint8_t *id, uint32_t id_len);
+extern int32_t wimg_set_recurring_oneoff(const uint8_t *pid, uint32_t pid_len, const uint8_t *tid, uint32_t tid_len, uint8_t oneoff);
 extern int32_t wimg_delete_rule(int64_t id, uint8_t reset);
 extern int32_t wimg_add_manual_transaction(const uint8_t *date, uint32_t date_len, const uint8_t *desc, uint32_t desc_len, int64_t amount_cents, uint8_t category, const uint8_t *acct, uint32_t acct_len);
 extern const uint8_t *wimg_export_csv(void);
@@ -150,6 +154,42 @@ JNIEXPORT jstring JNICALL JNI_FN(nativeImportCsv)(JNIEnv *env, jobject obj, jbyt
     const uint8_t *ptr = wimg_import_csv((const uint8_t *)bytes, len);
     (*env)->ReleaseByteArrayElements(env, data, bytes, JNI_ABORT);
     return ptr_to_jstring(env, ptr);
+}
+
+// --- Recurring: user decisions ---
+
+#define WITH_UTF(js, var, len) const char *var = (*env)->GetStringUTFChars(env, js, NULL); jsize len = (*env)->GetStringUTFLength(env, js);
+#define END_UTF(js, var) (*env)->ReleaseStringUTFChars(env, js, var);
+
+JNIEXPORT jint JNICALL JNI_FN(nativeSetRecurringHidden)(JNIEnv *env, jobject obj, jstring id, jint hidden) {
+    WITH_UTF(id, c, n)
+    int32_t rc = wimg_set_recurring_hidden((const uint8_t *)c, n, (uint8_t)hidden);
+    END_UTF(id, c)
+    return rc;
+}
+
+JNIEXPORT jint JNICALL JNI_FN(nativeEditRecurring)(JNIEnv *env, jobject obj, jstring id, jstring name, jint category, jstring interval, jlong fixed) {
+    WITH_UTF(id, ci, ni)
+    WITH_UTF(name, cn, nn)
+    WITH_UTF(interval, cv, nv)
+    int32_t rc = wimg_edit_recurring((const uint8_t *)ci, ni, (const uint8_t *)cn, nn, (int32_t)category, (const uint8_t *)cv, nv, (int64_t)fixed);
+    END_UTF(id, ci) END_UTF(name, cn) END_UTF(interval, cv)
+    return rc;
+}
+
+JNIEXPORT jint JNICALL JNI_FN(nativeAcceptRecurringPrice)(JNIEnv *env, jobject obj, jstring id) {
+    WITH_UTF(id, c, n)
+    int32_t rc = wimg_accept_recurring_price((const uint8_t *)c, n);
+    END_UTF(id, c)
+    return rc;
+}
+
+JNIEXPORT jint JNICALL JNI_FN(nativeSetRecurringOneoff)(JNIEnv *env, jobject obj, jstring pid, jstring tid, jint oneoff) {
+    WITH_UTF(pid, cp, np)
+    WITH_UTF(tid, ct, nt)
+    int32_t rc = wimg_set_recurring_oneoff((const uint8_t *)cp, np, (const uint8_t *)ct, nt, (uint8_t)oneoff);
+    END_UTF(pid, cp) END_UTF(tid, ct)
+    return rc;
 }
 
 // --- Rules + manual entries ---

@@ -34,7 +34,7 @@ pub const DbError = error{
     StepFailed,
 };
 
-const CURRENT_SCHEMA_VERSION = 17;
+const CURRENT_SCHEMA_VERSION = 18;
 
 pub const Db = struct {
     handle: *c.sqlite3,
@@ -324,9 +324,39 @@ pub const Db = struct {
             }
         }
 
+        if (version < 18) {
+            // v18: what the user decided about recurring patterns. Detection
+            // rewrites recurring_patterns on every run, so these live apart:
+            // overrides (name, category, rhythm, fixed amount, hidden, accepted
+            // price) and one-off payments (oneoff=1) or payments the user says
+            // do belong (oneoff=0, so detection won't mark them again).
+            self.exec(
+                \\CREATE TABLE IF NOT EXISTS recurring_overrides (
+                \\  id TEXT PRIMARY KEY,
+                \\  name TEXT,
+                \\  category INTEGER,
+                \\  interval TEXT,
+                \\  fixed_amount INTEGER,
+                \\  hidden INTEGER NOT NULL DEFAULT 0,
+                \\  hidden_at INTEGER,
+                \\  accepted_amount INTEGER,
+                \\  updated_at INTEGER NOT NULL DEFAULT 0
+                \\);
+            ) catch {};
+            self.exec(
+                \\CREATE TABLE IF NOT EXISTS recurring_oneoffs (
+                \\  pattern_id TEXT NOT NULL,
+                \\  tx_id TEXT NOT NULL,
+                \\  oneoff INTEGER NOT NULL DEFAULT 1,
+                \\  updated_at INTEGER NOT NULL DEFAULT 0,
+                \\  PRIMARY KEY (pattern_id, tx_id)
+                \\);
+            ) catch {};
+        }
+
         // Store current version
         if (version < CURRENT_SCHEMA_VERSION) {
-            self.setMeta("schema_version", "17") catch {};
+            self.setMeta("schema_version", "18") catch {};
         }
     }
 
@@ -963,7 +993,15 @@ pub const Db = struct {
     }
 
     pub fn getRecurringJson(self: *Db, buf: [*]u8, buf_len: usize) DbError!?usize {
-        const sql = "SELECT id, merchant, amount, interval, category, last_seen, next_due, active, prev_amount FROM recurring_patterns WHERE active = 1 ORDER BY merchant;";
+        // User decisions (recurring_overrides) win over what detection found.
+        const sql =
+            \\SELECT p.id, p.merchant, COALESCE(o.fixed_amount, p.amount), COALESCE(o.interval, p.interval),
+            \\  COALESCE(o.category, p.category), p.last_seen, p.next_due, p.active,
+            \\  CASE WHEN o.accepted_amount IS NOT NULL AND o.accepted_amount = p.amount THEN NULL ELSE p.prev_amount END,
+            \\  o.name, COALESCE(o.hidden, 0), p.amount, o.fixed_amount IS NOT NULL
+            \\FROM recurring_patterns p LEFT JOIN recurring_overrides o ON o.id = p.id
+            \\WHERE p.active = 1 ORDER BY p.merchant;
+        ;
 
         var stmt: ?*c.sqlite3_stmt = null;
         const rc = c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null);
@@ -994,6 +1032,11 @@ pub const Db = struct {
             const active = c.sqlite3_column_int(s, 7);
             const prev_amt_type = c.sqlite3_column_type(s, 8);
             const prev_amt: ?i64 = if (prev_amt_type == c.SQLITE_NULL) null else c.sqlite3_column_int64(s, 8);
+            const name_ptr = c.sqlite3_column_text(s, 9);
+            const name_len: usize = @intCast(c.sqlite3_column_bytes(s, 9));
+            const hidden = c.sqlite3_column_int(s, 10);
+            const detected = c.sqlite3_column_int64(s, 11);
+            const fixed = c.sqlite3_column_int(s, 12);
 
             if (!first) {
                 if (pos >= buf_len) return null;
@@ -1090,7 +1133,7 @@ pub const Db = struct {
             @memcpy(buf[pos .. pos + p10.len], p10);
             pos += p10.len;
             if (prev_amt) |pa| {
-                const diff = amount - pa;
+                const diff = detected - pa;
                 if (diff > 50 or diff < -50) {
                     pos += formatAmount(buf[pos..buf_len], diff) orelse return null;
                 } else {
@@ -1106,6 +1149,42 @@ pub const Db = struct {
                 pos += null_s.len;
             }
 
+            // ,"name":…,"hidden":N,"detected_amount":X,"fixed":N
+            const p11 = ",\"name\":";
+            if (pos + p11.len > buf_len) return null;
+            @memcpy(buf[pos .. pos + p11.len], p11);
+            pos += p11.len;
+            if (name_ptr) |np| {
+                if (pos + 2 > buf_len) return null;
+                buf[pos] = '"';
+                pos += 1;
+                pos += jsonEscapeString(buf[pos..buf_len], np[0..name_len]) orelse return null;
+                if (pos >= buf_len) return null;
+                buf[pos] = '"';
+                pos += 1;
+            } else {
+                if (pos + 4 > buf_len) return null;
+                @memcpy(buf[pos .. pos + 4], "null");
+                pos += 4;
+            }
+            const p12 = ",\"hidden\":";
+            if (pos + p12.len + 1 > buf_len) return null;
+            @memcpy(buf[pos .. pos + p12.len], p12);
+            pos += p12.len;
+            buf[pos] = if (hidden != 0) '1' else '0';
+            pos += 1;
+            const p13 = ",\"detected_amount\":";
+            if (pos + p13.len > buf_len) return null;
+            @memcpy(buf[pos .. pos + p13.len], p13);
+            pos += p13.len;
+            pos += formatAmount(buf[pos..buf_len], detected) orelse return null;
+            const p14 = ",\"fixed\":";
+            if (pos + p14.len + 1 > buf_len) return null;
+            @memcpy(buf[pos .. pos + p14.len], p14);
+            pos += p14.len;
+            buf[pos] = if (fixed != 0) '1' else '0';
+            pos += 1;
+
             if (pos >= buf_len) return null;
             buf[pos] = '}';
             pos += 1;
@@ -1118,6 +1197,87 @@ pub const Db = struct {
         pos += 1;
 
         return pos;
+    }
+
+    fn ensureOverride(self: *Db, id: []const u8) DbError!void {
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, "INSERT OR IGNORE INTO recurring_overrides (id, updated_at) VALUES (?1, ?2);", -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(st.?);
+        _ = c.sqlite3_bind_text(st.?, 1, id.ptr, @intCast(id.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_int64(st.?, 2, nowMs());
+        if (c.sqlite3_step(st.?) != c.SQLITE_DONE) return DbError.StepFailed;
+    }
+
+    /// "Nicht wiederkehrend" (hidden = true) or "Wieder anzeigen".
+    pub fn setRecurringHidden(self: *Db, id: []const u8, hidden: bool) DbError!void {
+        try self.ensureOverride(id);
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, "UPDATE recurring_overrides SET hidden = ?2, hidden_at = ?3, updated_at = ?3 WHERE id = ?1;", -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(st.?);
+        _ = c.sqlite3_bind_text(st.?, 1, id.ptr, @intCast(id.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_int(st.?, 2, if (hidden) 1 else 0);
+        _ = c.sqlite3_bind_int64(st.?, 3, nowMs());
+        if (c.sqlite3_step(st.?) != c.SQLITE_DONE) return DbError.StepFailed;
+    }
+
+    /// The edit panel. Empty name / negative category / empty interval mean
+    /// "as detected"; a null fixed amount means "automatic".
+    pub fn editRecurring(self: *Db, id: []const u8, name: []const u8, category: i32, interval: []const u8, fixed_amount: ?i64) DbError!void {
+        try self.ensureOverride(id);
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, "UPDATE recurring_overrides SET name = ?2, category = ?3, interval = ?4, fixed_amount = ?5, updated_at = ?6 WHERE id = ?1;", -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(st.?);
+        const s = st.?;
+        _ = c.sqlite3_bind_text(s, 1, id.ptr, @intCast(id.len), c.SQLITE_STATIC);
+        if (name.len > 0) {
+            _ = c.sqlite3_bind_text(s, 2, name.ptr, @intCast(name.len), c.SQLITE_STATIC);
+        } else _ = c.sqlite3_bind_null(s, 2);
+        if (category >= 0) {
+            _ = c.sqlite3_bind_int(s, 3, category);
+        } else _ = c.sqlite3_bind_null(s, 3);
+        if (interval.len > 0) {
+            _ = c.sqlite3_bind_text(s, 4, interval.ptr, @intCast(interval.len), c.SQLITE_STATIC);
+        } else _ = c.sqlite3_bind_null(s, 4);
+        if (fixed_amount) |f| {
+            _ = c.sqlite3_bind_int64(s, 5, f);
+        } else _ = c.sqlite3_bind_null(s, 5);
+        _ = c.sqlite3_bind_int64(s, 6, nowMs());
+        if (c.sqlite3_step(s) != c.SQLITE_DONE) return DbError.StepFailed;
+    }
+
+    /// "Stimmt, neuer Preis": the current amount is the price; no change shown.
+    pub fn acceptRecurringPrice(self: *Db, id: []const u8) DbError!void {
+        try self.ensureOverride(id);
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, "UPDATE recurring_overrides SET accepted_amount = (SELECT amount FROM recurring_patterns WHERE id = ?1), updated_at = ?2 WHERE id = ?1;", -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(st.?);
+        _ = c.sqlite3_bind_text(st.?, 1, id.ptr, @intCast(id.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_int64(st.?, 2, nowMs());
+        if (c.sqlite3_step(st.?) != c.SQLITE_DONE) return DbError.StepFailed;
+    }
+
+    /// Marks a payment as a one-off for this pattern (oneoff = true) or as
+    /// belonging to it (false). Kept either way, so detection respects it.
+    pub fn setRecurringOneoff(self: *Db, pattern_id: []const u8, tx_id: []const u8, oneoff: bool) DbError!void {
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, "INSERT INTO recurring_oneoffs (pattern_id, tx_id, oneoff, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (pattern_id, tx_id) DO UPDATE SET oneoff = excluded.oneoff, updated_at = excluded.updated_at;", -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(st.?);
+        _ = c.sqlite3_bind_text(st.?, 1, pattern_id.ptr, @intCast(pattern_id.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_text(st.?, 2, tx_id.ptr, @intCast(tx_id.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_int(st.?, 3, if (oneoff) 1 else 0);
+        _ = c.sqlite3_bind_int64(st.?, 4, nowMs());
+        if (c.sqlite3_step(st.?) != c.SQLITE_DONE) return DbError.StepFailed;
+    }
+
+    /// 1 = one-off, 0 = belongs (user said so), null = nobody decided yet.
+    pub fn recurringOneoffState(self: *Db, pattern_id: []const u8, tx_id: []const u8) ?bool {
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, "SELECT oneoff FROM recurring_oneoffs WHERE pattern_id = ?1 AND tx_id = ?2;", -1, &st, null) != c.SQLITE_OK or st == null) return null;
+        defer _ = c.sqlite3_finalize(st.?);
+        _ = c.sqlite3_bind_text(st.?, 1, pattern_id.ptr, @intCast(pattern_id.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_text(st.?, 2, tx_id.ptr, @intCast(tx_id.len), c.SQLITE_STATIC);
+        if (c.sqlite3_step(st.?) != c.SQLITE_ROW) return null;
+        return c.sqlite3_column_int(st.?, 0) != 0;
     }
 
     pub fn clearRecurring(self: *Db) DbError!void {
@@ -3201,6 +3361,47 @@ pub const Db = struct {
             }
         }
 
+        // --- recurring decisions: SQLite builds the data object ---
+        const decision_tables = [_]struct { name: []const u8, sql: [*:0]const u8 }{
+            .{ .name = "recurring_overrides", .sql = "SELECT id, json_object('name', name, 'category', category, 'interval', interval, 'fixed_amount', fixed_amount, 'hidden', hidden, 'hidden_at', hidden_at, 'accepted_amount', accepted_amount), updated_at FROM recurring_overrides WHERE updated_at >= ?1;" },
+            .{ .name = "recurring_oneoffs", .sql = "SELECT pattern_id || ':' || tx_id, json_object('pattern_id', pattern_id, 'tx_id', tx_id, 'oneoff', oneoff), updated_at FROM recurring_oneoffs WHERE updated_at >= ?1;" },
+        };
+        for (decision_tables) |t| {
+            var stmt: ?*c.sqlite3_stmt = null;
+            if (c.sqlite3_prepare_v2(self.handle, t.sql, -1, &stmt, null) != c.SQLITE_OK or stmt == null) return DbError.PrepareFailed;
+            defer _ = c.sqlite3_finalize(stmt.?);
+            const s = stmt.?;
+            if (c.sqlite3_bind_int64(s, 1, since_ts) != c.SQLITE_OK) return DbError.BindFailed;
+            while (c.sqlite3_step(s) == c.SQLITE_ROW) {
+                const id_ptr = c.sqlite3_column_text(s, 0) orelse continue;
+                const id_len: usize = @intCast(c.sqlite3_column_bytes(s, 0));
+                const data_ptr = c.sqlite3_column_text(s, 1) orelse continue;
+                const data_len: usize = @intCast(c.sqlite3_column_bytes(s, 1));
+                const parts = [_][]const u8{ if (first) "" else ",", "{\"table\":\"", t.name, "\",\"id\":\"" };
+                for (parts) |part| {
+                    if (pos + part.len > buf_len) return null;
+                    @memcpy(buf[pos .. pos + part.len], part);
+                    pos += part.len;
+                }
+                pos += jsonEscapeString(buf[pos..buf_len], id_ptr[0..id_len]) orelse return null;
+                const mid = "\",\"data\":";
+                if (pos + mid.len + data_len > buf_len) return null;
+                @memcpy(buf[pos .. pos + mid.len], mid);
+                pos += mid.len;
+                @memcpy(buf[pos .. pos + data_len], data_ptr[0..data_len]);
+                pos += data_len;
+                const p_close = ",\"updated_at\":";
+                if (pos + p_close.len > buf_len) return null;
+                @memcpy(buf[pos .. pos + p_close.len], p_close);
+                pos += p_close.len;
+                pos += formatSignedInt(buf[pos..buf_len], c.sqlite3_column_int64(s, 2)) orelse return null;
+                if (pos >= buf_len) return null;
+                buf[pos] = '}';
+                pos += 1;
+                first = false;
+            }
+        }
+
         // Close: ]}
         const footer = "]}";
         if (pos + footer.len > buf_len) return null;
@@ -3316,10 +3517,41 @@ pub const Db = struct {
                     self.applyGoalChange(row_id, data_str, updated_at) catch continue;
                 }
                 applied += 1;
+            } else if (std.mem.eql(u8, table, "recurring_overrides") or std.mem.eql(u8, table, "recurring_oneoffs")) {
+                const data_str = self.extractDataObject(obj) orelse continue;
+                if (self.applyRecurringDecision(table, row_id, data_str, updated_at) catch false) applied += 1;
             }
         }
 
         return applied;
+    }
+
+    /// Last write wins inside the upsert itself. Returns whether the row changed.
+    fn applyRecurringDecision(self: *Db, table: []const u8, row_id: []const u8, data: []const u8, updated_at: i64) DbError!bool {
+        const overrides = std.mem.eql(u8, table, "recurring_overrides");
+        const sql: [*:0]const u8 = if (overrides)
+            \\INSERT INTO recurring_overrides (id, name, category, interval, fixed_amount, hidden, hidden_at, accepted_amount, updated_at)
+            \\VALUES (?1, json_extract(?2, '$.name'), json_extract(?2, '$.category'), json_extract(?2, '$.interval'),
+            \\  json_extract(?2, '$.fixed_amount'), COALESCE(json_extract(?2, '$.hidden'), 0), json_extract(?2, '$.hidden_at'),
+            \\  json_extract(?2, '$.accepted_amount'), ?3)
+            \\ON CONFLICT (id) DO UPDATE SET name = excluded.name, category = excluded.category, interval = excluded.interval,
+            \\  fixed_amount = excluded.fixed_amount, hidden = excluded.hidden, hidden_at = excluded.hidden_at,
+            \\  accepted_amount = excluded.accepted_amount, updated_at = excluded.updated_at
+            \\WHERE excluded.updated_at > recurring_overrides.updated_at;
+        else
+            \\INSERT INTO recurring_oneoffs (pattern_id, tx_id, oneoff, updated_at)
+            \\VALUES (json_extract(?2, '$.pattern_id'), json_extract(?2, '$.tx_id'), json_extract(?2, '$.oneoff'), ?3)
+            \\ON CONFLICT (pattern_id, tx_id) DO UPDATE SET oneoff = excluded.oneoff, updated_at = excluded.updated_at
+            \\WHERE excluded.updated_at > recurring_oneoffs.updated_at;
+        ;
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, sql, -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(st.?);
+        _ = c.sqlite3_bind_text(st.?, 1, row_id.ptr, @intCast(row_id.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_text(st.?, 2, data.ptr, @intCast(data.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_int64(st.?, 3, updated_at);
+        if (c.sqlite3_step(st.?) != c.SQLITE_DONE) return DbError.StepFailed;
+        return c.sqlite3_changes(self.handle) > 0;
     }
 
     fn getRowUpdatedAt(self: *Db, table: []const u8, row_id: []const u8) i64 {
@@ -4733,4 +4965,33 @@ test "deleteRule: keep or reset the transactions it sorted" {
     _ = c.sqlite3_step(s.?);
     // a: reset (matched, same category) · b: other category, kept · c: no match, kept
     try std.testing.expectEqualStrings("a0,b2,c1", std.mem.span(@as([*:0]const u8, @ptrCast(c.sqlite3_column_text(s.?, 0)))));
+}
+
+test "recurring decisions sync: last write wins, both tables" {
+    var a = try Db.init(":memory:");
+    defer a.close();
+    var b = try Db.init(":memory:");
+    defer b.close();
+    try a.editRecurring("p1", "Musterhost", -1, "", 1010);
+    try a.setRecurringHidden("p1", true);
+    try a.setRecurringOneoff("p1", "tx9", true);
+
+    var buf: [8192]u8 = undefined;
+    const n = (try a.getChangesJson(0, &buf, buf.len)).?;
+    const json = buf[0..n];
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"table\":\"recurring_overrides\",\"id\":\"p1\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"table\":\"recurring_oneoffs\",\"id\":\"p1:tx9\"") != null);
+    try std.testing.expectEqual(@as(i32, 2), try b.applyChanges(json));
+    try std.testing.expectEqual(@as(?bool, true), b.recurringOneoffState("p1", "tx9"));
+
+    // Same rows again: nothing newer, nothing applied.
+    try std.testing.expectEqual(@as(i32, 0), try b.applyChanges(json));
+
+    var st: ?*c.sqlite3_stmt = null;
+    _ = c.sqlite3_prepare_v2(b.handle, "SELECT name, hidden, fixed_amount FROM recurring_overrides WHERE id = 'p1';", -1, &st, null);
+    defer _ = c.sqlite3_finalize(st.?);
+    try std.testing.expect(c.sqlite3_step(st.?) == c.SQLITE_ROW);
+    try std.testing.expectEqualStrings("Musterhost", c.sqlite3_column_text(st.?, 0).?[0..10]);
+    try std.testing.expectEqual(@as(c_int, 1), c.sqlite3_column_int(st.?, 1));
+    try std.testing.expectEqual(@as(i64, 1010), c.sqlite3_column_int64(st.?, 2));
 }

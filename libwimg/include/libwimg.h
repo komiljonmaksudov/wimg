@@ -152,6 +152,14 @@ const uint8_t *wimg_export_db(void);
 // --- Undo/Redo ---
 
 // Undo the last action. Returns length-prefixed JSON with undo info, or NULL.
+// Recurring patterns: user decisions. Empty name / category < 0 / empty
+// interval = as detected; fixed_cents == INT64_MIN = automatic amount.
+int32_t wimg_set_recurring_hidden(const uint8_t *id, uint32_t id_len, uint8_t hidden);
+int32_t wimg_edit_recurring(const uint8_t *id, uint32_t id_len, const uint8_t *name, uint32_t name_len, int32_t category,
+                            const uint8_t *interval, uint32_t interval_len, int64_t fixed_cents);
+int32_t wimg_accept_recurring_price(const uint8_t *id, uint32_t id_len);
+int32_t wimg_set_recurring_oneoff(const uint8_t *pattern_id, uint32_t pattern_len, const uint8_t *tx_id, uint32_t tx_len, uint8_t oneoff);
+
 // Rules (JSON [{id, pattern, category, priority}]) and deleting one; reset != 0
 // makes the transactions it sorted uncategorised again.
 const uint8_t *wimg_get_rules(void);

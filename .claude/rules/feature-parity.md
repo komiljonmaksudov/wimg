@@ -23,6 +23,7 @@ the debt/goal C ABI + tables.
 | Analyse (net worth, spending heatmap)    | yes | no      | Removed on Android                           |
 | Recurring 12-month forecast            | no  | yes     | "12 Monate" view on RecurringScreen         |
 | Pending transactions ("Vorgemerkt")      | no  | yes     | `wimg_get_pending`, iOS not wired yet        |
+| Recurring: hide, edit, one-off payments  | no  | yes     | board 26; libwimg + sync done, iOS UI not    |
 | Update checker (GitHub Releases)         | no  | yes     | iOS uses TestFlight                          |
 | Navigation                               | 4 tabs (Suche, Home, Umsätze, Mehr) | one floating bar + places menu | |
 | Stored bank PIN                          | Keychain `fints_pin` | Keystore AES-256-GCM (`PinStore.kt`) | |

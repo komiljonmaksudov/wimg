@@ -96,7 +96,7 @@ internal fun loadReview(year: Int, month: Int, account: String?): ReviewData {
     val inMonth = LibWimg.getTransactionsFiltered(account).filter { it.date.startsWith(prefix) && !it.isExcluded && it.date <= today }
     // Fixed costs paid this month: active expense patterns seen in it.
     val fixed = runCatching {
-        LibWimg.getRecurring().filter { it.active == 1 && it.amount < 0 && it.last_seen.startsWith(prefix) }.map { it.merchant to it.amount }
+        LibWimg.getRecurring().filter { it.active == 1 && !it.isHidden && it.amount < 0 && it.last_seen.startsWith(prefix) }.map { it.displayName to it.amount }
     }.getOrDefault(emptyList())
     return ReviewData(summary, previous, inMonth.filter { it.amount < 0 }.minByOrNull { it.amount }, inMonth.maxOfOrNull { it.date }, fixed)
 }

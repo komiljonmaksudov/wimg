@@ -703,6 +703,44 @@ export fn wimg_delete_goal(id: [*]const u8, id_len: u32) i32 {
 }
 
 /// Undo the last action. Returns pointer to length-prefixed JSON, or null if nothing to undo.
+// --- Recurring: user decisions (board 26) ---
+
+fn recurringCall(comptime name: []const u8, r: anyerror!void) i32 {
+    r catch |err| {
+        setError(name ++ ": failed: {s}", .{@errorName(err)});
+        return -1;
+    };
+    return 0;
+}
+
+/// "Nicht wiederkehrend" (hidden != 0) or "Wieder anzeigen".
+export fn wimg_set_recurring_hidden(id: [*]const u8, id_len: u32, hidden: u8) i32 {
+    var database = global_db orelse return -1;
+    return recurringCall("wimg_set_recurring_hidden", database.setRecurringHidden(id[0..id_len], hidden != 0));
+}
+
+/// Edit panel: empty name / category < 0 / empty interval = as detected;
+/// fixed_cents == minInt(i64) = automatic amount.
+export fn wimg_edit_recurring(id: [*]const u8, id_len: u32, name: [*]const u8, name_len: u32, category: i32, interval: [*]const u8, interval_len: u32, fixed_cents: i64) i32 {
+    var database = global_db orelse return -1;
+    var nbuf: [256]u8 = undefined;
+    const n = parser.toUtf8(&nbuf, name[0..name_len]);
+    const fixed: ?i64 = if (fixed_cents == std.math.minInt(i64)) null else fixed_cents;
+    return recurringCall("wimg_edit_recurring", database.editRecurring(id[0..id_len], nbuf[0..n], category, interval[0..interval_len], fixed));
+}
+
+/// "Stimmt, neuer Preis".
+export fn wimg_accept_recurring_price(id: [*]const u8, id_len: u32) i32 {
+    var database = global_db orelse return -1;
+    return recurringCall("wimg_accept_recurring_price", database.acceptRecurringPrice(id[0..id_len]));
+}
+
+/// "Einmalige Zahlung" (oneoff != 0) or "gehört dazu"; run detection afterwards.
+export fn wimg_set_recurring_oneoff(pattern_id: [*]const u8, pattern_len: u32, tx_id: [*]const u8, tx_len: u32, oneoff: u8) i32 {
+    var database = global_db orelse return -1;
+    return recurringCall("wimg_set_recurring_oneoff", database.setRecurringOneoff(pattern_id[0..pattern_len], tx_id[0..tx_len], oneoff != 0));
+}
+
 // --- Rules + manual entries (board 22) ---
 
 /// All categorisation rules as length-prefixed JSON [{id, pattern, category, priority}].

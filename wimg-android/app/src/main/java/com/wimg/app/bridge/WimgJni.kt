@@ -70,4 +70,10 @@ object WimgJni {
     external fun nativeGetRules(): String?
     external fun nativeDeleteRule(id: Long, reset: Int): Int
     external fun nativeAddManualTransaction(date: String, description: String, amountCents: Long, category: Int, account: String): Int
+
+    // Recurring: user decisions
+    external fun nativeSetRecurringHidden(id: String, hidden: Int): Int
+    external fun nativeEditRecurring(id: String, name: String, category: Int, interval: String, fixedCents: Long): Int
+    external fun nativeAcceptRecurringPrice(id: String): Int
+    external fun nativeSetRecurringOneoff(patternId: String, txId: String, oneoff: Int): Int
 }

@@ -52,6 +52,7 @@ object DemoDataService {
         val result = LibWimg.importCsv(data)
         if (result != null && result.imported > 0) {
             LibWimg.autoCategorize()
+            LibWimg.detectRecurring()
             context.getSharedPreferences("wimg", 0).edit().putBoolean(DEMO_LOADED_KEY, true).apply()
         }
     }

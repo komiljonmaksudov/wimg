@@ -264,12 +264,23 @@ fn classifyInterval(median_days: i32) Interval {
 
 const MAX_TX_PER_MERCHANT = 64;
 const MAX_MERCHANTS = 256;
+var bucket_store: [MAX_MERCHANTS]MerchantBucket = undefined;
 const MIN_OCCURRENCES = 3;
 
 const TxEntry = struct {
     date: DateTriple,
     amount: i64,
     category: i32,
+    /// Transaction id (32 hex chars), for one-off marks.
+    id: [32]u8 = @splat('0'),
+    id_len: u8 = 0,
+    /// Set aside as a one-off: evidence that the merchant bills regularly,
+    /// but not used for rhythm, amount or price.
+    oneoff: bool = false,
+
+    fn idSlice(self: *const TxEntry) []const u8 {
+        return self.id[0..self.id_len];
+    }
 };
 
 const MerchantBucket = struct {
@@ -287,7 +298,7 @@ pub fn detectRecurring(database: *Db) DbError!i32 {
     try database.clearRecurring();
 
     const sql =
-        \\SELECT description, amount_cents, date_year, date_month, date_day, category
+        \\SELECT description, amount_cents, date_year, date_month, date_day, category, id
         \\FROM transactions WHERE excluded = 0
         \\ORDER BY date_year ASC, date_month ASC, date_day ASC;
     ;
@@ -298,7 +309,10 @@ pub fn detectRecurring(database: *Db) DbError!i32 {
     const s = stmt.?;
 
     // Hash map: normalized merchant → entries (bounded, linear probing)
-    var buckets: [MAX_MERCHANTS]MerchantBucket = @splat(MerchantBucket{});
+    // ~1.2 MB: too big for a 1 MB Android worker-thread stack, so it lives in
+    // static memory (libwimg is single-threaded anyway, see the global FBA).
+    const buckets = &bucket_store;
+    buckets.* = @splat(MerchantBucket{});
     var bucket_count: usize = 0;
 
     // Global max date across all transactions. Used as the "as-of" reference
@@ -329,7 +343,18 @@ pub fn detectRecurring(database: *Db) DbError!i32 {
         const norm = norm_buf[0..norm_len];
 
         // Find or create bucket for this merchant
-        const slot = findOrCreateBucket(&buckets, &bucket_count, norm) orelse continue;
+        var tx_id: [32]u8 = @splat('0');
+        var tx_id_len: u8 = 0;
+        if (c.sqlite3_column_text(s, 6)) |idp| {
+            const n: usize = @min(@as(usize, @intCast(c.sqlite3_column_bytes(s, 6))), 32);
+            @memcpy(tx_id[0..n], idp[0..n]);
+            tx_id_len = @intCast(n);
+        }
+        var pid: [32]u8 = undefined;
+        hashMerchantId(norm, &pid);
+        const oneoff = database.recurringOneoffState(&pid, tx_id[0..tx_id_len]) == true;
+
+        const slot = findOrCreateBucket(buckets, &bucket_count, norm) orelse continue;
         const b = &buckets[slot];
 
         // Add entry (sorted by date since query is ORDER BY date ASC)
@@ -338,6 +363,9 @@ pub fn detectRecurring(database: *Db) DbError!i32 {
                 .date = row_date,
                 .amount = amount,
                 .category = category,
+                .id = tx_id,
+                .id_len = tx_id_len,
+                .oneoff = oneoff,
             };
             b.entry_count += 1;
         }
@@ -345,7 +373,7 @@ pub fn detectRecurring(database: *Db) DbError!i32 {
 
     // Process all merchant groups
     var detected: i32 = 0;
-    for (&buckets) |*b| {
+    for (buckets) |*b| {
         if (!b.used or b.entry_count < MIN_OCCURRENCES) continue;
         const entries = b.entries[0..b.entry_count];
         if (processGroup(database, b.name[0..b.name_len], entries, max_julian) catch false) {
@@ -501,8 +529,31 @@ fn isPatternActive(last_seen_julian: i32, global_max_julian: i32, interval: Inte
     return gap <= threshold;
 }
 
-fn processGroup(database: *Db, merchant: []const u8, entries: []const TxEntry, global_max_julian: i32) DbError!bool {
-    if (entries.len < MIN_OCCURRENCES) return false;
+fn processGroup(database: *Db, merchant: []const u8, all_entries: []const TxEntry, global_max_julian: i32) DbError!bool {
+    // One-offs still count as evidence that this merchant bills regularly.
+    if (all_entries.len < MIN_OCCURRENCES) return false;
+
+    var counted_buf: [MAX_TX_PER_MERCHANT]TxEntry = undefined;
+    var counted_len: usize = 0;
+    for (all_entries) |e| {
+        if (e.oneoff) continue;
+        counted_buf[counted_len] = e;
+        counted_len += 1;
+    }
+
+    // A single payment far off a stable price (an extra invoice from the same
+    // company: 10,10 € monthly, then once 82,67 €) is a one-off, not a new
+    // price. Mark it once; the user can say otherwise, and that sticks.
+    if (isLastOutlier(counted_buf[0..counted_len])) {
+        var pid: [32]u8 = undefined;
+        hashMerchantId(merchant, &pid);
+        const last = counted_buf[counted_len - 1];
+        const state = database.recurringOneoffState(&pid, last.idSlice());
+        if (state == null) database.setRecurringOneoff(&pid, last.idSlice(), true) catch {};
+        if (state != false) counted_len -= 1;
+    }
+    if (counted_len < 2) return false;
+    const entries = counted_buf[0..counted_len];
 
     // Calculate intervals between consecutive dates
     var intervals: [MAX_TX_PER_MERCHANT]i32 = undefined;
@@ -515,7 +566,8 @@ fn processGroup(database: *Db, merchant: []const u8, entries: []const TxEntry, g
         }
     }
 
-    if (interval_count < 2) return false;
+    // Two intervals normally; one is enough when one-offs make up the rest.
+    if (interval_count < 2 and !(interval_count == 1 and counted_len < all_entries.len)) return false;
 
     // Find median interval
     // Simple selection sort on first interval_count elements
@@ -571,19 +623,22 @@ fn processGroup(database: *Db, merchant: []const u8, entries: []const TxEntry, g
     const category = last_entry.category;
 
     // Price change detection: >50 cents difference
-    const prev_amount: ?i64 = if (entries.len >= 2)
-        prev_amount_val
-    else
-        null;
+    const prev_amount: ?i64 = prev_amount_val;
 
-    // Calculate next_due
-    const next_due_date = addDays(last_entry.date, interval.typicalDays());
+    // Calculate next_due. A one-off booked around the expected date took that
+    // period's slot (a varying bill set aside), so count on from it; one in
+    // the middle of the period (an extra invoice) changes nothing.
+    var anchor = last_entry.date;
+    const latest = all_entries[all_entries.len - 1].date;
+    const expected = julianDay(addDays(last_entry.date, interval.typicalDays()));
+    if (julianDay(latest) >= expected - @divTrunc(interval.typicalDays(), 4)) anchor = latest;
+    const next_due_date = addDays(anchor, interval.typicalDays());
 
     // Activity check: if last_seen is too stale relative to the user's most
     // recent transaction, mark the pattern inactive so it won't show as
     // "500T überfällig" in the UI. Still inserted so detection is stable
     // across reruns and resurfaces if new payments arrive.
-    const active: i32 = if (isPatternActive(julianDay(last_entry.date), global_max_julian, interval)) 1 else 0;
+    const active: i32 = if (isPatternActive(julianDay(anchor), global_max_julian, interval)) 1 else 0;
 
     // Generate deterministic ID from merchant hash
     var id_buf: [32]u8 = undefined;
@@ -591,7 +646,7 @@ fn processGroup(database: *Db, merchant: []const u8, entries: []const TxEntry, g
 
     // Format last_seen date
     var ls_buf: [10]u8 = undefined;
-    const ls_len = formatDateStr(&ls_buf, last_entry.date) orelse return false;
+    const ls_len = formatDateStr(&ls_buf, anchor) orelse return false;
 
     // Format next_due date
     var nd_buf: [10]u8 = undefined;
@@ -617,6 +672,21 @@ fn processGroup(database: *Db, merchant: []const u8, entries: []const TxEntry, g
     );
 
     return active == 1;
+}
+
+/// The newest payment is more than twice or less than half of the three before
+/// it, and those three agree within 15 %.
+fn isLastOutlier(entries: []const TxEntry) bool {
+    if (entries.len < 4) return false;
+    const n = entries.len;
+    const last: i128 = @abs(entries[n - 1].amount);
+    const ref: i128 = @abs(entries[n - 2].amount);
+    if (ref == 0) return false;
+    for (entries[n - 4 .. n - 1]) |e| {
+        const a: i128 = @abs(e.amount);
+        if (a * 100 < ref * 85 or a * 100 > ref * 115) return false;
+    }
+    return last > ref * 2 or last * 2 < ref;
 }
 
 /// Payments that belong to one recurring pattern, newest first:
@@ -667,7 +737,7 @@ pub fn paymentsJson(database: *Db, pattern_id: []const u8, buf: [*]u8, buf_len: 
             const id_ptr = c.sqlite3_column_text(s, 0) orelse continue;
             const id_len: usize = @intCast(c.sqlite3_column_bytes(s, 0));
             const out = buf[0..buf_len];
-            const need = id_len + 64;
+            const need = id_len + 80;
             if (pos + need > buf_len) return null;
             if (!first) {
                 out[pos] = ',';
@@ -691,6 +761,12 @@ pub fn paymentsJson(database: *Db, pattern_id: []const u8, buf: [*]u8, buf_len: 
             @memcpy(out[pos .. pos + p3.len], p3);
             pos += p3.len;
             pos += db_mod.formatAmount(out[pos..], amount) orelse return null;
+            if (database.recurringOneoffState(pattern_id, id_ptr[0..id_len]) == true) {
+                const p4 = ",\"oneoff\":true";
+                if (pos + p4.len > buf_len) return null;
+                @memcpy(out[pos .. pos + p4.len], p4);
+                pos += p4.len;
+            }
             if (pos >= buf_len) return null;
             out[pos] = '}';
             pos += 1;
@@ -944,4 +1020,74 @@ test "paymentsJson lists a pattern's payments, newest first" {
 
     const none = (try paymentsJson(&database, "00000000000000000000000000000000", &out, out.len)).?;
     try std.testing.expectEqualStrings("[]", out[0..none]);
+}
+
+test "a single far-off payment is a one-off, not a new price; the user can overrule it" {
+    var database = try Db.init(":memory:");
+    defer database.close();
+    const rows =
+        \\INSERT INTO transactions (id, date_year, date_month, date_day, description, amount_cents) VALUES
+        \\ ('h1', 2026, 7, 3, 'LASTSCHRIFT MUSTERHOST GMBH RECHNUNG', -1010),
+        \\ ('h2', 2026, 8, 3, 'LASTSCHRIFT MUSTERHOST GMBH RECHNUNG', -1010),
+        \\ ('h3', 2026, 9, 3, 'LASTSCHRIFT MUSTERHOST GMBH RECHNUNG', -1010),
+        \\ ('h4', 2026, 10, 3, 'LASTSCHRIFT MUSTERHOST GMBH RECHNUNG', -1010),
+        \\ ('h5', 2026, 11, 3, 'LASTSCHRIFT MUSTERHOST GMBH RECHNUNG', -1010),
+        \\ ('h6', 2026, 11, 6, 'LASTSCHRIFT MUSTERHOST GMBH RECHNUNG', -8267);
+    ;
+    try std.testing.expect(c.sqlite3_exec(database.handle, rows, null, null, null) == c.SQLITE_OK);
+    _ = try detectRecurring(&database);
+
+    var name_buf: [128]u8 = undefined;
+    const n = normalizeMerchant("LASTSCHRIFT MUSTERHOST GMBH RECHNUNG", &name_buf).?;
+    var pid: [32]u8 = undefined;
+    hashMerchantId(name_buf[0..n], &pid);
+
+    const amountOf = struct {
+        fn f(db: *Db, id: []const u8) i64 {
+            var st: ?*c.sqlite3_stmt = null;
+            _ = c.sqlite3_prepare_v2(db.handle, "SELECT amount FROM recurring_patterns WHERE id = ?1;", -1, &st, null);
+            defer _ = c.sqlite3_finalize(st.?);
+            _ = c.sqlite3_bind_text(st.?, 1, id.ptr, @intCast(id.len), c.SQLITE_STATIC);
+            if (c.sqlite3_step(st.?) != c.SQLITE_ROW) return 0;
+            return c.sqlite3_column_int64(st.?, 0);
+        }
+    }.f;
+    // The 82,67 € invoice is set aside: the price stays 10,10 €.
+    try std.testing.expectEqual(@as(i64, -1010), amountOf(&database, &pid));
+    try std.testing.expectEqual(@as(?bool, true), database.recurringOneoffState(&pid, "h6"));
+    var out: [2048]u8 = undefined;
+    const len = (try paymentsJson(&database, &pid, &out, out.len)).?;
+    try std.testing.expect(std.mem.indexOf(u8, out[0..len], "\"id\":\"h6\",\"date\":\"2026-11-06\",\"amount\":-82.67,\"oneoff\":true") != null);
+
+    // "Gehört dazu": the user overrules it, and detection keeps that.
+    try database.setRecurringOneoff(&pid, "h6", false);
+    _ = try detectRecurring(&database);
+    try std.testing.expectEqual(@as(i64, -8267), amountOf(&database, &pid));
+}
+
+test "a one-off doesn't make a short pattern disappear" {
+    var database = try Db.init(":memory:");
+    defer database.close();
+    const rows =
+        \\INSERT INTO transactions (id, date_year, date_month, date_day, description, amount_cents) VALUES
+        \\ ('g1', 2026, 9, 5, 'LASTSCHRIFT MUSTERSTROM AG ABSCHLAG', -10096),
+        \\ ('g2', 2026, 10, 4, 'LASTSCHRIFT MUSTERSTROM AG ABSCHLAG', -11223),
+        \\ ('g3', 2026, 11, 5, 'LASTSCHRIFT MUSTERSTROM AG ABSCHLAG', -9570);
+    ;
+    try std.testing.expect(c.sqlite3_exec(database.handle, rows, null, null, null) == c.SQLITE_OK);
+    var name_buf: [128]u8 = undefined;
+    const n = normalizeMerchant("LASTSCHRIFT MUSTERSTROM AG ABSCHLAG", &name_buf).?;
+    var pid: [32]u8 = undefined;
+    hashMerchantId(name_buf[0..n], &pid);
+
+    try database.setRecurringOneoff(&pid, "g3", true);
+    _ = try detectRecurring(&database);
+    var st: ?*c.sqlite3_stmt = null;
+    _ = c.sqlite3_prepare_v2(database.handle, "SELECT amount, last_seen FROM recurring_patterns WHERE id = ?1;", -1, &st, null);
+    defer _ = c.sqlite3_finalize(st.?);
+    _ = c.sqlite3_bind_text(st.?, 1, &pid, 32, c.SQLITE_STATIC);
+    try std.testing.expect(c.sqlite3_step(st.?) == c.SQLITE_ROW);
+    try std.testing.expectEqual(@as(i64, -11223), c.sqlite3_column_int64(st.?, 0));
+    // November was paid (as a one-off), so the next one is due in December.
+    try std.testing.expectEqualStrings("2026-11-05", c.sqlite3_column_text(st.?, 1).?[0..10]);
 }

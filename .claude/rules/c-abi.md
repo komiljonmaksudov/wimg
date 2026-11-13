@@ -29,12 +29,21 @@ export fn wimg_set_category(id: [*]const u8, id_len: u32, category: u8) i32
 export fn wimg_set_excluded(id: [*]const u8, id_len: u32, excluded: u8) i32
 export fn wimg_auto_categorize() i32
 export fn wimg_get_categories() ?[*]const u8
+export fn wimg_add_manual_transaction(date_ptr: [*]const u8, date_len: u32, desc_ptr: [*]const u8, desc_len: u32, amount_cents: i64, category: u8, acct_ptr: [*]const u8, acct_len: u32) i32
+
+// Rules (Einstellungen › Gelernte Regeln)
+export fn wimg_get_rules() ?[*]const u8                  // [{id, pattern, category, priority}]
+export fn wimg_delete_rule(id: i64, reset: u8) i32
 
 // Summaries, recurring, snapshots
 export fn wimg_get_summary_filtered(year: u32, month: u32, acct: [*]const u8, acct_len: u32) ?[*]const u8
 export fn wimg_detect_recurring() i32
 export fn wimg_get_recurring() ?[*]const u8
 export fn wimg_get_recurring_payments(id_ptr: [*]const u8, id_len: u32) ?[*]const u8
+export fn wimg_set_recurring_hidden(id: [*]const u8, id_len: u32, hidden: u8) i32
+export fn wimg_edit_recurring(id: [*]const u8, id_len: u32, name: [*]const u8, name_len: u32, category: i32, interval: [*]const u8, interval_len: u32, fixed_cents: i64) i32  // empty / <0 / minInt(i64) = as detected
+export fn wimg_accept_recurring_price(id: [*]const u8, id_len: u32) i32
+export fn wimg_set_recurring_oneoff(pattern_id: [*]const u8, pattern_len: u32, tx_id: [*]const u8, tx_len: u32, oneoff: u8) i32
 export fn wimg_take_snapshot(year: u32, month: u32) i32
 export fn wimg_get_snapshots() ?[*]const u8
 

@@ -309,7 +309,7 @@ fun WimgNavigation() {
                 // detour would break (bank setup mid-TAN, CSV import).
                 val searchHere = detailBar == null || (route?.startsWith("fints") != true && route != "import" && route != "manual")
                 FloatingBar(
-                    divider = detailBar == null || detailBar.onMore != null || searchHere,
+                    divider = detailBar == null || detailBar.onMore != null || searchHere || detailBar.extraIcon != null,
                     fill = detailBar?.actionLabel != null,
                     contentKey = kind,
                     left = {
@@ -324,7 +324,7 @@ fun WimgNavigation() {
                             }
                             detailBar.actionLabel != null -> {
                                 BarBack(detailBar.onBack)
-                                BarAction(detailBar.actionLabel, detailBar.actionIcon, Modifier.weight(1f), busy = detailBar.actionBusy) { detailBar.onAction() }
+                                BarAction(detailBar.actionLabel, detailBar.actionIcon, Modifier.weight(1f), busy = detailBar.actionBusy, danger = detailBar.actionDanger) { detailBar.onAction() }
                             }
                             else -> BarChip(
                                 label = detailBar.backLabel ?: L("Zurück"),
@@ -342,7 +342,8 @@ fun WimgNavigation() {
                                 if (add != null) add() else addOpen = true
                             }
                         } else {
-                            if (searchHere) BarIcon(BarIcons.Search, L("Suche")) { navController.navigate("search") }
+                            detailBar.extraIcon?.let { ic -> BarIcon(ic, detailBar.extraLabel ?: "") { detailBar.onExtra?.invoke() } }
+                            if (searchHere && detailBar.extraIcon == null) BarIcon(BarIcons.Search, L("Suche")) { navController.navigate("search") }
                             detailBar.onMore?.let { more ->
                                 BarIcon(androidx.compose.material.icons.Icons.Filled.MoreHoriz, L("Mehr")) { more() }
                             }

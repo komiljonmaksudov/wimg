@@ -773,6 +773,12 @@ data class DetailBarSpec(
     /** Main action is running: show a spinner on it, keep the label. */
     val actionBusy: Boolean = false,
     val onMore: (() -> Unit)? = null,
+    /** A destructive main action ("Nicht wiederkehrend"): red outline, not filled. */
+    val actionDanger: Boolean = false,
+    /** One more icon before ⋯ (e.g. the pencil on a recurring pattern). */
+    val extraIcon: ImageVector? = null,
+    val extraLabel: String? = null,
+    val onExtra: (() -> Unit)? = null,
 )
 
 /** What one screen puts into the bar. */
@@ -860,8 +866,9 @@ fun BarPanel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() 
 
 /** Wide accent button in a detail bar ("Kategorie wählen"). */
 @Composable
-fun BarAction(label: String, icon: ImageVector?, modifier: Modifier = Modifier, busy: Boolean = false, onClick: () -> Unit) {
+fun BarAction(label: String, icon: ImageVector?, modifier: Modifier = Modifier, busy: Boolean = false, danger: Boolean = false, onClick: () -> Unit) {
     val c = Wimg.colors
+    val fg = if (danger) c.danger else c.onAccent
     val measurer = androidx.compose.ui.text.rememberTextMeasurer()
     val density = androidx.compose.ui.platform.LocalDensity.current
     androidx.compose.foundation.layout.BoxWithConstraints(
@@ -869,7 +876,7 @@ fun BarAction(label: String, icon: ImageVector?, modifier: Modifier = Modifier, 
             .height(WimgDimens.touchTarget)
             .pressable(onClick = onClick)
             .clip(WimgShape.button)
-            .background(c.accent)
+            .then(if (danger) Modifier.border(1.5.dp, c.danger, WimgShape.button) else Modifier.background(c.accent))
             .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -881,10 +888,10 @@ fun BarAction(label: String, icon: ImageVector?, modifier: Modifier = Modifier, 
             // The label stays put while busy so the button keeps its width; only the
             // icon turns into a small spinner.
             if (showIcon) {
-                if (busy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(17.dp), color = c.onAccent, strokeWidth = 2.dp)
-                else Icon(icon!!, contentDescription = null, tint = c.onAccent, modifier = Modifier.size(19.dp))
+                if (busy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(17.dp), color = fg, strokeWidth = 2.dp)
+                else Icon(icon!!, contentDescription = null, tint = fg, modifier = Modifier.size(19.dp))
             }
-            Text(label, style = WimgType.button, color = c.onAccent, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+            Text(label, style = WimgType.button, color = fg, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
         }
     }
 }

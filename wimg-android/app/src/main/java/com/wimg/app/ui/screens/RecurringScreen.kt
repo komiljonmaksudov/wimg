@@ -127,7 +127,10 @@ fun RecurringScreen(navController: androidx.navigation.NavController? = null) {
 
     val month = remember { Calendar.getInstance().let { "%04d-%02d".format(it.get(Calendar.YEAR), it.get(Calendar.MONTH) + 1) } }
     val today = remember { WimgDates.todayIso() }
-    val all = patterns ?: emptyList()
+    // "Nicht wiederkehrend": out of the list and the sums, back via the filter.
+    val all = (patterns ?: emptyList()).filter { !it.isHidden }
+    val hiddenList = (patterns ?: emptyList()).filter { it.isHidden }
+    var hiddenTab by remember { mutableStateOf(false) }
     val active = all.filter { it.active == 1 }
     val expenses = active.filter { it.amount < 0 }
 
@@ -151,6 +154,42 @@ fun RecurringScreen(navController: androidx.navigation.NavController? = null) {
             {
                 val c = Wimg.colors
                 BarPanel {
+                    if (hiddenList.isNotEmpty()) {
+                        Row(Modifier.padding(bottom = 16.dp).fillMaxWidth().clip(WimgShape.segmentOuter).background(c.neutralTint).padding(4.dp)) {
+                            listOf(false to L("Aktiv (%d)", all.size), true to L("Ausgeblendet (%d)", hiddenList.size)).forEach { (h, label) ->
+                                Box(
+                                    Modifier.weight(1f).height(38.dp).clip(WimgShape.segmentInner)
+                                        .background(if (hiddenTab == h) c.card else Color.Transparent)
+                                        .clickable { hiddenTab = h },
+                                    contentAlignment = Alignment.Center,
+                                ) { Text(label, style = WimgType.chip, color = if (hiddenTab == h) c.text else c.text2) }
+                            }
+                        }
+                    }
+                    if (hiddenTab && hiddenList.isNotEmpty()) {
+                        com.wimg.app.ui.components.WimgGroup {
+                            hiddenList.forEachIndexed { i, h ->
+                                if (i > 0) com.wimg.app.ui.components.RowDivider()
+                                com.wimg.app.ui.components.WimgRow(
+                                    h.displayName,
+                                    desc = L("%s · %s", L(intervalLabel(h.interval)), amountText(abs(h.amount), showPlus = false)),
+                                    trailing = {
+                                        Box(
+                                            Modifier.clip(CircleShape).background(c.neutralTint).pressable {
+                                                scope.launch {
+                                                    withContext(Dispatchers.IO) { LibWimg.setRecurringHidden(h.id, false) }
+                                                    Changes.bump()
+                                                    if (hiddenList.size == 1) hiddenTab = false
+                                                }
+                                            }.padding(horizontal = 14.dp, vertical = 9.dp),
+                                        ) { Text(L("Wieder anzeigen"), style = WimgType.chip, color = c.text) }
+                                    },
+                                )
+                            }
+                        }
+                        com.wimg.app.ui.components.QuietLine(L("Ausgeblendete Muster erkennt wimg nicht neu. Wieder anzeigen holt sie mit allen Zahlungen zurück."))
+                        return@BarPanel
+                    }
                     Text(L("Ansicht"), style = WimgType.sheetTitle.copy(fontSize = WimgType.sheetTitle.fontSize * 0.86f), color = c.text)
                     Row(Modifier.padding(top = 12.dp, bottom = 18.dp).fillMaxWidth().clip(WimgShape.segmentOuter).background(c.neutralTint).padding(4.dp)) {
                         listOf(false to L("Liste"), true to L("12 Monate")).forEach { (m, label) ->
@@ -261,7 +300,7 @@ fun RecurringScreen(navController: androidx.navigation.NavController? = null) {
         }
         val sections = buildList {
             INTERVALS.forEach { (id, label, _) ->
-                val items = shown.filter { it.amount < 0 && it.interval == id }.sortedWith(compareBy({ dueDay(it, month) ?: 99 }, { it.merchant }))
+                val items = shown.filter { it.amount < 0 && it.interval == id }.sortedWith(compareBy({ dueDay(it, month) ?: 99 }, { it.displayName }))
                 if (items.isNotEmpty()) add(L(label) to items)
             }
             val income = shown.filter { it.amount > 0 }
@@ -314,13 +353,16 @@ private fun PatternRow(p: RecurringPattern, month: String, today: String, last: 
     val day = dueDay(p, month)
     val shortMonth = WimgDates.shortMonths()[month.takeLast(2).toInt() - 1]
     val inactive = p.active != 1
+    // Compare what was actually paid (not a fixed amount the user set), and
+    // only while libwimg reports a change (gone after "Stimmt, neuer Preis").
+    val paid = p.detected_amount ?: p.amount
     val sub = when {
         inactive -> L("inaktiv · zuletzt %s", WimgDates.short(p.last_seen))
         // price_change is signed (amount − prev), so compare sizes: an expense
         // going from −16,99 to −21,99 is a rise even though the diff is negative.
-        !income && p.prev_amount != null && abs(p.amount) - abs(p.prev_amount) > 0.5 ->
+        !income && p.price_change != null && p.prev_amount != null && abs(paid) - abs(p.prev_amount) > 0.5 ->
             L("Preis gestiegen · vorher %s", amountText(abs(p.prev_amount), showPlus = false))
-        !income && p.prev_amount != null && abs(p.prev_amount) - abs(p.amount) > 0.5 ->
+        !income && p.price_change != null && p.prev_amount != null && abs(p.prev_amount) - abs(paid) > 0.5 ->
             L("Preis gesunken · vorher %s", amountText(abs(p.prev_amount), showPlus = false))
         else -> {
             val next = p.next_due?.let { daysUntil(it) }
@@ -350,7 +392,7 @@ private fun PatternRow(p: RecurringPattern, month: String, today: String, last: 
             }
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
-                Text(p.merchant, style = WimgType.rowTitle, color = if (inactive) c.text3 else c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(p.displayName, style = WimgType.rowTitle, color = if (inactive) c.text3 else c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(sub, style = WimgType.desc, color = c.text2, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
             }
             Spacer(Modifier.width(10.dp))
@@ -492,11 +534,11 @@ private fun YearView(
             }
         }
         items(paid, key = { it.second.id }) { (p, pay) ->
-            YearRow(pay.date.takeLast(2).toIntOrNull(), names[picked - 1], p.merchant, L("%s · bezahlt", L(intervalLabel(p.interval))), abs(pay.amount), future = false) { onOpen(p.id) }
+            YearRow(pay.date.takeLast(2).toIntOrNull(), names[picked - 1], p.displayName, L("%s · bezahlt", L(intervalLabel(p.interval))), abs(pay.amount), future = false) { onOpen(p.id) }
         }
         items(expected, key = { "e_" + it.id }) { p ->
             val day = p.next_due?.let { WimgDates.parse(it) }?.get(Calendar.DAY_OF_MONTH)
-            YearRow(day, names[picked - 1], p.merchant, L("%s · erwartet", L(intervalLabel(p.interval))), abs(p.amount), future = true) { onOpen(p.id) }
+            YearRow(day, names[picked - 1], p.displayName, L("%s · erwartet", L(intervalLabel(p.interval))), abs(p.amount), future = true) { onOpen(p.id) }
         }
     }
 }

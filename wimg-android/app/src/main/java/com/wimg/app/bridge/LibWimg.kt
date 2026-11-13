@@ -115,6 +115,24 @@ object LibWimg {
     fun addManualTransaction(date: String, description: String, amountCents: Long, category: Int, account: String): Boolean =
         lock.withLock { WimgJni.nativeAddManualTransaction(date, description, amountCents, category, account) == 0 }
 
+    /** "Nicht wiederkehrend" / "Wieder anzeigen". */
+    fun setRecurringHidden(id: String, hidden: Boolean) = lock.withLock { WimgJni.nativeSetRecurringHidden(id, if (hidden) 1 else 0) == 0 }
+
+    /** Edit panel; null/blank = as detected, [fixedCents] null = automatic amount. */
+    fun editRecurring(id: String, name: String?, category: Int?, interval: String?, fixedCents: Long?) = lock.withLock {
+        WimgJni.nativeEditRecurring(id, name.orEmpty(), category ?: -1, interval.orEmpty(), fixedCents ?: Long.MIN_VALUE) == 0
+    }
+
+    /** "Stimmt, neuer Preis". */
+    fun acceptRecurringPrice(id: String) = lock.withLock { WimgJni.nativeAcceptRecurringPrice(id) == 0 }
+
+    /** "Einmalige Zahlung" (true) or "gehört dazu" (false); detection runs again. */
+    fun setRecurringOneoff(patternId: String, txId: String, oneoff: Boolean) = lock.withLock {
+        val ok = WimgJni.nativeSetRecurringOneoff(patternId, txId, if (oneoff) 1 else 0) == 0
+        WimgJni.nativeDetectRecurring()
+        ok
+    }
+
     fun getRecurring(): List<RecurringPattern> = lock.withLock {
         val str = WimgJni.nativeGetRecurring() ?: return emptyList()
         json.decodeFromString(str)

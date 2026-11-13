@@ -25,7 +25,7 @@ object WidgetDataWriter {
         val byCategory = summary.by_category.filter { it.amount > 0.004 && it.id != com.wimg.app.models.WimgCategory.INCOME.id }.sortedByDescending { it.amount }
 
         // Same rule as the recurring page's "Noch offen".
-        val fixed = LibWimg.getRecurring().filter { it.active == 1 && it.amount < 0 }
+        val fixed = LibWimg.getRecurring().filter { it.active == 1 && !it.isHidden && it.amount < 0 }
         val due = fixed.filter { it.last_seen.startsWith(monthKey) || (it.next_due ?: "").startsWith(monthKey) || it.interval == "monthly" }
         val open = due.filter { !it.last_seen.startsWith(monthKey) }.sumOf { abs(it.amount) }
         val next = fixed.filter { (it.next_due ?: "") >= today }.minByOrNull { it.next_due!! }
@@ -39,7 +39,7 @@ object WidgetDataWriter {
             perDay = spent / cal.get(Calendar.DAY_OF_MONTH),
             categories = byCategory.map { it.id to abs(it.amount) },
             fixedOpen = open,
-            nextMerchant = next?.merchant,
+            nextMerchant = next?.displayName,
             nextDate = next?.next_due,
             todaySum = todayTx.sumOf { it.amount },
             todayCount = todayTx.size,

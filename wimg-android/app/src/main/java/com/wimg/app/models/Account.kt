@@ -28,13 +28,26 @@ data class RecurringPattern(
     val active: Int = 1,
     val prev_amount: Double? = null,
     val price_change: Double? = null,
-)
+    /** Name the user gave it (edit panel); null = the detected merchant. */
+    val name: String? = null,
+    /** "Nicht wiederkehrend": listed only under Ausgeblendet. */
+    val hidden: Int = 0,
+    /** What detection found, before a fixed amount. */
+    val detected_amount: Double? = null,
+    /** 1 when the user set a fixed amount. */
+    val fixed: Int = 0,
+) {
+    val displayName: String get() = name ?: merchant
+    val isHidden: Boolean get() = hidden != 0
+}
 
 @Serializable
 data class RecurringPayment(
     val id: String,
     val date: String,
     val amount: Double,
+    /** Set aside as a one-off: shown crossed out, doesn't count for the pattern. */
+    val oneoff: Boolean = false,
 )
 
 /** A categorisation rule: a text that, found in a booking, assigns a category. */

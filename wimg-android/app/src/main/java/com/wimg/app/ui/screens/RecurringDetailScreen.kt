@@ -53,6 +53,20 @@ import com.wimg.app.ui.theme.WimgShape
 import com.wimg.app.ui.theme.WimgType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import com.wimg.app.ui.components.Dock
+import com.wimg.app.ui.components.DockRow
+import com.wimg.app.ui.components.DockKind
+import com.wimg.app.ui.components.pressable
+import com.wimg.app.i18n.__t
+import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.height
+import com.wimg.app.models.WimgCategory
+import com.wimg.app.ui.theme.categoryBar
 import kotlin.math.abs
 
 @Composable
@@ -74,12 +88,41 @@ fun RecurringDetailScreen(id: String, navController: NavController?) {
         pattern = p; payments = list
     }
 
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var editOpen by remember { mutableStateOf(false) }
+    val p0 = pattern
     BarContribution(
-        chip = null, panel = null, onPanelDismiss = {},
+        chip = null,
+        panel = if (editOpen && p0 != null) { { EditPatternPanel(p0, onCancel = { editOpen = false }) { name, cat, interval, fixed ->
+            editOpen = false
+            scope.launch {
+                withContext(Dispatchers.IO) { LibWimg.editRecurring(p0.id, name, cat, interval, fixed) }
+                Changes.bump()
+                Dock.info(__t("Gesichert"), name ?: p0.merchant)
+            }
+        } } } else null,
+        onPanelDismiss = { editOpen = false },
         detail = DetailBarSpec(
             onBack = { navController?.popBackStack() },
-            actionLabel = null, actionIcon = null, onAction = {},
+            actionLabel = if (p0 != null) L("Nicht wiederkehrend") else null,
+            actionIcon = Icons.Outlined.Block,
+            actionDanger = true,
+            onAction = {
+                val p = p0 ?: return@DetailBarSpec
+                // No confirmation (board 26/13): back to the list, undo on the bar.
+                scope.launch {
+                    withContext(Dispatchers.IO) { LibWimg.setRecurringHidden(p.id, true) }
+                    Changes.bump()
+                    navController?.popBackStack()
+                    Dock.undo(__t("Nicht mehr wiederkehrend"), p.displayName) {
+                        scope.launch { withContext(Dispatchers.IO) { LibWimg.setRecurringHidden(p.id, false) }; Changes.bump() }
+                    }
+                }
+            },
             backLabel = L("Wiederkehrend"),
+            extraIcon = if (p0 != null) Icons.Outlined.Edit else null,
+            extraLabel = L("Bearbeiten"),
+            onExtra = { editOpen = !editOpen },
         ),
     )
 
@@ -92,10 +135,13 @@ fun RecurringDetailScreen(id: String, navController: NavController?) {
     val income = p.amount > 0
     val amount = abs(p.amount)
     val day = p.last_seen.takeLast(2).toIntOrNull()
-    // Price change from the actual payments: newest vs. the one before it.
-    val newest = payments.getOrNull(0)?.let { abs(it.amount) }
-    val before = payments.getOrNull(1)?.let { abs(it.amount) }
-    val changed = newest != null && before != null && abs(newest - before) > 0.004
+    // Price change from the payments that count (one-offs set aside): newest
+    // vs. the one before it, unless the user already said "Stimmt, neuer Preis".
+    val counted = payments.filter { !it.oneoff }
+    val newestPay = counted.getOrNull(0)
+    val newest = newestPay?.let { abs(it.amount) }
+    val before = counted.getOrNull(1)?.let { abs(it.amount) }
+    val changed = newest != null && before != null && abs(newest - before) > 0.004 && p.price_change != null
 
     BandScreen(
         band = {
@@ -104,7 +150,7 @@ fun RecurringDetailScreen(id: String, navController: NavController?) {
                 style = WimgType.bandOver, color = c.bandSub,
             )
             Amount(amount, WimgType.amountHero, WimgType.amountHeroCents, if (income) c.bandPos else Color.White, Modifier.padding(top = 2.dp), showPlus = income)
-            Text(p.merchant, style = WimgType.title.copy(fontSize = WimgType.title.fontSize * 0.92f), color = Color.White, modifier = Modifier.padding(top = 2.dp))
+            Text(p.displayName, style = WimgType.title.copy(fontSize = WimgType.title.fontSize * 0.92f), color = Color.White, modifier = Modifier.padding(top = 2.dp))
         },
     ) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = barClearance())) {
@@ -113,10 +159,8 @@ fun RecurringDetailScreen(id: String, navController: NavController?) {
                     val up = newest!! > before!!
                     val diff = newest - before // per payment
                     val perMonth = diff * monthlyFactor(p.interval)
-                    Row(
-                        Modifier.fillMaxWidth().clip(WimgShape.group).background(if (up) c.warnBg else c.accentSoft).padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
+                    Column(Modifier.fillMaxWidth().clip(WimgShape.group).background(if (up) c.warnBg else c.accentSoft).padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             if (up) Icons.AutoMirrored.Outlined.TrendingUp else Icons.AutoMirrored.Outlined.TrendingDown,
                             contentDescription = null, tint = if (up) c.warn else c.accent, modifier = Modifier.size(22.dp),
@@ -132,6 +176,33 @@ fun RecurringDetailScreen(id: String, navController: NavController?) {
                                 style = WimgType.desc, color = c.text2, modifier = Modifier.padding(top = 2.dp),
                             )
                         }
+                    }
+                    // Board 26/18: a jump that may be a one-off invoice, decided right here.
+                    val pay = newestPay!!
+                    Box(
+                        Modifier.padding(top = 14.dp).fillMaxWidth().heightIn(min = 48.dp).clip(CircleShape).background(c.ink).pressable {
+                            scope.launch {
+                                // "Preis bleibt …": the price before it is settled, so the
+                                // card doesn't move on to an older change.
+                                withContext(Dispatchers.IO) { LibWimg.setRecurringOneoff(p.id, pay.id, true); LibWimg.acceptRecurringPrice(p.id) }
+                                Changes.bump()
+                                Dock.undo(__t("%s einmalig").format(amountText(abs(pay.amount), showPlus = false)), __t("Preis bleibt %s").format(amountText(before, showPlus = false))) {
+                                    scope.launch { withContext(Dispatchers.IO) { LibWimg.setRecurringOneoff(p.id, pay.id, false) }; Changes.bump() }
+                                }
+                            }
+                        },
+                        contentAlignment = Alignment.Center,
+                    ) { Text(L("Einmalige Zahlung, kein neuer Preis"), style = WimgType.button, color = c.inkText) }
+                    Box(
+                        Modifier.padding(top = 8.dp).fillMaxWidth().heightIn(min = 48.dp).clip(CircleShape).border(1.dp, c.line, CircleShape).pressable {
+                            scope.launch {
+                                withContext(Dispatchers.IO) { LibWimg.acceptRecurringPrice(p.id) }
+                                Changes.bump()
+                                Dock.info(__t("Neuer Preis übernommen"), amountText(newest, showPlus = false))
+                            }
+                        },
+                        contentAlignment = Alignment.Center,
+                    ) { Text(L("Stimmt, neuer Preis"), style = WimgType.button, color = c.text) }
                     }
                 }
             }
@@ -154,32 +225,52 @@ fun RecurringDetailScreen(id: String, navController: NavController?) {
                     Stat(L("Pro Jahr"), amountText(amount * 12 * monthlyFactor(p.interval), showPlus = false), null, Modifier.weight(1f))
                     Stat(
                         L("Bisher"),
-                        amountText(payments.sumOf { abs(it.amount) }, showPlus = false),
-                        if (payments.size == 1) L("1 Zahlung") else L("%d Zahlungen", payments.size),
+                        amountText(counted.sumOf { abs(it.amount) }, showPlus = false),
+                        if (counted.size == 1) L("1 Zahlung") else L("%d Zahlungen", counted.size),
                         Modifier.weight(1f),
                     )
                 }
                 HorizontalDivider(Modifier.padding(top = 18.dp), thickness = 1.dp, color = c.line)
                 Text(L("Verlauf"), style = WimgType.chip, color = c.text2, modifier = Modifier.padding(top = 22.dp, bottom = 6.dp))
             }
-            itemsIndexed(payments, key = { _, pay -> pay.id }) { i, pay ->
-                val older = payments.getOrNull(i + 1)
+            itemsIndexed(payments, key = { _, pay -> pay.id }) { _, pay ->
+                val ci = counted.indexOf(pay)
+                val older = if (ci >= 0) counted.getOrNull(ci + 1) else null
                 val note = when {
+                    pay.oneoff -> L("Einzelzahlung · zählt hier nicht")
                     older == null || abs(abs(pay.amount) - abs(older.amount)) < 0.005 -> null
-                    i == 0 -> L("neuer Preis")
+                    ci == 0 -> if (changed) L("neuer Preis?") else L("neuer Preis")
                     else -> L("Preis geändert")
                 }
                 Column {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 60.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(26.dp).clip(CircleShape).background(if (income) c.pos else c.ink), contentAlignment = Alignment.Center) {
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 60.dp).then(
+                            // A one-off can be taken back: "zählt doch dazu".
+                            if (pay.oneoff) Modifier.pressable {
+                                Dock.show(DockRow(DockKind.Prompt, __t("Gehört diese Zahlung dazu?"), amountText(pay.amount), __t("Ja, zählt dazu"), {
+                                    scope.launch { withContext(Dispatchers.IO) { LibWimg.setRecurringOneoff(p.id, pay.id, false) }; Changes.bump() }
+                                }))
+                            } else Modifier,
+                        ),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (pay.oneoff) {
+                            androidx.compose.foundation.Canvas(Modifier.size(26.dp)) {
+                                drawCircle(c.text3, style = androidx.compose.ui.graphics.drawscope.Stroke(1.5.dp.toPx(), pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(5f, 5f))))
+                            }
+                        } else Box(Modifier.size(26.dp).clip(CircleShape).background(if (income) c.pos else c.ink), contentAlignment = Alignment.Center) {
                             Icon(Icons.Outlined.Check, contentDescription = L("bezahlt"), tint = c.inkText, modifier = Modifier.size(15.dp))
                         }
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(WimgDates.full(pay.date), style = WimgType.body, color = c.text)
-                            if (note != null) Text(note, style = WimgType.desc, color = c.warn)
+                            Text(WimgDates.full(pay.date), style = WimgType.body, color = if (pay.oneoff) c.text2 else c.text)
+                            if (note != null) Text(note, style = WimgType.desc, color = if (pay.oneoff) c.text2 else c.warn)
                         }
-                        Text(amountText(pay.amount), style = WimgType.amountRow, color = if (income) c.pos else c.text)
+                        Text(
+                            amountText(pay.amount),
+                            style = WimgType.amountRow.copy(textDecoration = if (pay.oneoff) androidx.compose.ui.text.style.TextDecoration.LineThrough else null),
+                            color = if (pay.oneoff) c.text2 else if (income) c.pos else c.text,
+                        )
                     }
                     HorizontalDivider(thickness = 1.dp, color = c.line)
                 }
@@ -195,5 +286,110 @@ private fun Stat(label: String, value: String, sub: String?, modifier: Modifier)
         Text(label, style = WimgType.desc, color = c.text2)
         Text(value, style = WimgType.amountStat.copy(fontSize = WimgType.amountStat.fontSize * 1.1f, fontWeight = FontWeight.ExtraBold), color = c.text, modifier = Modifier.padding(top = 2.dp))
         if (sub != null) Text(sub, style = WimgType.desc, color = c.text2, modifier = Modifier.padding(top = 2.dp))
+    }
+}
+
+private val EDIT_INTERVALS = listOf("weekly" to "Wöch.", "monthly" to "Monatl.", "quarterly" to "Viertelj.", "annual" to "Jährl.")
+
+/** Board 26/15–16: name, category, rhythm, automatic or fixed amount. */
+@Composable
+private fun EditPatternPanel(p: RecurringPattern, onCancel: () -> Unit, onSave: (name: String?, category: Int?, interval: String?, fixedCents: Long?) -> Unit) {
+    val c = Wimg.colors
+    var name by remember { mutableStateOf(p.displayName) }
+    var category by remember { mutableStateOf(p.category) }
+    var interval by remember { mutableStateOf(p.interval) }
+    var fixed by remember { mutableStateOf(p.fixed != 0) }
+    var fixedText by remember { mutableStateOf(if (p.fixed != 0) "%.2f".format(java.util.Locale.GERMANY, abs(p.amount)) else "") }
+    var pickCategory by remember { mutableStateOf(false) }
+    if (pickCategory) {
+        CategoryPanel(category) { category = it; pickCategory = false }
+        return
+    }
+    val detected = abs(p.detected_amount ?: p.amount)
+    com.wimg.app.ui.components.BarPanel {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(L("Bearbeiten"), style = WimgType.sheetTitle, color = c.text)
+            Spacer(Modifier.width(10.dp))
+            Text(L("erkannt als „%s“", p.merchant), style = WimgType.desc, color = c.text2, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        }
+        Spacer(Modifier.height(12.dp))
+        Column(Modifier.fillMaxWidth().clip(WimgShape.group).border(1.dp, c.line, WimgShape.group).padding(horizontal = 16.dp, vertical = 10.dp)) {
+            Text(L("Name"), style = WimgType.desc, color = c.text2)
+            androidx.compose.foundation.text.BasicTextField(
+                value = name, onValueChange = { name = it.take(60) }, singleLine = true,
+                textStyle = WimgType.rowTitle.copy(color = c.text), cursorBrush = androidx.compose.ui.graphics.SolidColor(c.accent),
+                modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(
+            Modifier.fillMaxWidth().clip(WimgShape.group).border(1.dp, c.line, WimgShape.group).pressable { pickCategory = true }.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(L("Kategorie"), style = WimgType.desc, color = c.text2)
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+                    Box(Modifier.size(9.dp).clip(CircleShape).background(c.categoryBar(category)))
+                    Spacer(Modifier.width(8.dp))
+                    Text(L(WimgCategory.fromId(category).label), style = WimgType.rowTitle, color = c.text)
+                }
+            }
+            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = c.text3)
+        }
+        Text(L("Rhythmus"), style = WimgType.desc, color = c.text2, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
+        Row(Modifier.fillMaxWidth().clip(WimgShape.segmentOuter).background(c.neutralTint).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            EDIT_INTERVALS.forEach { (key, label) ->
+                val on = interval == key
+                Box(
+                    Modifier.weight(1f).height(38.dp).clip(WimgShape.segmentInner).background(if (on) c.card else Color.Transparent).pressable { interval = key },
+                    contentAlignment = Alignment.Center,
+                ) { Text(L(label), style = WimgType.chip, color = if (on) c.text else c.text2) }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        com.wimg.app.ui.components.WimgGroup {
+            listOf(false, true).forEachIndexed { i, isFixed ->
+                if (i > 0) com.wimg.app.ui.components.RowDivider()
+                com.wimg.app.ui.components.WimgRow(
+                    if (isFixed) L("Fester Betrag") else L("Automatisch"),
+                    desc = if (isFixed) L("z. B. wenn die Rechnung schwankt") else L("Wie die letzte Zahlung: %s", amountText(detected, showPlus = false)),
+                    onClick = { fixed = isFixed },
+                    leading = {
+                        Box(Modifier.size(22.dp).clip(CircleShape).border(2.dp, if (fixed == isFixed) c.accent else c.text3, CircleShape), contentAlignment = Alignment.Center) {
+                            if (fixed == isFixed) Box(Modifier.size(10.dp).clip(CircleShape).background(c.accent))
+                        }
+                    },
+                )
+            }
+        }
+        if (fixed) {
+            androidx.compose.foundation.text.BasicTextField(
+                value = fixedText, onValueChange = { fixedText = it.filter { ch -> ch.isDigit() || ch == ',' || ch == '.' }.take(10) }, singleLine = true,
+                textStyle = WimgType.amountLarge.copy(color = c.text),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(c.accent),
+                modifier = Modifier.padding(top = 10.dp).fillMaxWidth().clip(WimgShape.group).border(1.dp, c.accent, WimgShape.group).padding(horizontal = 16.dp, vertical = 12.dp),
+                decorationBox = { inner -> Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.weight(1f)) { if (fixedText.isEmpty()) Text("0,00", style = WimgType.amountLarge, color = c.text3); inner() }; Text("€", style = WimgType.amountLarge, color = c.text2) } },
+            )
+        }
+        com.wimg.app.ui.components.QuietLine(L("Vergangene Zahlungen bleiben, wie sie gebucht sind."))
+        Row(Modifier.padding(top = 12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.weight(1f).height(50.dp).pressable(onClick = onCancel).clip(CircleShape).border(1.dp, c.line, CircleShape), contentAlignment = Alignment.Center) {
+                Text(L("Abbrechen"), style = WimgType.button, color = c.text)
+            }
+            Box(
+                Modifier.weight(1f).height(50.dp).pressable {
+                    val cents = fixedText.replace(".", "").replace(',', '.').toDoubleOrNull()?.let { kotlin.math.round(it * 100).toLong() }
+                    val sign = if (p.amount < 0) -1 else 1
+                    onSave(
+                        name.trim().takeIf { it.isNotEmpty() && it != p.merchant },
+                        category.takeIf { it != (p.category) || true },
+                        interval,
+                        if (fixed && cents != null && cents > 0) sign * cents else null,
+                    )
+                }.clip(CircleShape).background(c.ink),
+                contentAlignment = Alignment.Center,
+            ) { Text(L("Sichern"), style = WimgType.button, color = c.inkText) }
+        }
     }
 }
