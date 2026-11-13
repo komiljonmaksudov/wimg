@@ -188,7 +188,8 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(L("Verfügbar im %s", months[month - 1]), style = WimgType.bandOver, color = Wimg.colors.bandSub)
-                    Amount(
+                    com.wimg.app.ui.components.RollingAmount(
+                        rollKey = com.wimg.app.ui.components.Changes.version,
                         euros = available,
                         style = WimgType.amountHero.copy(fontSize = WimgType.amountHero.fontSize * 1.05f),
                         centsStyle = WimgType.amountHeroCents,

@@ -8,6 +8,11 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.runtime.key
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.animation.fadeIn
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.layout.wrapContentWidth
@@ -138,6 +143,90 @@ fun Amount(
         maxLines = 1,
         modifier = modifier,
     )
+}
+
+/**
+ * A big band number whose changed digits roll to the new value (odometer):
+ * up when it grows, down when it shrinks, staggered right to left. It only
+ * rolls right after [rollKey] changed (a real data change, e.g. Changes.version);
+ * other changes (the Umsätze balance following the scroll) switch at once.
+ * With animations off in Android, Compose skips the motion by itself.
+ */
+@Composable
+fun RollingAmount(
+    euros: Double,
+    style: TextStyle,
+    centsStyle: TextStyle,
+    color: Color,
+    rollKey: Any?,
+    modifier: Modifier = Modifier,
+    showPlus: Boolean = true,
+) {
+    val (whole, cents) = amountParts(euros, showPlus)
+    val text = whole + cents
+    // Armed for a short while after a data change; the new value arrives a
+    // moment later, once the screen has reloaded.
+    var armedUntil by remember { mutableStateOf(0L) }
+    var firstKey by remember { mutableStateOf(true) }
+    LaunchedEffect(rollKey) {
+        if (firstKey) firstKey = false else armedUntil = System.currentTimeMillis() + 1_500
+    }
+    var shown by remember { mutableStateOf(euros) }
+    var dir by remember { mutableStateOf(0) }
+    var roll by remember { mutableStateOf(false) }
+    if (euros != shown) {
+        roll = System.currentTimeMillis() < armedUntil
+        dir = if (euros > shown) 1 else -1
+        shown = euros
+    }
+    val centsOnly = style.copy(fontSize = centsStyle.fontSize, letterSpacing = centsStyle.letterSpacing)
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    // Each digit is its own Text, so the style's (negative) letter spacing
+    // between characters is applied here by hand: same look as Amount.
+    val trackWhole = with(density) { style.letterSpacing.toPx() }
+    val trackCents = with(density) { centsStyle.letterSpacing.toPx() }
+    Row(
+        modifier.clearAndSetSemantics { contentDescription = text },
+    ) {
+        // Positions are counted from the right, so cents stay put when the
+        // whole part gains or loses a digit.
+        val n = text.length
+        for (i in 0 until n) {
+            val fromRight = n - 1 - i
+            val ch = text[i]
+            val isCents = i >= whole.length
+            key(fromRight) {
+                androidx.compose.animation.AnimatedContent(
+                    targetState = ch,
+                    transitionSpec = {
+                        if (!roll || dir == 0) {
+                            androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
+                        } else {
+                            // A digit moving on screen: ease-in-out, so the roll reads
+                            // as a roll; the old digit fades faster than the new one
+                            // arrives, so the two never smear into each other.
+                            val delay = fromRight * 18
+                            val spec = tween<androidx.compose.ui.unit.IntOffset>(260, delay, WimgMotion.EaseInOut)
+                            (androidx.compose.animation.slideInVertically(spec) { h -> dir * h } + androidx.compose.animation.fadeIn(tween(200, delay + 60, WimgMotion.EaseOut))) togetherWith
+                                (androidx.compose.animation.slideOutVertically(spec) { h -> -dir * h } + androidx.compose.animation.fadeOut(tween(120, delay, WimgMotion.EaseOut)))
+                        }
+                    },
+                    modifier = Modifier
+                        .alignByBaseline()
+                        .layout { m, cs ->
+                            val p = m.measure(cs)
+                            val track = if (isCents) trackCents else trackWhole
+                            val w = (p.width + if (fromRight == 0) 0f else track).toInt().coerceAtLeast(0)
+                            layout(w, p.height, mapOf(androidx.compose.ui.layout.FirstBaseline to p[androidx.compose.ui.layout.FirstBaseline])) { p.place(0, 0) }
+                        }
+                        .clipToBounds(),
+                    label = "digit",
+                ) { c ->
+                    Text(c.toString(), style = if (isCents) centsOnly else style, color = color, maxLines = 1)
+                }
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -218,7 +218,7 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
                     }
                 } else {
                     Text(title, style = WimgType.bandOver, color = c.bandSub)
-                    Amount(running, WimgType.amountHero, WimgType.amountHeroCents, Color.White, Modifier.padding(top = 2.dp), showPlus = !anchored)
+                    com.wimg.app.ui.components.RollingAmount(running, WimgType.amountHero, WimgType.amountHeroCents, Color.White, Changes.version, Modifier.padding(top = 2.dp), showPlus = !anchored)
                     val parts = buildList {
                         if (anchored) {
                             accounts.singleOrNull()?.let { add(it.bank.ifBlank { it.name }) }

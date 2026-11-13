@@ -248,7 +248,7 @@ fun RecurringScreen(navController: androidx.navigation.NavController? = null) {
     BandScreen(
         band = {
             Text(L("Fixkosten pro Monat"), style = WimgType.bandOver, color = c.bandSub)
-            Amount(perMonth, WimgType.amountHero, WimgType.amountHeroCents, Color.White, Modifier.padding(top = 2.dp), showPlus = false)
+            com.wimg.app.ui.components.RollingAmount(perMonth, WimgType.amountHero, WimgType.amountHeroCents, Color.White, Changes.version, Modifier.padding(top = 2.dp), showPlus = false)
             Text(
                 if (expenses.size == 1) L("1 feste Zahlung erkannt") else L("%d feste Zahlungen erkannt", expenses.size),
                 style = WimgType.desc, color = c.bandSub, modifier = Modifier.padding(top = 4.dp),
