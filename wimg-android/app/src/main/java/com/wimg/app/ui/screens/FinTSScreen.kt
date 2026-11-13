@@ -712,10 +712,10 @@ private fun RemovePanel(bankName: String, onCancel: () -> Unit, onRemove: () -> 
             WimgRow(L("Wird entfernt"), desc = L("Kennung, gespeicherte PIN, TAN-Gerät, Hintergrund-Abruf"), leading = { Icon(Icons.Outlined.LinkOff, contentDescription = null, tint = c.danger, modifier = Modifier.size(22.dp)) })
         }
         Row(Modifier.padding(top = 16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.weight(1f).height(50.dp).clip(CircleShape).border(1.dp, c.line, CircleShape).pressable(onClick = onCancel), contentAlignment = Alignment.Center) {
+            Box(Modifier.weight(1f).height(50.dp).pressable(onClick = onCancel).clip(CircleShape).border(1.dp, c.line, CircleShape), contentAlignment = Alignment.Center) {
                 Text(L("Abbrechen"), style = WimgType.button, color = c.text)
             }
-            Box(Modifier.weight(1f).height(50.dp).clip(CircleShape).background(c.danger).pressable(onClick = onRemove), contentAlignment = Alignment.Center) {
+            Box(Modifier.weight(1f).height(50.dp).pressable(onClick = onRemove).clip(CircleShape).background(c.danger), contentAlignment = Alignment.Center) {
                 Text(L("Entfernen"), style = WimgType.button, color = Color.White)
             }
         }

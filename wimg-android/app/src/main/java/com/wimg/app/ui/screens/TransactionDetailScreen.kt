@@ -263,7 +263,7 @@ fun CategoryPanel(current: Int, onApply: (Int) -> Unit) {
             }
         }
         Box(
-            Modifier.padding(top = 12.dp).fillMaxWidth().height(50.dp).clip(CircleShape).background(c.ink).pressable { onApply(selected) },
+            Modifier.padding(top = 12.dp).fillMaxWidth().height(50.dp).pressable { onApply(selected) }.clip(CircleShape).background(c.ink),
             contentAlignment = Alignment.Center,
         ) { Text(L("Übernehmen"), style = WimgType.button, color = c.inkText) }
     }

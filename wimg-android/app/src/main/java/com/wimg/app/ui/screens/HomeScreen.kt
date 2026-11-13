@@ -407,13 +407,13 @@ private fun MonthPickerPanel(year: Int, month: Int, shortMonths: List<String>, n
             Text(L("Zeitraum"), style = WimgType.button.copy(fontSize = WimgType.button.fontSize * 1.07f), color = c.text, modifier = Modifier.weight(1f))
             Icon(
                 Icons.AutoMirrored.Outlined.KeyboardArrowLeft, contentDescription = L("Vorheriges Jahr"), tint = c.text,
-                modifier = Modifier.size(36.dp).clip(CircleShape).pressable { shownYear-- }.padding(6.dp),
+                modifier = Modifier.size(36.dp).pressable { shownYear-- }.clip(CircleShape).padding(6.dp),
             )
             Text("$shownYear", style = WimgType.chip, color = c.text, modifier = Modifier.padding(horizontal = 6.dp))
             val canNext = shownYear < curYear
             Icon(
                 Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = L("Nächstes Jahr"), tint = if (canNext) c.text else c.text3,
-                modifier = Modifier.size(36.dp).clip(CircleShape).pressable(enabled = canNext) { shownYear++ }.padding(6.dp),
+                modifier = Modifier.size(36.dp).pressable(enabled = canNext) { shownYear++ }.clip(CircleShape).padding(6.dp),
             )
         }
         Spacer(Modifier.height(12.dp))
@@ -427,9 +427,9 @@ private fun MonthPickerPanel(year: Int, month: Int, shortMonths: List<String>, n
                         Modifier
                             .weight(1f)
                             .height(42.dp)
+                            .pressable(enabled = !future) { onPick(shownYear, m) }
                             .clip(WimgShape.segmentOuter)
-                            .background(if (selected) c.ink else c.neutralTint)
-                            .pressable(enabled = !future) { onPick(shownYear, m) },
+                            .background(if (selected) c.ink else c.neutralTint),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
@@ -462,7 +462,7 @@ private fun EmptyHome(onBank: () -> Unit, onImport: () -> Unit, onDemo: () -> Un
             Text(
                 L("Beispieldaten ansehen"),
                 style = WimgType.button, color = c.accent,
-                modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp).clip(WimgShape.button).pressable(onClick = onDemo).padding(12.dp),
+                modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp).pressable(onClick = onDemo).clip(WimgShape.button).padding(12.dp),
             )
         }
     }
@@ -474,9 +474,9 @@ private fun EmptyAction(icon: androidx.compose.ui.graphics.vector.ImageVector, t
     Row(
         Modifier
             .fillMaxWidth()
+            .pressable(onClick = onClick)
             .clip(WimgShape.group)
             .background(if (accent) c.ink else c.card)
-            .pressable(onClick = onClick)
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

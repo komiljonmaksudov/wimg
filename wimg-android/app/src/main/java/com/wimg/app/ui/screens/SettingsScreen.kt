@@ -589,15 +589,15 @@ fun SettingsSyncScreen(navController: NavController?) {
         if (!on) {
             QuietLine(L("Deine Umsätze gleichen sich zwischen deinen Geräten ab, Ende-zu-Ende-verschlüsselt. Es gibt kein Konto: ein Schlüssel verbindet deine Geräte."), icon = Icons.Outlined.Key)
             Box(
-                Modifier.padding(top = 12.dp).fillMaxWidth().height(52.dp).clip(CircleShape).background(c.accent).pressable {
+                Modifier.padding(top = 12.dp).fillMaxWidth().height(52.dp).pressable {
                     SyncService.enableSync(context)
                     on = true
                     scope.launch { SyncService.syncNow(context); lastAt = SyncService.lastSyncAt(context) }
-                },
+                }.clip(CircleShape).background(c.accent),
                 contentAlignment = Alignment.Center,
             ) { Text(L("Sync aktivieren"), style = WimgType.button, color = c.onAccent) }
             Box(
-                Modifier.padding(top = 10.dp).fillMaxWidth().height(52.dp).clip(CircleShape).border(1.dp, c.line, CircleShape).pressable { navController?.navigate("settings/sync/link") },
+                Modifier.padding(top = 10.dp).fillMaxWidth().height(52.dp).pressable { navController?.navigate("settings/sync/link") }.clip(CircleShape).border(1.dp, c.line, CircleShape),
                 contentAlignment = Alignment.Center,
             ) { Text(L("Ich habe schon wimg"), style = WimgType.button, color = c.text) }
             return@SettingsPage

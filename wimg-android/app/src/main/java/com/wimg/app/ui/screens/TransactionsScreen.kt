@@ -261,7 +261,7 @@ private fun FilterPanel(
     BarPanel {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(L("Filter"), style = WimgType.sheetTitle.copy(fontSize = WimgType.sheetTitle.fontSize * 0.86f), color = c.text, modifier = Modifier.weight(1f))
-            Text(L("Zurücksetzen"), style = WimgType.chip, color = c.text2, modifier = Modifier.clip(WimgShape.button).pressable(onClick = onReset).padding(8.dp))
+            Text(L("Zurücksetzen"), style = WimgType.chip, color = c.text2, modifier = Modifier.pressable(onClick = onReset).clip(WimgShape.button).padding(8.dp))
         }
         // Segmented control: Alle / Ausgaben / Einnahmen
         Row(
@@ -307,9 +307,9 @@ private fun FilterPanel(
                 .padding(top = 18.dp)
                 .fillMaxWidth()
                 .height(50.dp)
+                .pressable(onClick = onDone)
                 .clip(CircleShape)
-                .background(c.ink)
-                .pressable(onClick = onDone),
+                .background(c.ink),
             contentAlignment = Alignment.Center,
         ) {
             Text(L("%d Umsätze anzeigen", resultCount), style = WimgType.button, color = c.inkText)

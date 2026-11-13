@@ -67,6 +67,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -143,11 +144,12 @@ fun Amount(
 fun Modifier.pressable(enabled: Boolean = true, role: Role = Role.Button, label: String? = null, onClick: () -> Unit): Modifier {
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
-    val s by animateFloatAsState(if (pressed) WimgMotion.PRESS_SCALE else 1f, WimgMotion.press(), label = "press")
-    // The scale layer exists only while the press animation runs. A permanent
-    // layer kept showing a stale picture on HyperOS (the active chip stayed light).
+    val s = animateFloatAsState(if (pressed) WimgMotion.PRESS_SCALE else 1f, WimgMotion.press(), label = "press")
+    // Must come before clip/background at the call site so the whole control
+    // (fill included) scales. Placed after them, only the content shrank and the
+    // fill showed as a dark rim around a light patch ("black corners").
     return this
-        .then(if (s != 1f) Modifier.scale(s) else Modifier)
+        .graphicsLayer { scaleX = s.value; scaleY = s.value }
         .clickable(interactionSource = source, indication = null, enabled = enabled, role = role, onClickLabel = label, onClick = onClick)
 }
 
@@ -411,9 +413,9 @@ private fun DockedRowContent(r: DockRow) {
                 Box(
                     Modifier
                         .height(40.dp)
+                        .pressable { r.onAction.invoke(); Dock.dismiss(r.id) }
                         .clip(WimgShape.dockAction)
                         .background(c.ink)
-                        .pressable { r.onAction.invoke(); Dock.dismiss(r.id) }
                         .padding(horizontal = 14.dp),
                     contentAlignment = Alignment.Center,
                 ) { Text(L(r.action), style = WimgType.chip, color = c.inkText) }
@@ -445,9 +447,9 @@ fun BarChip(
     Row(
         modifier
             .height(WimgDimens.touchTarget)
+            .pressable(label = contentDescription, onClick = onClick)
             .clip(WimgShape.button)
             .background(if (active) c.ink else c.neutralTint)
-            .pressable(label = contentDescription, onClick = onClick)
             .then(if (contentDescription != null) Modifier.semantics { this.contentDescription = contentDescription } else Modifier)
             .padding(horizontal = if (label.isEmpty()) 16.dp else 13.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -466,9 +468,9 @@ fun BarIcon(icon: ImageVector, label: String, modifier: Modifier = Modifier, acc
     Box(
         modifier
             .size(WimgDimens.touchTarget)
+            .pressable(label = label, onClick = onClick)
             .clip(WimgShape.button)
-            .background(if (accent) c.accent else Color.Transparent)
-            .pressable(label = label, onClick = onClick),
+            .background(if (accent) c.accent else Color.Transparent),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = label, tint = if (accent) c.onAccent else c.text, modifier = Modifier.size(21.dp))
@@ -730,9 +732,9 @@ fun BarAction(label: String, icon: ImageVector?, modifier: Modifier = Modifier, 
     Row(
         modifier
             .height(WimgDimens.touchTarget)
+            .pressable(onClick = onClick)
             .clip(WimgShape.button)
             .background(c.accent)
-            .pressable(onClick = onClick)
             .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
@@ -750,7 +752,7 @@ fun BarAction(label: String, icon: ImageVector?, modifier: Modifier = Modifier, 
 fun BarBack(onClick: () -> Unit) {
     val c = Wimg.colors
     Box(
-        Modifier.size(WimgDimens.touchTarget).clip(WimgShape.button).background(c.neutralTint).pressable(label = L("Zurück"), onClick = onClick),
+        Modifier.size(WimgDimens.touchTarget).pressable(label = L("Zurück"), onClick = onClick).clip(WimgShape.button).background(c.neutralTint),
         contentAlignment = Alignment.Center,
     ) {
         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = L("Zurück"), tint = c.text, modifier = Modifier.size(21.dp))

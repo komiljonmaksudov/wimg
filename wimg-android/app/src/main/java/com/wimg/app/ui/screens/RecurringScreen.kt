@@ -175,8 +175,6 @@ fun RecurringScreen(navController: androidx.navigation.NavController? = null) {
                             .padding(top = 18.dp)
                             .fillMaxWidth()
                             .height(50.dp)
-                            .clip(CircleShape)
-                            .border(1.dp, c.line, CircleShape)
                             .pressable(enabled = !detecting) {
                                 detecting = true
                                 scope.launch {
@@ -186,7 +184,9 @@ fun RecurringScreen(navController: androidx.navigation.NavController? = null) {
                                     Changes.bump()
                                     Dock.info(__t("Erneut erkannt"), __t("%d feste Zahlungen").format(n))
                                 }
-                            },
+                            }
+                            .clip(CircleShape)
+                            .border(1.dp, c.line, CircleShape),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -234,8 +234,6 @@ fun RecurringScreen(navController: androidx.navigation.NavController? = null) {
                         style = WimgType.button, color = c.inkText,
                         modifier = Modifier
                             .padding(top = 18.dp)
-                            .clip(CircleShape)
-                            .background(c.ink)
                             .pressable(enabled = !detecting) {
                                 detecting = true
                                 scope.launch {
@@ -244,6 +242,8 @@ fun RecurringScreen(navController: androidx.navigation.NavController? = null) {
                                     Changes.bump()
                                 }
                             }
+                            .clip(CircleShape)
+                            .background(c.ink)
                             .padding(horizontal = 22.dp, vertical = 13.dp),
                     )
                 }
