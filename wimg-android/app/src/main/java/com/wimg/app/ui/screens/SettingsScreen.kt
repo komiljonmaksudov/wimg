@@ -128,13 +128,16 @@ private fun SettingsPage(over: String?, title: String, content: @Composable Colu
 }
 
 @Composable
-private fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+private fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier, fill: Boolean = false) {
     val c = Wimg.colors
-    Row(modifier.clip(WimgShape.segmentOuter).background(c.neutralTint).padding(3.dp)) {
+    // fill: on its own line in a page, full width with equal segments (not a
+    // label-wide pill floating in the middle). Inside a row it stays compact.
+    Row((if (fill) modifier.fillMaxWidth() else modifier).clip(WimgShape.segmentOuter).background(c.neutralTint).padding(3.dp)) {
         options.forEachIndexed { i, label ->
             val on = i == selected
             Box(
                 Modifier
+                    .then(if (fill) Modifier.weight(1f) else Modifier)
                     .clip(WimgShape.segmentInner)
                     .background(if (on) c.card else Color.Transparent)
                     .clickable(role = Role.RadioButton) { onSelect(i) }
@@ -363,6 +366,7 @@ fun SettingsLockScreen(navController: NavController?) {
             listOf(L("Sofort"), L("1 Min."), L("5 Min."), L("15 Min.")),
             steps.indexOf(BiometricLock.lockAfterMs).let { if (it < 0) 1 else it },
             { BiometricLock.setLockAfter(context, steps[it]) },
+            fill = true,
         )
 
         GroupLabel(L("Privatsphäre"))

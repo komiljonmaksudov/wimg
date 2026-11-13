@@ -61,6 +61,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -477,8 +478,9 @@ fun BarChip(
         androidx.compose.animation.AnimatedContent(
             targetState = label to icon,
             transitionSpec = {
-                (fadeIn(tween(200, 40, WimgMotion.EaseOut)) +
-                    slideInVertically(tween(200, 40, WimgMotion.EaseOut)) { with(density) { 6.dp.roundToPx() } })
+                // Switching places happens dozens of times a day: a plain, quick
+                // crossfade, no rise and no blur.
+                fadeIn(tween(140, easing = WimgMotion.EaseOut))
                     .togetherWith(fadeOut(tween(100, easing = WimgMotion.EaseOut)))
                     .using(androidx.compose.animation.SizeTransform(clip = false) { from, to ->
                         val dp = with(density) { kotlin.math.abs(to.width - from.width).toDp().value }
@@ -489,11 +491,7 @@ fun BarChip(
             modifier = Modifier.weight(1f, fill = false),
             label = "chipLabel",
         ) { (l, i) ->
-            val blur by transition.animateFloat(transitionSpec = { tween(200, easing = WimgMotion.EaseOut) }, label = "blur") {
-                if (it == androidx.compose.animation.EnterExitState.Visible) 0f else 2f
-            }
             Row(
-                Modifier.then(if (blur > 0.01f) Modifier.blur(blur.dp, androidx.compose.ui.draw.BlurredEdgeTreatment.Unbounded) else Modifier),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
             ) {
@@ -541,41 +539,46 @@ fun FloatingBar(
     val docked = Dock.row
     val wide = docked != null || fill
     val density = androidx.compose.ui.platform.LocalDensity.current
-    // Undocked, the bar just wraps its content, so a chip whose width animates
-    // carries the bar along in the same frame (nothing gets clipped). An explicit
-    // width only exists while gliding between that and the docked 358 dp.
+    val maxW = (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp - 32).dp
+    val wideW = minOf(WimgDimens.barDockedWidth, maxW)
+
+    // One model for every change: only the bar's surface changes width. Content
+    // is laid out at its final size straight away, centred, and crossfades over
+    // the old content; while the surface is still narrower its edges are clipped,
+    // nothing is ever squeezed (no "N…" while shrinking).
     var natural by remember { mutableStateOf<Dp?>(null) }
-    val widthAnim = remember { androidx.compose.animation.core.Animatable(0f) }
-    var gliding by remember { mutableStateOf(false) }
-    var wasWide by remember { mutableStateOf(wide) }
-    LaunchedEffect(wide) {
-        if (wide == wasWide) return@LaunchedEffect
-        val from = if (wasWide) WimgDimens.barDockedWidth else natural
-        val to = if (wide) WimgDimens.barDockedWidth else natural
-        wasWide = wide
-        if (from == null || to == null) return@LaunchedEffect
-        gliding = true
-        widthAnim.snapTo(from.value)
-        widthAnim.animateTo(to.value, WimgMotion.barWidth())
-        gliding = false
+    val target = if (wide) wideW else natural?.coerceAtMost(maxW)
+    val width = remember { androidx.compose.animation.core.Animatable(0f) }
+    var placed by remember { mutableStateOf(false) }
+    var lastKey by remember { mutableStateOf(contentKey) }
+    var lastWide by remember { mutableStateOf(wide) }
+    var glideUntil by remember { mutableStateOf(0L) }
+    LaunchedEffect(target, contentKey, wide) {
+        val t = target ?: return@LaunchedEffect
+        val structural = contentKey != lastKey || wide != lastWide
+        lastKey = contentKey; lastWide = wide
+        val now = System.nanoTime()
+        if (structural) glideUntil = now + 320_000_000L
+        when {
+            !placed -> { width.snapTo(t.value); placed = true }
+            // A new kind of content, docking, or a re-measure during that glide:
+            // glide (Δ/500 s, 150-270 ms, ease-out; continues from where it is).
+            structural || now < glideUntil -> {
+                val d = kotlin.math.abs(t.value - width.value)
+                width.animateTo(t.value, tween((d * 2f).toInt().coerceIn(150, 270), easing = WimgMotion.EaseOut))
+            }
+            // Same content changing its own size (a chip label animating): follow it.
+            else -> width.snapTo(t.value)
+        }
     }
+
     Column(
         modifier
-            .then(
-                when {
-                    gliding -> Modifier.width(widthAnim.value.dp)
-                    wide -> Modifier.width(WimgDimens.barDockedWidth)
-                    // Measured from the content itself (no intrinsics: those count the
-                    // hidden docked row and made the bar too wide).
-                    else -> Modifier.wrapContentWidth()
-                },
-            )
-            .widthIn(max = (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp - 32).dp)
+            .then(if (placed) Modifier.width(width.value.dp) else Modifier.wrapContentWidth())
             .shadow(14.dp, WimgShape.bar, ambientColor = Color.Black.copy(alpha = 0.18f), spotColor = Color.Black.copy(alpha = 0.18f))
             .clip(WimgShape.bar)
             .background(c.card)
             .border(1.dp, c.line, WimgShape.bar),
-        // Content stays centred while the width changes, so nothing slides.
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // Keep the last row while it animates out.
@@ -589,6 +592,9 @@ fun FloatingBar(
                 fadeIn(tween(WimgMotion.DOCK_CONTENT_MS, WimgMotion.DOCK_CONTENT_DELAY_MS, WimgMotion.EaseOut)) +
                 slideInVertically(tween(WimgMotion.DOCK_CONTENT_MS, WimgMotion.DOCK_CONTENT_DELAY_MS, WimgMotion.EaseOut)) { with(density) { WimgMotion.DOCK_CONTENT_RISE.roundToPx() } },
             exit = shrinkVertically(WimgMotion.undock(), shrinkTowards = Alignment.Bottom) + fadeOut(tween(120, easing = WimgMotion.EaseOut)),
+            // Always docked width, centred: while the surface narrows on undock the
+            // row is clipped at both edges instead of widening the bar.
+            modifier = Modifier.wrapContentWidth(Alignment.CenterHorizontally, unbounded = true).width(wideW),
         ) {
             // One row replacing another ("Anmelden" → "Umsätze laden" → result)
             // crossfades and resizes instead of cutting.
@@ -604,35 +610,54 @@ fun FloatingBar(
                 label = "dockRow",
             ) { r -> if (r != null) DockedRowContent(r) }
         }
-        // One bar that stays; a different kind of content (place bar ↔ back bar ↔
-        // action bar) crossfades inside while the bar moves to its new width.
-        androidx.compose.animation.AnimatedContent(
-            targetState = BarContent(contentKey, divider, left, right),
-            contentKey = { it.key },
-            transitionSpec = {
-                fadeIn(tween(160, 40, WimgMotion.EaseOut))
-                    .togetherWith(fadeOut(tween(90, easing = WimgMotion.EaseOut)))
-                    .using(androidx.compose.animation.SizeTransform(clip = false) { from, to ->
-                        val dp = with(density) { kotlin.math.abs(to.width - from.width).toDp().value }
-                        tween((dp * 2f).toInt().coerceIn(150, 270), easing = WimgMotion.EaseOut)
-                    })
-            },
-            contentAlignment = Alignment.Center,
-            modifier = if (wide || gliding) Modifier.fillMaxWidth() else Modifier.onSizeChanged { natural = with(density) { it.width.toDp() } },
-            label = "barContent",
-        ) { bc ->
-            Row(
-                Modifier
-                    .then(if (wide || gliding) Modifier.fillMaxWidth() else Modifier)
-                    .height(WimgDimens.barHeight)
-                    .padding(WimgDimens.barPadding),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(WimgDimens.barGap),
-            ) {
-                bc.left(this)
-                if (bc.divider) Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 24.dp).background(c.line))
-                if (wide && !fill) Spacer(Modifier.weight(1f))
-                bc.right(this)
+        // Hand-made crossfade: the old content fades out from fully visible while
+        // the new one fades in, starting on the same frame (no empty bar between).
+        // Keys are state (they change only when the kind of bar changes); the
+        // content per key is a plain map, refreshed every composition without
+        // triggering another one.
+        val contents = remember { HashMap<Any, BarContent>() }
+        contents[contentKey] = BarContent(contentKey, divider, left, right)
+        val keys = remember { mutableStateListOf(contentKey) }
+        if (keys.last() != contentKey) {
+            keys.remove(contentKey)
+            keys.add(contentKey)
+            while (keys.size > 2) contents.remove(keys.removeAt(0))
+        }
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.wrapContentWidth(Alignment.CenterHorizontally, unbounded = true)) {
+            keys.toList().forEach { k ->
+                val layer = contents[k] ?: return@forEach
+                androidx.compose.runtime.key(k) {
+                    val isTop = k == keys.last()
+                    val alpha = remember { androidx.compose.animation.core.Animatable(if (keys.size == 1) 1f else 0f) }
+                    LaunchedEffect(isTop) {
+                        if (isTop) alpha.animateTo(1f, tween(150, easing = WimgMotion.EaseOut))
+                        else { alpha.animateTo(0f, tween(110, easing = WimgMotion.EaseOut)); keys.remove(k); contents.remove(k) }
+                    }
+                    Row(
+                        Modifier
+                            .graphicsLayer { this.alpha = alpha.value }
+                            .then(if (isTop) Modifier.onSizeChanged { if (!wide) natural = with(density) { it.width.toDp() } } else Modifier)
+                            .then(if (wide) Modifier.width(wideW) else Modifier.widthIn(max = maxW))
+                            .height(WimgDimens.barHeight)
+                            .padding(WimgDimens.barPadding),
+                        verticalAlignment = Alignment.CenterVertically,
+                        // Wide (docked) place bar: "where" left, "what" right, pushed apart;
+                        // the chips keep the room they need.
+                        horizontalArrangement = if (wide && !fill) Arrangement.SpaceBetween else Arrangement.spacedBy(WimgDimens.barGap),
+                    ) {
+                        if (wide && !fill) {
+                            Row(Modifier.weight(1f, fill = false), horizontalArrangement = Arrangement.spacedBy(WimgDimens.barGap), verticalAlignment = Alignment.CenterVertically) {
+                                layer.left(this)
+                                if (layer.divider) Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 24.dp).background(c.line))
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(WimgDimens.barGap), verticalAlignment = Alignment.CenterVertically) { layer.right(this) }
+                        } else {
+                            layer.left(this)
+                            if (layer.divider) Box(Modifier.padding(horizontal = 4.dp).size(1.dp, 24.dp).background(c.line))
+                            layer.right(this)
+                        }
+                    }
+                }
             }
         }
     }
