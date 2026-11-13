@@ -17,7 +17,7 @@ struct RecurringPattern: Codable, Identifiable, Equatable {
     var hasPriceChange: Bool { price_change != nil && abs(price_change!) > 0 }
     var isPriceUp: Bool { (price_change ?? 0) > 0 }
 
-    var intervalLabel: String {
+    static func intervalLabel(_ interval: String) -> String {
         switch interval {
         case "weekly": #L("Wöchentlich")
         case "monthly": #L("Monatlich")

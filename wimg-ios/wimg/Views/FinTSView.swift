@@ -1637,19 +1637,7 @@ struct FinTSView: View {
         let toStr = formatter.string(from: Date())
 
         do {
-            let result: FintsFetchResult = try await withCheckedThrowingContinuation { continuation in
-                let thread = Thread {
-                    do {
-                        let r = try LibWimg.fintsFetch(from: fromStr, to: toStr)
-                        continuation.resume(returning: r)
-                    } catch {
-                        continuation.resume(throwing: error)
-                    }
-                }
-                thread.stackSize = 2 * 1024 * 1024
-                thread.qualityOfService = .userInitiated
-                thread.start()
-            }
+            let result: FintsFetchResult = try await LibWimg.onLargeStack { try LibWimg.fintsFetch(from: fromStr, to: toStr) }
             await MainActor.run {
                 refreshing = false
                 if result.needsTan {
@@ -1909,20 +1897,7 @@ struct FinTSView: View {
         let toStr = formatter.string(from: dateTo)
 
         do {
-            let result: FintsFetchResult = try await withCheckedThrowingContinuation { continuation in
-                // Use a Thread with 2MB stack (FinTS response parsing needs large stack buffers)
-                let thread = Thread {
-                    do {
-                        let r = try LibWimg.fintsFetch(from: fromStr, to: toStr)
-                        continuation.resume(returning: r)
-                    } catch {
-                        continuation.resume(throwing: error)
-                    }
-                }
-                thread.stackSize = 2 * 1024 * 1024 // 2MB
-                thread.qualityOfService = .userInitiated
-                thread.start()
-            }
+            let result: FintsFetchResult = try await LibWimg.onLargeStack { try LibWimg.fintsFetch(from: fromStr, to: toStr) }
             await MainActor.run {
                 if result.needsTan {
                     isDecoupledChallenge = result.decoupled ?? false

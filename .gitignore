@@ -98,3 +98,7 @@ wimg-sync/.dev.vars
 scripts/bank-matrix-last.json
 scripts/drift-report*.json
 infra/restic.env
+
+# Xcode build output (local xcodebuild runs)
+wimg-ios/build/
+wimg-ios/plugins/*/build/

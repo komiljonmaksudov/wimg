@@ -12,15 +12,7 @@ struct Transaction: Codable, Identifiable {
 
     var isExpense: Bool { amount < 0 }
     var isIncome: Bool { amount > 0 }
-    var absAmount: Double { abs(amount) }
     var isExcluded: Bool { (excluded ?? 0) != 0 }
-
-    var dateFormatted: String {
-        // date comes as "YYYY-MM-DD"
-        let parts = date.split(separator: "-")
-        guard parts.count == 3 else { return date }
-        return "\(parts[2]).\(parts[1]).\(parts[0])"
-    }
 
     var parsedDate: Date? {
         let formatter = DateFormatter()

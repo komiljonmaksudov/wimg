@@ -11,13 +11,6 @@ struct RecurringView: View {
     @State private var monthlyTotal: Double = 0
     @State private var grouped: [(String, [RecurringPattern])] = []
 
-    private let intervalLabels: [String: String] = [
-        "weekly": "Wöchentlich",
-        "monthly": "Monatlich",
-        "quarterly": "Vierteljährlich",
-        "annual": "Jährlich",
-    ]
-
     /// Recompute derived state from `patterns`. Called via .onChange.
     private func recompute() {
         let active = patterns.filter(\.isActive)
@@ -104,7 +97,7 @@ struct RecurringView: View {
         } else {
             ForEach(grouped, id: \.0) { interval, items in
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(L(intervalLabels[interval] ?? interval))
+                    Text(RecurringPattern.intervalLabel(interval))
                         .font(.system(.caption, design: .rounded, weight: .bold))
                         .foregroundStyle(WimgTheme.textSecondary)
                         .textCase(.uppercase)

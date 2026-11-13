@@ -48,11 +48,8 @@ final class LibWimg {
                 return -1
             }
 
+            // Never log bodies: requests carry the PIN, responses carry statements.
             print("[FinTS HTTP] POST \(urlStr) (\(bodyData.count) bytes)")
-            // Log the raw Base64 body being sent (for debugging)
-            if let bodyStr = String(data: bodyData, encoding: .utf8) {
-                print("[FinTS HTTP] request B64: \(bodyStr)")
-            }
 
             var request = URLRequest(url: requestUrl)
             request.httpMethod = "POST"
@@ -71,10 +68,6 @@ final class LibWimg {
                 responseError = error
                 if let httpResponse = response as? HTTPURLResponse {
                     print("[FinTS HTTP] response: \(httpResponse.statusCode), \(data?.count ?? 0) bytes")
-                    if let data, data.count > 0, data.count < 500 {
-                        let preview = String(data: data.prefix(200), encoding: .utf8) ?? "(binary)"
-                        print("[FinTS HTTP] body preview: \(preview)")
-                    }
                 }
                 semaphore.signal()
             }.resume()
@@ -432,48 +425,52 @@ final class LibWimg {
         }
     }
 
-    static func fintsConnect(blz: String, user: String, pin: String, product: String = "F7C4049477F6136957A46EC28") throws -> FintsStatusResult {
-        try withWimgAbi {
-            try ensureInit()
-            print("[FinTS] fintsConnect called (lib build: 2026-03-18z)")
-            let json = """
-            {"blz":"\(blz)","user":"\(user)","pin":"\(pin)","product":"\(product)"}
-            """
-            let data = Array(json.utf8)
-            let ptr: UnsafePointer<UInt8>? = data.withUnsafeBufferPointer { buf in
-                wimg_fints_connect(buf.baseAddress!, UInt32(buf.count))
+    /// Runs blocking FinTS work on a thread with a 2 MB stack: the protocol
+    /// code overflows the 512 KB stack of GCD threads.
+    static func onLargeStack<T>(qos: QualityOfService = .userInitiated, _ work: @escaping () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            let thread = Thread {
+                do { continuation.resume(returning: try work()) } catch { continuation.resume(throwing: error) }
             }
-            guard let ptr else {
-                throw WimgError.operationFailed("fintsConnect", lastError())
-            }
-            defer { wimg_free(ptr, 0) }
-            let result: FintsStatusResult = try decodeLengthPrefixed(ptr)
-            print("[FinTS] connect result: \(result)")
-            return result
+            thread.stackSize = 2 * 1024 * 1024
+            thread.qualityOfService = qos
+            thread.start()
         }
     }
 
-    static func fintsSendTan(tan: String) throws -> FintsStatusResult {
+    /// Sends a JSON request to a FinTS C ABI call. JSONEncoder escapes every
+    /// value, so a PIN or TAN with `"` or `\\` can't break the request.
+    private static func fintsCall<T: Encodable, R: Decodable>(
+        _ name: String, _ payload: T,
+        _ fn: (UnsafePointer<UInt8>, UInt32) -> UnsafePointer<UInt8>?
+    ) throws -> R {
         try withWimgAbi {
             try ensureInit()
-            let json = """
-            {"tan":"\(tan)"}
-            """
-            let data = Array(json.utf8)
+            let data = Array(try JSONEncoder().encode(payload))
             let ptr: UnsafePointer<UInt8>? = data.withUnsafeBufferPointer { buf in
-                wimg_fints_send_tan(buf.baseAddress!, UInt32(buf.count))
+                fn(buf.baseAddress!, UInt32(buf.count))
             }
             guard let ptr else {
-                throw WimgError.operationFailed("fintsSendTan", lastError())
+                throw WimgError.operationFailed(name, lastError())
             }
             defer { wimg_free(ptr, 0) }
             return try decodeLengthPrefixed(ptr)
         }
     }
 
-    private struct TanMediumSetRequest: Codable {
-        let name: String
+    private struct ConnectRequest: Encodable { let blz, user, pin, product: String }
+    private struct TanRequest: Encodable { let tan: String }
+    private struct FetchRequest: Encodable { let from, to: String }
+
+    static func fintsConnect(blz: String, user: String, pin: String, product: String = "F7C4049477F6136957A46EC28") throws -> FintsStatusResult {
+        try fintsCall("fintsConnect", ConnectRequest(blz: blz, user: user, pin: pin, product: product)) { wimg_fints_connect($0, $1) }
     }
+
+    static func fintsSendTan(tan: String) throws -> FintsStatusResult {
+        try fintsCall("fintsSendTan", TanRequest(tan: tan)) { wimg_fints_send_tan($0, $1) }
+    }
+
+    private struct TanMediumSetRequest: Encodable { let name: String }
 
     static func fintsGetTanMedia() throws -> FintsTanMediaResult {
         try withWimgAbi {
@@ -487,37 +484,11 @@ final class LibWimg {
     }
 
     static func fintsSetTanMedium(name: String) throws -> FintsStatusResult {
-        try withWimgAbi {
-            try ensureInit()
-            let payload = TanMediumSetRequest(name: name)
-            let data = Array(try JSONEncoder().encode(payload))
-            let ptr: UnsafePointer<UInt8>? = data.withUnsafeBufferPointer { buf in
-                wimg_fints_set_tan_medium(buf.baseAddress!, UInt32(buf.count))
-            }
-            guard let ptr else {
-                throw WimgError.operationFailed("fintsSetTanMedium", lastError())
-            }
-            defer { wimg_free(ptr, 0) }
-            return try decodeLengthPrefixed(ptr)
-        }
+        try fintsCall("fintsSetTanMedium", TanMediumSetRequest(name: name)) { wimg_fints_set_tan_medium($0, $1) }
     }
 
     static func fintsFetch(from: String, to: String) throws -> FintsFetchResult {
-        try withWimgAbi {
-            try ensureInit()
-            let json = """
-            {"from":"\(from)","to":"\(to)"}
-            """
-            let data = Array(json.utf8)
-            let ptr: UnsafePointer<UInt8>? = data.withUnsafeBufferPointer { buf in
-                wimg_fints_fetch(buf.baseAddress!, UInt32(buf.count))
-            }
-            guard let ptr else {
-                throw WimgError.operationFailed("fintsFetch", lastError())
-            }
-            defer { wimg_free(ptr, 0) }
-            return try decodeLengthPrefixed(ptr)
-        }
+        try fintsCall("fintsFetch", FetchRequest(from: from, to: to)) { wimg_fints_fetch($0, $1) }
     }
 
     // MARK: - Snapshots
