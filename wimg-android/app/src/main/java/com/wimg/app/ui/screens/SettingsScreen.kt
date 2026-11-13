@@ -496,7 +496,7 @@ private fun DeleteAllPanel(navController: NavController?, onDone: () -> Unit) {
             )
             if (syncOn) {
                 RowDivider()
-                WimgRow(L("wimg Sync"), desc = L("Wird beendet. Andere Geräte behalten ihre Kopie."), leading = { IconTile(Icons.Outlined.Refresh, c.text) })
+                WimgRow(L("wimg Sync"), desc = L("Wird beendet, die verschlüsselte Kopie auf dem Server gelöscht. Andere Geräte behalten ihre eigene."), leading = { IconTile(Icons.Outlined.Refresh, c.text) })
             }
         }
         Row(
@@ -512,10 +512,27 @@ private fun DeleteAllPanel(navController: NavController?, onDone: () -> Unit) {
             Text(L("Backup-Datei erstellen"), style = WimgType.desc.copy(fontWeight = FontWeight.Bold), color = c.text)
         }
         Spacer(Modifier.height(10.dp))
+        val scope = rememberCoroutineScope()
         HoldToDelete(L("Gedrückt halten zum Löschen")) {
-            deleteAllData(context)
-            onDone()
-            navController?.navigate("dashboard") { popUpTo(0) }
+            scope.launch {
+                // With sync on, the encrypted copy on the server goes too. If the
+                // server can't be reached, say so instead of leaving it silently.
+                if (!SyncService.deleteRemote(context)) {
+                    Dock.error(
+                        __t("Server nicht erreichbar"),
+                        __t("Die verschlüsselte Kopie auf dem Sync-Server wurde nicht gelöscht. Versuch es mit Internet noch einmal."),
+                        __t("Nur hier löschen"),
+                    ) {
+                        deleteAllData(context)
+                        onDone()
+                        navController?.navigate("dashboard") { popUpTo(0) }
+                    }
+                    return@launch
+                }
+                deleteAllData(context)
+                onDone()
+                navController?.navigate("dashboard") { popUpTo(0) }
+            }
         }
         Text(
             L("2 Sekunden halten · Loslassen bricht ab"), style = WimgType.caption, color = c.text2,

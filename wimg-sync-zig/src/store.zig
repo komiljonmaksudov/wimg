@@ -112,6 +112,20 @@ pub const Store = struct {
         return self.countLocked(key);
     }
 
+    /// Deletes every row of [key] ("Alle Daten löschen" in the app). Returns how many.
+    pub fn deleteKey(self: *Store, key: []const u8) Error!i64 {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        const n = self.countLocked(key);
+        const sql = "DELETE FROM sync_rows WHERE sync_key = ?1;";
+        var stmt: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.db, sql, sql.len, &stmt, null) != c.SQLITE_OK or stmt == null) return error.PrepareFailed;
+        defer _ = c.sqlite3_finalize(stmt);
+        bindText(stmt, 1, key);
+        if (c.sqlite3_step(stmt) != c.SQLITE_DONE) return error.StepFailed;
+        return n;
+    }
+
     fn countLocked(self: *Store, key: []const u8) i64 {
         const sql = "SELECT COUNT(*) FROM sync_rows WHERE sync_key = ?1;";
         var stmt: ?*c.sqlite3_stmt = null;
@@ -262,4 +276,14 @@ test "rows are partitioned by sync key" {
     defer out.deinit(gpa);
     try store.rowsSinceJson(gpa, "alice", 0, &out);
     try std.testing.expectEqualStrings("{\"rows\":[{\"table\":\"t\",\"id\":\"1\",\"data\":{},\"updated_at\":10}]}", out.items);
+}
+
+test "deleteKey removes only that key's rows" {
+    var store = try Store.open(":memory:");
+    defer store.close();
+    _ = try store.merge("alice", &[_]Row{ .{ .table = "t", .id = "1", .data = "{}", .updated_at = 10 }, .{ .table = "t", .id = "2", .data = "{}", .updated_at = 10 } });
+    _ = try store.merge("bob", &[_]Row{.{ .table = "t", .id = "1", .data = "{}", .updated_at = 10 }});
+    try std.testing.expectEqual(@as(i64, 2), try store.deleteKey("alice"));
+    try std.testing.expectEqual(@as(i64, 0), store.countLocked("alice"));
+    try std.testing.expectEqual(@as(i64, 1), store.countLocked("bob"));
 }

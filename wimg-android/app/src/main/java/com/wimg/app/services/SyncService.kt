@@ -46,6 +46,15 @@ object SyncService {
 
     fun isEnabled(context: Context): Boolean = getSyncKey(context) != null
 
+    /** "Alle Daten löschen": removes everything stored under this sync key on the
+     *  server. True when the server confirmed it (or sync is off). */
+    suspend fun deleteRemote(context: Context): Boolean = withContext(Dispatchers.IO) {
+        val key = getSyncKey(context) ?: return@withContext true
+        runCatching {
+            client.newCall(Request.Builder().url("$BASE_URL/sync/$key").delete().build()).execute().use { it.isSuccessful }
+        }.getOrDefault(false)
+    }
+
     private const val KEY_LAST_SYNC_AT = "wimg_sync_last_ok_at"
 
     /** When the last successful sync finished (unix ms), or 0. */

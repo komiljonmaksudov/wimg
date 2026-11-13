@@ -1360,4 +1360,9 @@ export const en: Record<string, string> = {
   "vs. %s %d": "vs. %s %d",
   "Zeitraum: %s, noch %d Tage": "Period: %s, %d days left",
   "Zeitraum: %s %d": "Period: %s %d",
+  // Delete all: server copy
+  "Server nicht erreichbar": "Server not reachable",
+  "Die verschlüsselte Kopie auf dem Sync-Server wurde nicht gelöscht. Versuch es mit Internet noch einmal.": "The encrypted copy on the sync server was not deleted. Try again with internet.",
+  "Nur hier löschen": "Delete here only",
+  "Wird beendet, die verschlüsselte Kopie auf dem Server gelöscht. Andere Geräte behalten ihre eigene.": "Ends, and the encrypted copy on the server is deleted. Other devices keep their own.",
 };

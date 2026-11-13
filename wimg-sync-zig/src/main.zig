@@ -7,6 +7,7 @@
 //!   GET  /health           → "ok"
 //!   POST /sync/:key        → {"merged": N}     (LWW upsert of {"rows":[...]})
 //!   GET  /sync/:key?since= → {"rows":[...]}    (rows newer than `since`)
+//!   DELETE /sync/:key      → {"deleted": N}    (everything under the key)
 //!   GET  /ws/:key          → real-time sync    (broadcasts `changes` frames)
 //!   POST /mcp              → MCP JSON-RPC       (NOT YET — see README)
 //!
@@ -197,6 +198,7 @@ fn routeRequest(ctx: *Context, request: *Server.Request) !void {
         return switch (method) {
             .POST => handlePush(ctx, request, key),
             .GET => handlePull(ctx, request, key, target),
+            .DELETE => handleDelete(ctx, request, key),
             else => request.respond("method not allowed", .{ .status = .method_not_allowed }),
         };
     }
@@ -309,6 +311,16 @@ fn handleMcp(ctx: *Context, request: *Server.Request) !void {
 
     // 2026-07-28 has no sessions, so no Mcp-Session-Id either way.
     return request.respond(rpc.body, .{ .status = rpc.status, .extra_headers = &json_headers });
+}
+
+/// "Alle Daten löschen" in the app: drop everything stored under this key.
+fn handleDelete(ctx: *Context, request: *Server.Request, key: []const u8) !void {
+    const deleted = ctx.store.deleteKey(key) catch
+        return request.respond("{\"error\":\"delete failed\"}", .{ .status = .internal_server_error, .extra_headers = &json_headers });
+    logReq("delete", key, deleted);
+    var out: [64]u8 = undefined;
+    const reply = std.fmt.bufPrint(&out, "{{\"deleted\":{d}}}", .{deleted}) catch unreachable;
+    return request.respond(reply, .{ .status = .ok, .extra_headers = &json_headers });
 }
 
 fn handlePull(ctx: *Context, request: *Server.Request, key: []const u8, target: []const u8) !void {
