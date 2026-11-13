@@ -483,7 +483,7 @@ fun FinTSScreen(navController: NavController? = null) {
                 Row(Modifier.fillMaxWidth().padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(L("PIN merken"), style = WimgType.rowTitle.copy(fontSize = WimgType.rowTitle.fontSize * 1.07f), color = c.text)
-                        Text(L("Verschlüsselt auf diesem Gerät · nötig für Schnellabfrage und Hintergrund-Abruf"), style = WimgType.desc, color = c.text2)
+                        Text(L("Nur auf diesem Gerät, nie synchronisiert · nötig für Schnellabfrage und Hintergrund-Abruf"), style = WimgType.desc, color = c.text2)
                     }
                     Spacer(Modifier.width(12.dp))
                     WimgToggle(rememberPin, { rememberPin = it }, label = L("PIN merken"))

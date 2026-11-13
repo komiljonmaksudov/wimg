@@ -1,349 +1,602 @@
 package com.wimg.app.ui.screens
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
+import androidx.compose.material.icons.outlined.AccountBalance
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.BugReport
+import androidx.compose.material.icons.outlined.CardGiftcard
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Gavel
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.PhoneAndroid
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Remove
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.wimg.app.models.WimgCategory
-import com.wimg.app.ui.theme.WimgColors
-import com.wimg.app.ui.theme.WimgShapes
-import com.wimg.app.ui.theme.wimgCard
+import androidx.navigation.NavController
+import com.wimg.app.R
 import com.wimg.app.i18n.L
+import com.wimg.app.i18n.__t
+import com.wimg.app.ui.components.BandScreen
+import com.wimg.app.ui.components.BandTitle
+import com.wimg.app.ui.components.BarContribution
+import com.wimg.app.ui.components.DetailBarSpec
+import com.wimg.app.ui.components.Dock
+import com.wimg.app.ui.components.DockKind
+import com.wimg.app.ui.components.DockRow
+import com.wimg.app.ui.components.GroupLabel
+import com.wimg.app.ui.components.IconTile
+import com.wimg.app.ui.components.QuietLine
+import com.wimg.app.ui.components.RowDivider
+import com.wimg.app.ui.components.WimgGroup
+import com.wimg.app.ui.components.WimgRow
+import com.wimg.app.ui.components.barClearance
+import com.wimg.app.ui.theme.LocaleState
+import com.wimg.app.ui.theme.Wimg
+import com.wimg.app.ui.theme.WimgShape
+import com.wimg.app.ui.theme.WimgType
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 
-private data class FAQ(val q: String, val a: String)
+private const val REPO = "https://github.com/komiljonmaksudov/wimg"
+private const val SITE = "https://wimg.komiljonmaksudov.com"
 
-// FAQ list mirrors wimg-web/src/routes/(app)/about/+page.svelte (minus the
-// web-only "DevTools" entry). Keep both in sync when adding entries.
-private val faqs = listOf(
-    FAQ("Sind meine Daten sicher?", "Ja. Alle Finanzdaten werden lokal in einer SQLite-Datenbank auf deinem Gerät gespeichert. Sync ist Ende-zu-Ende verschlüsselt — der Server sieht nur Chiffretext."),
-    FAQ("Welche Banken werden unterstützt?", "CSV-Import von Comdirect, Trade Republic und Scalable Capital. Da wimg Open-Source ist, können weitere Formate jederzeit hinzugefügt werden."),
-    FAQ("Wie funktioniert der Import?", "Lade deinen Kontoauszug im CSV-Format hoch. wimg erkennt das Format automatisch, analysiert die Transaktionen lokal und kategorisiert sie mit intelligenten Regeln."),
-    FAQ("Wie funktioniert die Kategorisierung?", "wimg nutzt ein Regel-System mit Schlüsselwörtern. Bekannte Händler (REWE, LIDL, etc.) werden automatisch erkannt. Wenn du eine Transaktion manuell kategorisierst, lernt wimg das Muster und wendet es zukünftig automatisch an. Für den Rest hilft Claude per MCP."),
-    FAQ("Ist wimg wirklich kostenlos?", "Ja. wimg ist ein Leidenschaftsprojekt unter Open-Source-Lizenz. Keine Abonnements, keine versteckten Kosten, kein Verkauf deiner Daten."),
-    FAQ("Wo werden die Daten gespeichert?", "Im Browser: OPFS (Origin Private File System). Auf Android: lokale SQLite-Datei. Deine Daten verlassen dein Gerät nur bei aktivierter Sync — dann Ende-zu-Ende verschlüsselt."),
-    FAQ("Was ist der MCP-Server?", "Mit aktivierter Synchronisierung wird dein Sync-Schlüssel zum MCP-Zugang. Claude.ai oder andere KI-Tools können Ausgaben abfragen und Kategorien setzen — Ende-zu-Ende verschlüsselt, in Echtzeit synchronisiert."),
-    FAQ("Wie funktioniert Auto-Learn?", "Wenn du eine Transaktion manuell kategorisierst, lernt wimg automatisch das Schlüsselwort (z.B. \"REWE\" → Lebensmittel). Beim nächsten Import oder Auto-Kategorisieren werden ähnliche Transaktionen automatisch zugeordnet."),
-    FAQ("Wie synchronisiere ich zwischen Geräten?", "Gehe zu Einstellungen → Sync aktivieren. Kopiere den Sync-Schlüssel und füge ihn auf dem zweiten Gerät ein. Änderungen werden in Echtzeit per WebSocket synchronisiert — Ende-zu-Ende verschlüsselt."),
-    FAQ("Wie erkennt wimg Abos und wiederkehrende Zahlungen?", "wimg analysiert deine Transaktionen automatisch und erkennt regelmäßige Muster (monatlich, vierteljährlich, jährlich). Unter Mehr → Wiederkehrend siehst du alle erkannten Abos mit Betrag, Intervall und dem nächsten Fälligkeitsdatum."),
-    FAQ("Funktioniert wimg offline?", "Ja, vollständig. Alle Daten liegen lokal in SQLite. Du brauchst kein Internet für Import, Kategorisierung, Analyse oder irgendeine Kernfunktion. Sync ist optional und funktioniert nur bei Internetverbindung."),
-    FAQ("Gibt es eine iOS-App?", "Ja! wimg gibt es als native SwiftUI-App für iPhone. Tritt der TestFlight-Beta bei. Volle Feature-Parität mit der Web-App inklusive FinTS-Bankverbindung, Sync und Dark Mode."),
-    FAQ("Gibt es eine Android-App?", "Ja, das ist sie! Native Kotlin/Compose-App mit voller Feature-Parität zu iOS und Web."),
-    FAQ("Gibt es einen Dark Mode?", "Ja! In den Einstellungen kannst du zwischen Hell, Dunkel und System wählen. Der Dark Mode hat ein Premium-Design mit dunklem Hintergrund und dezenten Akzenten."),
-    FAQ("Kann ich mehrere Konten verwalten?", "Ja. Über den Konto-Switcher oben rechts kannst du zwischen Konten wechseln oder alle anzeigen. Neue Konten werden beim CSV-Import automatisch erstellt oder können manuell angelegt werden."),
-    FAQ("Kann ich Änderungen rückgängig machen?", "Ja. Nach jeder Aktion (Kategorisierung, Konto-Änderung etc.) erscheint ein Undo-Toast am unteren Bildschirmrand. Über die Suche findest du auch Rückgängig und Wiederherstellen. wimg speichert bis zu 50 Undo-Schritte."),
-    FAQ("Wie lösche ich meine Daten?", "Unter Einstellungen → Danger Zone kannst du die Datenbank zurücksetzen. Diese Aktion kann nicht rückgängig gemacht werden."),
-    FAQ("Wie kann ich beitragen?", "Besuche das GitHub-Repository. Code, Übersetzungen, Feedback und Bug-Reports sind willkommen."),
+private fun open(context: Context, url: String) {
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+}
+
+/**
+ * Installed from Google Play: Play updates the app, and Play's policy forbids an
+ * app updating itself any other way. The update check is only for APKs from the
+ * website or GitHub.
+ */
+private fun fromPlayStore(context: Context): Boolean = runCatching {
+    val pm = context.packageManager
+    val installer = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) pm.getInstallSourceInfo(context.packageName).installingPackageName
+    else @Suppress("DEPRECATION") pm.getInstallerPackageName(context.packageName)
+    installer == "com.android.vending"
+}.getOrDefault(false)
+
+private fun installedVersion(context: Context): String =
+    runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "?"
+
+// ---------------------------------------------------------------------------
+// Release notes, written for people (not the commit log), shipped with the app
+// so they work offline. Newest first. Keep in step with CHANGELOG.md.
+// ---------------------------------------------------------------------------
+
+private enum class NoteKind(val label: String) { New("Neu"), Better("Besser"), Fixed("Behoben") }
+private class Release(val version: String, val dateIso: String, val notes: List<Pair<NoteKind, String>>)
+
+private val RELEASES = listOf(
+    Release(
+        "0.9.7", "2026-11-11",
+        listOf(
+            NoteKind.Better to "Banken mit Freigabe in der Banking-App (pushTAN) funktionieren.",
+            NoteKind.Better to "Volks- und Raiffeisenbanken, die nur noch CAMT liefern, funktionieren.",
+            NoteKind.Fixed to "Das TAN-Gerät wird bei der Anmeldung richtig erkannt.",
+        ),
+    ),
+    Release(
+        "0.9.6", "2026-10-22",
+        listOf(
+            NoteKind.New to "Claude und andere KI-Assistenten verbinden sich über das neue MCP-Protokoll.",
+            NoteKind.Fixed to "Große Synchronisierungen landen nicht mehr unter einem falschen Schlüssel.",
+            NoteKind.Better to "Kein Update-Banner mehr in der Android-App.",
+        ),
+    ),
+    Release(
+        "0.9.5", "2026-08-05",
+        listOf(
+            NoteKind.New to "Bankabruf im Hintergrund mit Mitteilungen auf Android.",
+            NoteKind.New to "Eigenes App-Icon für Android.",
+            NoteKind.Better to "wimg Sync läuft auf einem eigenen Server statt bei Cloudflare.",
+            NoteKind.Better to "KI-Abfragen über MCP blenden IBANs und Namen aus.",
+        ),
+    ),
 )
 
-private data class PrivacyRow(val icon: ImageVector, val title: String, val desc: String)
+private fun dateLabel(iso: String) = com.wimg.app.ui.components.WimgDates.full(iso)
 
-private val privacyRows = listOf(
-    PrivacyRow(Icons.Outlined.Lock, "Lokal gespeichert", "SQLite-Datenbank auf deinem Gerät. Kein Cloud-Konto nötig."),
-    PrivacyRow(Icons.Outlined.Key, "Ende-zu-Ende verschlüsselt", "Sync nutzt XChaCha20-Poly1305. Der Server sieht nur Chiffretext."),
-    PrivacyRow(Icons.Outlined.AccountBalance, "FinTS direkt zur Bank", "Kein Drittanbieter zwischen dir und deiner Bank."),
-    PrivacyRow(Icons.Outlined.VisibilityOff, "Kein Tracking", "Keine Analytics, kein Sentry, kein Google. Null Telemetrie."),
-    PrivacyRow(Icons.Outlined.PersonOff, "Kein Account", "Kein Passwort, keine E-Mail. Dein Sync-Schlüssel ist deine Identität."),
-    PrivacyRow(Icons.Outlined.Psychology, "KI sieht keine Klarnamen", "MCP-Antworten werden von IBANs, BICs und Namen bereinigt."),
-)
+// ---------------------------------------------------------------------------
+// Update check (Android builds from the website / GitHub only)
+// ---------------------------------------------------------------------------
+
+private sealed interface UpdateState {
+    data object Idle : UpdateState
+    data object Checking : UpdateState
+    data object Current : UpdateState
+    data class Available(val version: String, val apkUrl: String, val sizeBytes: Long?) : UpdateState
+    data object Failed : UpdateState
+}
+
+private object UpdateCheck {
+    var state by mutableStateOf<UpdateState>(UpdateState.Idle)
+}
+
+private fun newer(a: String, b: String): Boolean {
+    val x = a.split('.').map { it.toIntOrNull() ?: 0 }
+    val y = b.split('.').map { it.toIntOrNull() ?: 0 }
+    for (i in 0 until maxOf(x.size, y.size)) {
+        val d = x.getOrElse(i) { 0 } - y.getOrElse(i) { 0 }
+        if (d != 0) return d > 0
+    }
+    return false
+}
+
+/** Asks GitHub for the latest release. Only when tapped: it tells GitHub your IP. */
+private suspend fun checkForUpdate(installed: String): UpdateState = withContext(Dispatchers.IO) {
+    runCatching {
+        val client = okhttp3.OkHttpClient.Builder().callTimeout(15, java.util.concurrent.TimeUnit.SECONDS).build()
+        val req = okhttp3.Request.Builder()
+            .url("https://api.github.com/repos/komiljonmaksudov/wimg/releases/latest")
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "wimg-android")
+            .build()
+        client.newCall(req).execute().use { res ->
+            if (!res.isSuccessful) return@runCatching UpdateState.Failed
+            val obj = Json.parseToJsonElement(res.body!!.string()).jsonObject
+            val tag = obj["tag_name"]!!.jsonPrimitive.content.removePrefix("v")
+            if (!newer(tag, installed)) return@runCatching UpdateState.Current
+            val apk = obj["assets"]?.jsonArray?.map { it.jsonObject }?.firstOrNull { it["name"]?.jsonPrimitive?.content == "wimg.apk" }
+            UpdateState.Available(
+                tag,
+                apk?.get("browser_download_url")?.jsonPrimitive?.content ?: "$REPO/releases/latest",
+                apk?.get("size")?.jsonPrimitive?.longOrNull,
+            )
+        }
+    }.getOrDefault(UpdateState.Failed)
+}
+
+private fun sizeLabel(bytes: Long?): String? = bytes?.let { "%.1f MB".format(java.util.Locale.GERMANY, it / 1_000_000.0) }
+
+// ---------------------------------------------------------------------------
+// Shared bits
+// ---------------------------------------------------------------------------
 
 @Composable
-fun AboutScreen() {
-    val context = LocalContext.current
-    val version = try {
-        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "—"
-    } catch (_: Exception) { "—" }
-    var expandedFaq by remember { mutableStateOf<String?>(null) }
+private fun AboutPage(over: String, title: String, back: String, navController: NavController?, content: @Composable ColumnScope.() -> Unit) {
+    BarContribution(null, null, {}, DetailBarSpec(onBack = { navController?.popBackStack() }, actionLabel = null, actionIcon = null, onAction = {}, backLabel = back))
+    BandScreen(band = { BandTitle(over, title) }) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = barClearance()), content = content)
+    }
+}
 
-    fun openUrl(url: String) {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+@Composable
+private fun ExternalArrow() = Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = L("Öffnet im Browser"), tint = Wimg.colors.text2, modifier = Modifier.size(20.dp))
+
+@Composable
+private fun Pill(text: String, fg: Color, bg: Color) {
+    Text(text, style = WimgType.caption.copy(fontWeight = FontWeight.Bold), color = fg, modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(bg).padding(horizontal = 9.dp, vertical = 3.dp))
+}
+
+/** The adaptive icon's two layers, cropped like a launcher shows them. */
+@Composable
+private fun AppIcon(modifier: Modifier) {
+    Box(modifier.shadow(10.dp, RoundedCornerShape(18.dp)).clip(RoundedCornerShape(18.dp))) {
+        listOf(R.mipmap.ic_launcher_background, R.mipmap.ic_launcher_foreground).forEach { res ->
+            Image(
+                painterResource(res), contentDescription = null, contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().graphicsLayer { scaleX = 1.5f; scaleY = 1.5f },
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Hub
+// ---------------------------------------------------------------------------
+
+@Composable
+fun AboutScreen(navController: NavController? = null) {
+    val context = LocalContext.current
+    val c = Wimg.colors
+    val scope = rememberCoroutineScope()
+    val version = remember { installedVersion(context) }
+    val release = RELEASES.firstOrNull { it.version == version }
+    val update = UpdateCheck.state
+    val canSelfUpdate = remember { !fromPlayStore(context) }
+
+    fun check() {
+        if (UpdateCheck.state == UpdateState.Checking) return
+        UpdateCheck.state = UpdateState.Checking
+        Dock.show(DockRow(DockKind.Sync, __t("Suche nach Updates"), "GitHub"))
+        scope.launch {
+            val r = checkForUpdate(version)
+            UpdateCheck.state = r
+            when (r) {
+                is UpdateState.Available -> Dock.show(
+                    DockRow(
+                        DockKind.Prompt, __t("wimg %s ist da").format(r.version),
+                        listOfNotNull(sizeLabel(r.sizeBytes), __t("Lädt die APK im Browser")).joinToString(" · "),
+                        __t("Laden"), { open(context, r.apkUrl) },
+                    ),
+                )
+                UpdateState.Current -> Dock.info(__t("wimg ist aktuell"), version)
+                else -> Dock.error(__t("Keine Verbindung zu GitHub"), __t("Später erneut versuchen."))
+            }
+        }
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        // Hero
-        item {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-            ) {
-                Box {
-                    Box(
-                        modifier = Modifier.size(80.dp).clip(CircleShape).background(WimgColors.heroText),
-                        contentAlignment = Alignment.Center,
-                    ) { Text("💰", fontSize = 32.sp) }
-                    Box(
-                        modifier = Modifier.size(28.dp).clip(CircleShape).background(WimgCategory.INCOME.color).align(Alignment.BottomEnd),
-                        contentAlignment = Alignment.Center,
-                    ) { Icon(Icons.Outlined.CheckCircle, null, tint = Color.White, modifier = Modifier.size(16.dp)) }
+    BarContribution(null, null, {}, DetailBarSpec(onBack = { navController?.popBackStack() }, actionLabel = null, actionIcon = null, onAction = {}, backLabel = L("Einstellungen")))
+    BandScreen(
+        band = {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
+                AppIcon(Modifier.size(60.dp))
+                Spacer(Modifier.width(16.dp))
+                Column {
+                    Text(L("Einstellungen"), style = WimgType.bandOver, color = c.bandSub)
+                    Text(L("Über wimg"), style = WimgType.title, color = Color.White)
+                    Text(L("Wo ist mein Geld?"), style = WimgType.body, color = c.bandSub)
                 }
-                Spacer(Modifier.height(12.dp))
-                Text("wimg", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    L("Persönliche Finanzverwaltung.\nLokal. Privat. Offen."),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    L("Von Komiljon Maksudov · Zig + Kotlin + SQLite"),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                )
             }
-        }
-
-        // Quick info grid: Privatsphäre + Open Source
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                QuickInfoCard(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Outlined.Shield,
-                    iconTint = WimgCategory.INCOME.color,
-                    title = L("Privatsphäre"),
-                    body = L("Keine Werbung. Kein Tracking. Niemals."),
-                )
-                QuickInfoCard(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Outlined.Code,
-                    iconTint = WimgCategory.SUBSCRIPTIONS.color,
-                    title = L("Open Source"),
-                    body = L("Quellcode offen auf GitHub verfügbar."),
-                )
-            }
-        }
-
-        // Privacy details
-        item {
-            Column(
-                modifier = Modifier.fillMaxWidth().wimgCard().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text(L("Datenschutz im Detail"),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-                privacyRows.forEach { row ->
-                    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Icon(
-                            row.icon,
-                            contentDescription = null,
-                            tint = WimgCategory.INCOME.color,
-                            modifier = Modifier.size(18.dp).padding(top = 2.dp),
-                        )
-                        Column {
-                            Text(L(row.title), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                L(row.desc),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+        },
+    ) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = barClearance())) {
+            GroupLabel(L("App"))
+            WimgGroup {
+                WimgRow(L("Version"), leading = { IconTile(Icons.Outlined.Info, c.text) }, trailing = {
+                    Text(listOfNotNull(version, release?.let { dateLabel(it.dateIso) }).joinToString(" · "), style = WimgType.body, color = c.text2)
+                })
+                RowDivider()
+                WimgRow(L("Neuigkeiten"), leading = { IconTile(Icons.Outlined.CardGiftcard, c.text) }, chevron = true, onClick = { navController?.navigate("about/news") }, trailing = {
+                    if (release != null) Pill(L("NEU IN %s", version), c.accent, c.accentSoft)
+                })
+                if (canSelfUpdate) RowDivider()
+                if (canSelfUpdate) WimgRow(
+                    L("Auf Updates prüfen"), desc = L("Nur für die Android-Version von der Website"),
+                    leading = { IconTile(Icons.Outlined.Refresh, c.text) }, onClick = { check() },
+                    trailing = {
+                        when (update) {
+                            UpdateState.Current -> Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Outlined.Check, contentDescription = null, tint = c.pos, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(L("Aktuell"), style = WimgType.body, color = c.pos)
+                            }
+                            is UpdateState.Available -> Pill(L("%s verfügbar", update.version), c.accent, c.accentSoft)
+                            UpdateState.Failed -> Text(L("Nicht erreichbar"), style = WimgType.body, color = c.text2)
+                            else -> {}
                         }
+                    },
+                )
+            }
+
+            GroupLabel(L("Hilfe"))
+            WimgGroup {
+                WimgRow(L("Häufige Fragen"), leading = { IconTile(Icons.AutoMirrored.Outlined.HelpOutline, c.text) }, chevron = true, onClick = { navController?.navigate("about/faq") })
+                RowDivider()
+                WimgRow(
+                    L("Problem melden"), desc = L("Öffnet GitHub. Was du dort schreibst, ist öffentlich."),
+                    leading = { IconTile(Icons.Outlined.BugReport, c.text) }, trailing = { ExternalArrow() },
+                    onClick = { open(context, "$REPO/issues/new") },
+                )
+            }
+
+            GroupLabel(L("Datenschutz"))
+            WimgGroup {
+                WimgRow(L("So bleiben deine Daten bei dir"), leading = { IconTile(Icons.Outlined.Shield, c.accent) }, chevron = true, onClick = { navController?.navigate("about/privacy") })
+                RowDivider()
+                WimgRow(
+                    L("Datenschutzerklärung"), desc = L("Auf der Website"),
+                    leading = { IconTile(Icons.Outlined.Description, c.text) }, trailing = { ExternalArrow() },
+                    onClick = { open(context, "$SITE/datenschutz.html") },
+                )
+            }
+
+            GroupLabel(L("Projekt"))
+            WimgGroup {
+                WimgRow(L("Quellcode auf GitHub"), leading = { IconTile(Icons.Outlined.Code, c.text) }, trailing = { ExternalArrow() }, onClick = { open(context, REPO) })
+                RowDivider()
+                WimgRow(L("Lizenzen"), desc = L("Offene Bibliotheken, die wimg nutzt"), leading = { IconTile(Icons.Outlined.Gavel, c.text) }, chevron = true, onClick = { navController?.navigate("about/licenses") })
+                RowDivider()
+                WimgRow(L("Website"), leading = { IconTile(Icons.Outlined.Language, c.text) }, trailing = { ExternalArrow() }, onClick = { open(context, SITE) })
+            }
+            QuietLine(L("Kein Tracking, keine Werbung."))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Neuigkeiten
+// ---------------------------------------------------------------------------
+
+@Composable
+fun AboutNewsScreen(navController: NavController?) {
+    val context = LocalContext.current
+    val c = Wimg.colors
+    val installed = remember { installedVersion(context) }
+    AboutPage(L("Über wimg"), L("Neuigkeiten"), L("Über wimg"), navController) {
+        RELEASES.forEach { r ->
+            Column(Modifier.padding(bottom = 14.dp).fillMaxWidth().clip(WimgShape.group).background(c.card).border(1.dp, c.line, WimgShape.group).padding(horizontal = 16.dp, vertical = 14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(r.version, style = WimgType.chip, color = c.inkText, modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(c.ink).padding(horizontal = 11.dp, vertical = 5.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text(dateLabel(r.dateIso), style = WimgType.body, color = c.text2, modifier = Modifier.weight(1f))
+                    if (r.version == installed) Pill(L("Installiert"), c.pos, c.pos.copy(alpha = 0.12f))
+                }
+                r.notes.forEach { (kind, text) ->
+                    Box(Modifier.padding(top = 12.dp).fillMaxWidth().height(1.dp).background(c.line))
+                    Row(Modifier.padding(top = 12.dp)) {
+                        val (fg, bg) = when (kind) {
+                            NoteKind.New -> c.accent to c.accentSoft
+                            NoteKind.Better -> c.pos to c.pos.copy(alpha = 0.12f)
+                            NoteKind.Fixed -> c.text2 to c.neutralTint
+                        }
+                        Box(Modifier.width(84.dp)) { Pill(L(kind.label), fg, bg) }
+                        Text(L(text), style = WimgType.body, color = c.text, modifier = Modifier.weight(1f))
                     }
                 }
             }
         }
+        Text(L("Ältere Versionen stehen auf GitHub."), style = WimgType.desc, color = c.accent, modifier = Modifier.padding(start = 4.dp, top = 2.dp).clickable { open(context, "$REPO/releases") })
+    }
+}
 
-        // GitHub button (filled, primary action)
-        item {
-            Button(
-                onClick = { openUrl("https://github.com/milimyname/wimg") },
-                modifier = Modifier.fillMaxWidth(),
-                shape = WimgShapes.small,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.onSurface,
-                    contentColor = MaterialTheme.colorScheme.surface,
-                ),
-            ) {
-                Icon(Icons.Outlined.Code, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(L("Auf GitHub ansehen"), fontWeight = FontWeight.Bold)
-            }
-        }
+// ---------------------------------------------------------------------------
+// Häufige Fragen
+// ---------------------------------------------------------------------------
 
-        // MCP-Verbindung
-        item {
-            Column(
-                modifier = Modifier.fillMaxWidth().wimgCard().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Outlined.Link, null, tint = WimgCategory.SUBSCRIPTIONS.color, modifier = Modifier.size(18.dp))
-                    Text(L("MCP-Verbindung"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                }
-                Text(
-                    L("Verbinde Claude.ai mit deinem wimg, um Finanzfragen mit deinen echten Daten zu beantworten. Aktiviere zuerst Sync unter Einstellungen, dann nutze:"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                MonoLine(label = "URL:", value = "https://wimg-sync.komiljonmaksudov.com/mcp")
-                MonoLine(label = L("Auth:"), value = L("Bearer <dein Sync-Schlüssel>"))
-                Spacer(Modifier.height(4.dp))
-                Bullet(L("Sync-Schlüssel = MCP-Zugang, kein extra Setup"))
-                Bullet(L("Ende-zu-Ende verschlüsselt, Echtzeit-Synchronisierung"))
-                Bullet(L("PII wird automatisch aus MCP-Antworten entfernt"))
-            }
-        }
+private class Faq(val q: String, val a: String)
+private class FaqGroup(val title: String, val items: List<Faq>)
 
-        // FAQ header
-        item {
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Outlined.HelpOutline, null, tint = WimgColors.accent, modifier = Modifier.size(18.dp))
-                Text(L("Häufig gestellte Fragen"),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-        }
+private val FAQ = listOf(
+    FaqGroup(
+        "Grundlagen",
+        listOf(
+            Faq("Was ist wimg?", "Eine App, die zeigt, wohin dein Geld geht. Deine Umsätze liegen auf deinem Gerät, nicht in einer Cloud. wimg heißt „Wo ist mein Geld?“."),
+            Faq("Kostet wimg etwas?", "Nein. wimg ist kostenlos, ohne Werbung, und der Quellcode ist offen auf GitHub."),
+            Faq("Funktioniert wimg ohne Internet?", "Ja. Übersicht, Umsätze, Kategorien und CSV-Import gehen offline. Internet brauchst du nur für den Bankabruf und für wimg Sync."),
+        ),
+    ),
+    FaqGroup(
+        "Bank & TAN",
+        listOf(
+            Faq("Welche Banken gehen?", "Fast alle deutschen Banken mit FinTS, rund 1.700. Am meisten getestet ist comdirect. Ohne FinTS kannst du CSV-Dateien von Comdirect, Trade Republic und Scalable importieren."),
+            Faq("Warum verlangt meine Bank eine TAN?", "Banken verlangen eine TAN beim ersten Anmelden und für Umsätze, die älter als 90 Tage sind. Die Schnellabfrage holt deshalb nur die letzten 90 Tage, meist ohne TAN."),
+            Faq("Warum fehlen ältere Umsätze?", "Beim ersten Abruf holt wimg so weit zurück, wie du gewählt hast und deine Bank erlaubt. Danach nur noch die letzten 90 Tage. Ältere Umsätze kannst du per CSV ergänzen."),
+            Faq("Wo liegt meine Bank-PIN?", "Nur auf diesem Telefon, im privaten Speicher der App, und nur, wenn du „PIN merken“ einschaltest. Sie wird nie synchronisiert. Geschützt ist sie durch die Verschlüsselung deines Telefons; wimg verschlüsselt sie nicht zusätzlich."),
+        ),
+    ),
+    FaqGroup(
+        "Sync",
+        listOf(
+            Faq("Sieht der Server meine Umsätze?", "Nein. wimg verschlüsselt alles auf deinem Gerät, bevor es zum Server geht. Ohne deinen Sync-Schlüssel sind die Daten dort unlesbar. Ausnahme: Verbindest du Claude oder einen anderen KI-Assistenten per MCP, entschlüsselt der Server deine Daten für diese Anfrage mit deinem Schlüssel."),
+            Faq("Ich habe den Sync-Schlüssel verloren", "Solange ein Gerät verknüpft ist, findest du ihn dort unter Einstellungen › wimg Sync › Sync-Schlüssel anzeigen. Ist kein Gerät mehr verknüpft, kann niemand die Daten wiederherstellen, auch wimg nicht."),
+            Faq("Wie verbinde ich ein zweites Gerät?", "Auf dem ersten Gerät den Sync-Schlüssel anzeigen. Auf dem zweiten „Ich habe schon wimg“ wählen und den Schlüssel einfügen."),
+        ),
+    ),
+    FaqGroup(
+        "Daten & Sicherheit",
+        listOf(
+            Faq("Was passiert, wenn ich mein Handy verliere?", "Mit der App-Sperre kommt ohne Fingerabdruck oder Geräte-PIN niemand in wimg. Mit wimg Sync holst du deine Daten auf ein neues Gerät, wenn du den Sync-Schlüssel hast. Ohne Sync und ohne Backup-Datei sind sie weg, denn es gibt sonst keine Kopie."),
+            Faq("Wie sichere ich meine Daten?", "Einstellungen › Daten › Backup-Datei. Die Datei ist nicht verschlüsselt, bewahre sie auf wie einen Kontoauszug."),
+            Faq("Wie lösche ich alles?", "Einstellungen › Alle Daten löschen. Das löscht alles auf diesem Gerät und beendet wimg Sync hier. Andere verknüpfte Geräte behalten ihre Kopie."),
+        ),
+    ),
+)
 
-        items(faqs) { faq ->
-            val isExpanded = expandedFaq == faq.q
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .wimgCard(WimgShapes.small)
-                    .clickable { expandedFaq = if (isExpanded) null else faq.q }
-                    .padding(16.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        L(faq.q),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Icon(
-                        if (isExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-                AnimatedVisibility(visible = isExpanded) {
-                    Text(
-                        L(faq.a),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                }
-            }
-        }
-
-        // Footer
-        item {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                TextButton(
-                    onClick = { openUrl("https://github.com/milimyname/wimg/releases") },
-                ) {
-                    Text(L("Was ist neu?"),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = WimgColors.accent,
-                    )
-                }
-                Text(
-                    "v$version",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                )
-            }
-        }
+/** Bold + tinted matches of the query (case-insensitive) inside text. */
+private fun highlight(text: String, query: String, bg: Color): AnnotatedString = buildAnnotatedString {
+    if (query.isBlank()) { append(text); return@buildAnnotatedString }
+    var i = 0
+    val lower = text.lowercase(); val q = query.lowercase()
+    while (i < text.length) {
+        val j = lower.indexOf(q, i)
+        if (j < 0) { append(text.substring(i)); break }
+        append(text.substring(i, j))
+        withStyle(SpanStyle(background = bg)) { append(text.substring(j, j + q.length)) }
+        i = j + q.length
     }
 }
 
 @Composable
-private fun QuickInfoCard(
-    modifier: Modifier = Modifier,
-    icon: ImageVector,
-    iconTint: Color,
-    title: String,
-    body: String,
-) {
-    Column(
-        modifier = modifier.wimgCard(WimgShapes.small).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(iconTint.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center,
+fun AboutFaqScreen(navController: NavController?) {
+    val c = Wimg.colors
+    var query by remember { mutableStateOf("") }
+    var open by remember { mutableStateOf<String?>(null) }
+    val q = query.trim()
+    val groups = FAQ.map { g -> g to g.items.filter { q.isEmpty() || L(it.q).contains(q, true) || L(it.a).contains(q, true) } }.filter { it.second.isNotEmpty() }
+    val count = groups.sumOf { it.second.size }
+    val mark = Color(0xFFF2C14E).copy(alpha = 0.32f)
+
+    AboutPage(L("Über wimg"), L("Häufige Fragen"), L("Über wimg"), navController) {
+        Row(
+            Modifier.fillMaxWidth().clip(WimgShape.group).background(c.card).border(1.dp, if (q.isEmpty()) c.line else c.accent, WimgShape.group).padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(icon, null, tint = iconTint, modifier = Modifier.size(18.dp))
+            Icon(Icons.Outlined.Search, contentDescription = null, tint = c.text2, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(10.dp))
+            Box(Modifier.weight(1f)) {
+                if (query.isEmpty()) Text(L("Frage suchen"), style = WimgType.body, color = c.text2)
+                BasicTextField(query, { query = it }, singleLine = true, textStyle = WimgType.body.copy(color = c.text), cursorBrush = SolidColor(c.accent), modifier = Modifier.fillMaxWidth())
+            }
+            if (query.isNotEmpty()) Icon(Icons.Outlined.Close, contentDescription = L("Suche leeren"), tint = c.text2, modifier = Modifier.size(20.dp).clickable { query = "" })
         }
-        Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-        Text(
-            body,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (q.isNotEmpty()) Text(if (count == 1) L("1 Frage") else L("%d Fragen", count), style = WimgType.desc, color = c.text2, modifier = Modifier.padding(start = 4.dp, top = 12.dp))
+        groups.forEach { (g, items) ->
+            if (q.isEmpty()) GroupLabel(L(g.title))
+            Column(Modifier.padding(top = if (q.isEmpty()) 0.dp else 10.dp).fillMaxWidth().clip(WimgShape.group).background(c.card).border(1.dp, c.line, WimgShape.group)) {
+                items.forEachIndexed { i, f ->
+                    // While searching, the best (first) match opens by itself.
+                    val expanded = open == f.q || (q.isNotEmpty() && open == null && g == groups.first().first && i == 0)
+                    if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(c.line))
+                    Column(
+                        Modifier.fillMaxWidth().background(if (expanded) c.accentSoft else Color.Transparent)
+                            .clickable { open = if (expanded) "" else f.q }.padding(horizontal = 16.dp, vertical = 14.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.Top) {
+                            Text(highlight(L(f.q), q, mark), style = WimgType.rowTitle.copy(fontWeight = FontWeight.Bold), color = c.text, modifier = Modifier.weight(1f))
+                            Spacer(Modifier.width(10.dp))
+                            Icon(if (expanded) Icons.Outlined.Remove else Icons.Outlined.Add, contentDescription = null, tint = if (expanded) c.accent else c.text2, modifier = Modifier.size(22.dp))
+                        }
+                        if (expanded) Text(highlight(L(f.a), q, mark), style = WimgType.body, color = c.text, modifier = Modifier.padding(top = 8.dp))
+                    }
+                }
+            }
+        }
+        if (q.isNotEmpty() && count == 0) Text(L("Keine Frage gefunden."), style = WimgType.body, color = c.text2, modifier = Modifier.padding(start = 4.dp, top = 14.dp))
+        QuietLine(L("Nicht dabei? Unter „Problem melden“ kannst du fragen. Das ist öffentlich auf GitHub, schreib also keine Kontodaten hinein."), icon = Icons.AutoMirrored.Outlined.HelpOutline)
     }
 }
 
+// ---------------------------------------------------------------------------
+// So bleiben deine Daten bei dir
+// ---------------------------------------------------------------------------
+
 @Composable
-private fun MonoLine(label: String, value: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            value,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Medium,
-        )
+fun AboutPrivacyScreen(navController: NavController?) {
+    val context = LocalContext.current
+    val c = Wimg.colors
+    val places = listOf(
+        Triple(Icons.Outlined.PhoneAndroid, L("Auf diesem Telefon"), L("Alles: Umsätze, Kategorien, Regeln und, wenn du sie merkst, deine Bank-PIN. Im privaten Speicher der App, geschützt durch die Verschlüsselung deines Telefons.")),
+        Triple(Icons.Outlined.Cloud, L("Auf dem Sync-Server"), L("Nur wenn du Sync nutzt, und nur verschlüsselt. Ohne deinen Schlüssel unlesbar. Verbindest du Claude per MCP, entschlüsselt der Server deine Daten für diese Anfrage.")),
+        Triple(Icons.Outlined.AccountBalance, L("Bei deiner Bank"), L("Was sie ohnehin hat. wimg fragt direkt bei ihr an, ohne Dienst dazwischen.")),
+        Triple(Icons.Outlined.Close, L("Sonst nirgends"), L("Keine Kopie bei Dritten, kein Konto, das man hacken könnte.")),
+    )
+    AboutPage(L("Über wimg"), L("So bleiben deine Daten bei dir"), L("Über wimg"), navController) {
+        Column(Modifier.fillMaxWidth().clip(WimgShape.group).background(c.card).border(1.dp, c.line, WimgShape.group).padding(16.dp)) {
+            places.forEachIndexed { i, (icon, title, desc) ->
+                Row(Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        val last = i == places.lastIndex
+                        val (bg, fg) = when (i) { 0 -> c.accentSoft to c.accent; places.lastIndex -> c.dangerBg to c.danger; else -> c.neutralTint to c.text }
+                        Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(bg), contentAlignment = Alignment.Center) {
+                            Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(21.dp))
+                        }
+                        if (!last) Box(Modifier.width(2.dp).weight(1f).background(c.line))
+                    }
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.padding(bottom = if (i == places.lastIndex) 0.dp else 18.dp)) {
+                        Text(title, style = WimgType.rowTitle.copy(fontWeight = FontWeight.Bold), color = c.text)
+                        Text(desc, style = WimgType.body, color = c.text2, modifier = Modifier.padding(top = 2.dp))
+                    }
+                }
+            }
+        }
+        GroupLabel(L("Was wimg nie macht"))
+        listOf(L("Kein Konto") to L("Keine Werbung"), L("Kein Tracking") to L("Keine Daten an Dritte")).forEach { (a, b) ->
+            Row(Modifier.padding(bottom = 10.dp).fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                listOf(a, b).forEach { t ->
+                    Row(
+                        Modifier.weight(1f).fillMaxHeight().clip(WimgShape.group).background(c.card).border(1.dp, c.line, WimgShape.group).padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Outlined.Close, contentDescription = null, tint = c.danger, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text(t, style = WimgType.rowTitle.copy(fontWeight = FontWeight.SemiBold), color = c.text)
+                    }
+                }
+            }
+        }
+        Row(
+            Modifier.padding(top = 6.dp).clip(WimgShape.dockAction).clickable { open(context, "$SITE/datenschutz.html") }.padding(horizontal = 4.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(L("Ganze Datenschutzerklärung lesen"), style = WimgType.button, color = c.accent)
+            Spacer(Modifier.width(8.dp))
+            Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = null, tint = c.accent, modifier = Modifier.size(18.dp))
+        }
     }
 }
 
+// ---------------------------------------------------------------------------
+// Lizenzen
+// ---------------------------------------------------------------------------
+
+private class Lib(val name: String, val licence: String, val url: String)
+
+private const val APACHE = "https://www.apache.org/licenses/LICENSE-2.0"
+private const val OFL = "https://openfontlicense.org/open-font-license-official-text/"
+
+/** What the Android app actually ships (app/build.gradle.kts, libwimg, res/font). */
+private val LIBS = listOf(
+    Lib("SQLite", "Public Domain", "https://sqlite.org/copyright.html"),
+    Lib("Zig Standardbibliothek", "MIT", "https://github.com/ziglang/zig/blob/master/LICENSE"),
+    Lib("Kotlin", "Apache-2.0", APACHE),
+    Lib("Jetpack Compose, AndroidX", "Apache-2.0", APACHE),
+    Lib("Material Icons", "Apache-2.0", APACHE),
+    Lib("kotlinx.serialization", "Apache-2.0", APACHE),
+    Lib("OkHttp, Okio", "Apache-2.0", APACHE),
+    Lib("ZXing", "Apache-2.0", APACHE),
+    Lib("Manrope", "SIL OFL 1.1", OFL),
+    Lib("Inter", "SIL OFL 1.1", OFL),
+    Lib("JetBrains Mono", "SIL OFL 1.1", OFL),
+)
+
 @Composable
-private fun Bullet(text: String) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("✓", color = WimgCategory.INCOME.color, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
-        Text(
-            text,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+fun AboutLicensesScreen(navController: NavController?) {
+    val context = LocalContext.current
+    val c = Wimg.colors
+    AboutPage(L("Über wimg"), L("Lizenzen"), L("Über wimg"), navController) {
+        WimgGroup {
+            LIBS.forEachIndexed { i, lib ->
+                if (i > 0) RowDivider()
+                WimgRow(lib.name, desc = lib.licence, trailing = { ExternalArrow() }, onClick = { open(context, lib.url) })
+            }
+        }
+        QuietLine(L("Danke an alle, die diese Bibliotheken bauen. Die Lizenztexte öffnen sich im Browser."))
     }
 }
