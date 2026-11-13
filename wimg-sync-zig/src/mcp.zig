@@ -749,7 +749,7 @@ fn isReadOnlySql(sql: []const u8) bool {
 
 const TOOLS_LIST =
     \\{"tools":[
-    \\{"name":"query","description":"Run a read-only SQL query (SELECT/WITH only) against the wimg SQLite. Tables: transactions(id,date,description,amount /*cents,signed*/,currency,category /*int*/,account,raw,excluded,updated_at), accounts(id,name,bank,color,balance_cents,balance_date,updated_at), rules(pattern,category,priority,updated_at), snapshots(id,date,net_worth,income,expenses,tx_count,breakdown,updated_at), meta(key,value). Category IDs: 0=Unkategorisiert,1=Lebensmittel,2=Essen gehen,3=Transport,4=Wohnen,5=Nebenkosten,6=Unterhaltung,7=Shopping,8=Gesundheit,9=Versicherung,10=Einkommen,11=Umbuchung,12=Bargeld,13=Abonnements,14=Reisen,15=Bildung,255=Sonstiges. Amounts are integer cents.","inputSchema":{"type":"object","properties":{"sql":{"type":"string","description":"SQL SELECT or WITH statement."}},"required":["sql"]}},
+    \\{"name":"query","description":"Run a read-only SQL query (SELECT/WITH only) against the wimg SQLite. Tables: transactions(id,date_year,date_month,date_day,description,amount_cents /*signed, negative = expense*/,currency,category /*int*/,account,excluded /*1 = left out of totals*/,updated_at), accounts(id,name,bank,color,deleted,balance_cents,balance_date,updated_at), rules(pattern,category,priority,updated_at), snapshots(id,date,net_worth,income,expenses,tx_count,breakdown,updated_at), meta(key,value). Category IDs: 0=Unkategorisiert,1=Lebensmittel,2=Essen gehen,3=Transport,4=Wohnen,5=Nebenkosten,6=Unterhaltung,7=Shopping,8=Gesundheit,9=Versicherung,10=Einkommen,11=Umbuchung,12=Bargeld,13=Abonnements,14=Reisen,15=Bildung,255=Sonstiges. Amounts are integer cents. Dates are three integer columns, e.g. WHERE date_year=2026 AND date_month=11.","inputSchema":{"type":"object","properties":{"sql":{"type":"string","description":"SQL SELECT or WITH statement."}},"required":["sql"]}},
     \\{"name":"set_category","description":"Set the category of one transaction by id. The only write. Category accepts German canonical, English, or alias (e.g. Lebensmittel/Groceries/Food). Also auto-learns a rule for the merchant.","inputSchema":{"type":"object","properties":{"transaction_id":{"type":"string"},"category":{"type":"string"}},"required":["transaction_id","category"]}}
     \\]}
 ;
@@ -832,4 +832,27 @@ test "isReadOnlySql" {
     try std.testing.expect(isReadOnlySql("  with x as (select 1) select * from x"));
     try std.testing.expect(!isReadOnlySql("DELETE FROM transactions"));
     try std.testing.expect(!isReadOnlySql("UPDATE transactions SET category=1"));
+}
+
+test "query tool description names only real columns" {
+    // Every column the description promises must exist, or Claude writes SQL
+    // that fails (it once said date/amount/raw).
+    const gpa = std.testing.allocator;
+    try std.testing.expectEqual(@as(i32, 0), wimg_init(":memory:"));
+    defer wimg_close();
+    const queries = [_][]const u8{
+        "SELECT id,date_year,date_month,date_day,description,amount_cents,currency,category,account,excluded,updated_at FROM transactions",
+        "SELECT id,name,bank,color,deleted,balance_cents,balance_date,updated_at FROM accounts",
+        "SELECT pattern,category,priority,updated_at FROM rules",
+        "SELECT id,date,net_worth,income,expenses,tx_count,breakdown,updated_at FROM snapshots",
+        "SELECT key,value FROM meta",
+    };
+    for (queries) |q| {
+        const out = (try dupResult(gpa, wimg_query(q.ptr, @intCast(q.len)))) orelse return error.QueryFailed;
+        defer gpa.free(out);
+        if (std.mem.indexOf(u8, out, "\"error\"") != null) {
+            std.debug.print("{s}\n-> {s}\n", .{ q, out });
+            return error.QueryFailed;
+        }
+    }
 }
