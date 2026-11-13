@@ -163,7 +163,7 @@ private fun shareFile(context: Context, content: String, filename: String, mime:
     context.startActivity(Intent.createChooser(intent, __t("Exportieren")))
 }
 
-private fun backupJson(): String? = WimgJni.nativeGetChanges(0)
+private fun backupJson(): String? = com.wimg.app.bridge.LibWimg.native { WimgJni.nativeGetChanges(0) }
 
 private fun appVersion(context: Context): String =
     runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "—"
@@ -429,7 +429,7 @@ fun SettingsDataScreen(navController: NavController?) {
             val applied = withContext(Dispatchers.IO) {
                 runCatching {
                     val text = context.contentResolver.openInputStream(uri)!!.bufferedReader().readText()
-                    WimgJni.nativeApplyChanges(text)
+                    com.wimg.app.bridge.LibWimg.native { WimgJni.nativeApplyChanges(text) }
                 }.getOrDefault(-1)
             }
             if (applied < 0) Dock.error(__t("Datei nicht lesbar"), __t("Das ist keine wimg-Backup-Datei."))
@@ -450,7 +450,7 @@ fun SettingsDataScreen(navController: NavController?) {
             WimgRow(
                 L("Umsätze als CSV"), desc = L("Für Excel, Steuer oder eine andere App"), chevron = true,
                 leading = { IconTile(Icons.Outlined.Description, c.text) },
-                onClick = { WimgJni.nativeExportCsv()?.let { shareFile(context, it, "wimg-umsaetze.csv", "text/csv") } },
+                onClick = { com.wimg.app.bridge.LibWimg.native { WimgJni.nativeExportCsv() }?.let { shareFile(context, it, "wimg-umsaetze.csv", "text/csv") } },
             )
             RowDivider()
             WimgRow(

@@ -13,6 +13,20 @@ import kotlin.concurrent.withLock
  */
 object LibWimg {
     private val lock = ReentrantLock()
+
+    /**
+     * libwimg is single-threaded (one SQLite connection, one shared result
+     * buffer). Every call into it — sync, bank, backup included — goes through
+     * this lock, or two threads overwrite each other's results.
+     */
+    fun <T> native(block: () -> T): T = lock.withLock(block)
+
+    /** For reads on the main thread: runs [block] only if libwimg is free right
+     *  now (a bank fetch can hold it for seconds), else returns null. */
+    fun <T> ifFree(block: () -> T): T? {
+        if (!lock.tryLock()) return null
+        return try { block() } finally { lock.unlock() }
+    }
     private val json = Json { ignoreUnknownKeys = true }
     private var initialized = false
 

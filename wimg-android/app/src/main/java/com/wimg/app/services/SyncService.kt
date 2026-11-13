@@ -54,13 +54,13 @@ object SyncService {
     fun enableSync(context: Context): String {
         val key = java.util.UUID.randomUUID().toString()
         context.getSharedPreferences(PREFS, 0).edit().putString(KEY_SYNC_KEY, key).apply()
-        encryptionKey = WimgJni.nativeDeriveKey(key)
+        encryptionKey = com.wimg.app.bridge.LibWimg.native { WimgJni.nativeDeriveKey(key) }
         return key
     }
 
     fun setSyncKey(context: Context, key: String) {
         context.getSharedPreferences(PREFS, 0).edit().putString(KEY_SYNC_KEY, key).apply()
-        encryptionKey = WimgJni.nativeDeriveKey(key)
+        encryptionKey = com.wimg.app.bridge.LibWimg.native { WimgJni.nativeDeriveKey(key) }
     }
 
     fun clearSync(context: Context) {
@@ -119,9 +119,9 @@ object SyncService {
     private suspend fun pushOrThrow(context: Context): Int = withContext(Dispatchers.IO) {
         val syncKey = getSyncKey(context) ?: return@withContext 0
         val lastTs = getLastTs(context)
-        val changesJson = WimgJni.nativeGetChanges(lastTs) ?: return@withContext 0
+        val changesJson = com.wimg.app.bridge.LibWimg.native { WimgJni.nativeGetChanges(lastTs) } ?: return@withContext 0
 
-        val key = encryptionKey ?: WimgJni.nativeDeriveKey(syncKey).also { encryptionKey = it } ?: return@withContext 0
+        val key = encryptionKey ?: com.wimg.app.bridge.LibWimg.native { WimgJni.nativeDeriveKey(syncKey) }.also { encryptionKey = it } ?: return@withContext 0
 
         // Encrypt rows
         val payload = json.decodeFromString<SyncPayload>(changesJson)
@@ -130,7 +130,7 @@ object SyncService {
         val encryptedRows = payload.rows.map { row ->
             val dataStr = row.data.toString()
             val nonce = ByteArray(24).also { SecureRandom().nextBytes(it) }
-            val encrypted = WimgJni.nativeEncryptField(dataStr, key, nonce) ?: dataStr
+            val encrypted = com.wimg.app.bridge.LibWimg.native { WimgJni.nativeEncryptField(dataStr, key, nonce) } ?: dataStr
             row.copy(data = kotlinx.serialization.json.JsonPrimitive(encrypted))
         }
 
@@ -153,7 +153,7 @@ object SyncService {
     private suspend fun pullOrThrow(context: Context): Int = withContext(Dispatchers.IO) {
         val syncKey = getSyncKey(context) ?: return@withContext 0
         val lastTs = getLastTs(context)
-        val key = encryptionKey ?: WimgJni.nativeDeriveKey(syncKey).also { encryptionKey = it } ?: return@withContext 0
+        val key = encryptionKey ?: com.wimg.app.bridge.LibWimg.native { WimgJni.nativeDeriveKey(syncKey) }.also { encryptionKey = it } ?: return@withContext 0
 
         val request = Request.Builder()
             .url("$BASE_URL/sync/$syncKey?since=$lastTs")
@@ -172,7 +172,7 @@ object SyncService {
         // Decrypt rows
         val decryptedRows = payload.rows.map { row ->
             val dataStr = row.data.toString().trim('"')
-            val decrypted = WimgJni.nativeDecryptField(dataStr, key)
+            val decrypted = com.wimg.app.bridge.LibWimg.native { WimgJni.nativeDecryptField(dataStr, key) }
             if (decrypted != null) {
                 row.copy(data = json.parseToJsonElement(decrypted))
             } else {
@@ -181,7 +181,7 @@ object SyncService {
         }
 
         val decryptedJson = json.encodeToString(SyncPayload.serializer(), SyncPayload(decryptedRows))
-        val applied = WimgJni.nativeApplyChanges(decryptedJson)
+        val applied = com.wimg.app.bridge.LibWimg.native { WimgJni.nativeApplyChanges(decryptedJson) }
         if (applied > 0) {
             val maxTs = payload.rows.maxOfOrNull { it.updated_at } ?: lastTs
             if (maxTs > lastTs) setLastTs(context, maxTs)

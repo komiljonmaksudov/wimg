@@ -75,7 +75,7 @@ fun BanksScreen(navController: NavController?) {
     // Logins from older builds have no bank name: take it from the catalog once.
     LaunchedEffect(connections) {
         if (connections.none { it.name.isBlank() }) return@LaunchedEffect
-        val catalog = withFintsThread { com.wimg.app.bridge.WimgJni.nativeFintsGetBanks() } ?: return@LaunchedEffect
+        val catalog = withFintsThread { com.wimg.app.bridge.LibWimg.native { com.wimg.app.bridge.WimgJni.nativeFintsGetBanks() } } ?: return@LaunchedEffect
         val names = runCatching {
             kotlinx.serialization.json.Json.parseToJsonElement(catalog).jsonArray.associate { e ->
                 e.jsonObject["blz"]!!.jsonPrimitive.content to e.jsonObject["name"]!!.jsonPrimitive.content

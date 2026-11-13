@@ -207,7 +207,7 @@ private object FintsJob {
         lastRange = range
         Dock.show(DockRow(DockKind.Sync, __t("Umsätze laden"), __t("%s · läuft im Hintergrund").format(bankName)))
         scope.launch {
-            val result = runCatching { withFintsThread { decode(WimgJni.nativeFintsFetch(fetchBody(range.first, range.second))) } }.getOrNull()
+            val result = runCatching { withFintsThread { decode(com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsFetch(fetchBody(range.first, range.second)) }) } }.getOrNull()
             running = false
             when {
                 result == null -> Dock.error(__t("Abruf fehlgeschlagen"), bankText(null), __t("Erneut")) { fetch(context, connId, range, bankName, onDone) }
@@ -279,8 +279,8 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
     }
 
     LaunchedEffect(Unit) {
-        WimgJni.nativeSetHttpCallback(FintsHttpCallback())
-        banks = withFintsThread { WimgJni.nativeFintsGetBanks()?.let { runCatching { json.decodeFromString<List<BankInfo>>(it) }.getOrNull() } ?: emptyList() }
+        com.wimg.app.bridge.LibWimg.native { WimgJni.nativeSetHttpCallback(FintsHttpCallback()) }
+        banks = withFintsThread { com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsGetBanks() }?.let { runCatching { json.decodeFromString<List<BankInfo>>(it) }.getOrNull() } ?: emptyList() }
         conn?.let { c -> bank = banks.find { it.blz == c.blz } }
     }
     LaunchedEffect(FintsJob.loginRequested) {
@@ -307,14 +307,14 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
             val saved = connId?.let { BankConnections.get(context, it)?.tanMedium }
             if (saved != null) {
                 scope.launch {
-                    withFintsThread { WimgJni.nativeFintsSetTanMedium(mediumBody(saved)) }
+                    withFintsThread { com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsSetTanMedium(mediumBody(saved)) } }
                     if (quick) startFetch(rangeDays(90)) else step = Step.Range
                 }
                 return
             }
             setup = true; step = Step.Medium; busy = true
             scope.launch {
-                val m = withFintsThread { WimgJni.nativeFintsGetTanMedia()?.let { runCatching { json.decodeFromString<TanMediaResult>(it) }.getOrNull() } }
+                val m = withFintsThread { com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsGetTanMedia() }?.let { runCatching { json.decodeFromString<TanMediaResult>(it) }.getOrNull() } }
                 busy = false
                 when {
                     m == null || m.status != "ok" -> error = m?.message ?: __t("TAN-Geräte konnten nicht geladen werden")
@@ -336,7 +336,7 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
         busy = true; error = null
         Dock.show(DockRow(DockKind.Sync, __t("Anmelden"), b.name))
         scope.launch {
-            val r = runCatching { withFintsThread { decode(WimgJni.nativeFintsConnect(connectBody(b.blz, kennung, saved))) } }.getOrNull()
+            val r = runCatching { withFintsThread { decode(com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsConnect(connectBody(b.blz, kennung, saved)) }) } }.getOrNull()
             busy = false
             when (r?.status) {
                 "ok" -> afterLogin(r, quick = true)
@@ -373,7 +373,7 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
         busy = true
         Dock.show(DockRow(DockKind.Sync, __t("Anmelden"), b.name))
         scope.launch {
-            val r = runCatching { withFintsThread { decode(WimgJni.nativeFintsConnect(connectBody(b.blz, kennung, saved))) } }.getOrNull()
+            val r = runCatching { withFintsThread { decode(com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsConnect(connectBody(b.blz, kennung, saved)) }) } }.getOrNull()
             busy = false
             Dock.dismiss()
             when {
@@ -404,7 +404,7 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
         val b = bank ?: return
         busy = true; error = null
         scope.launch {
-            val r = runCatching { withFintsThread { decode(WimgJni.nativeFintsConnect(connectBody(b.blz, kennung.trim(), pin))) } }.getOrNull()
+            val r = runCatching { withFintsThread { decode(com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsConnect(connectBody(b.blz, kennung.trim(), pin)) }) } }.getOrNull()
             busy = false
             when (r?.status) {
                 "ok" -> {
@@ -427,7 +427,7 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
         // Waiting is shown on the bar (spinner on the button + this row), not on the page.
         Dock.show(DockRow(DockKind.Sync, __t("Warte auf die Bank…"), bank?.name))
         scope.launch {
-            val r = runCatching { withFintsThread { decode(WimgJni.nativeFintsSendTan(tanBody(if (decoupled) "" else tanInput.trim()))) } }.getOrNull()
+            val r = runCatching { withFintsThread { decode(com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsSendTan(tanBody(if (decoupled) "" else tanInput.trim())) }) } }.getOrNull()
             busy = false
             Dock.dismiss()
             when {
@@ -569,7 +569,7 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
                         WimgRow(m.name, desc = if (m.status == 1) null else L("inaktiv"), chevron = true, onClick = {
                             busy = true
                             scope.launch {
-                                val r = withFintsThread { decode(WimgJni.nativeFintsSetTanMedium(mediumBody(m.name))) }
+                                val r = withFintsThread { decode(com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsSetTanMedium(mediumBody(m.name)) }) }
                                 busy = false
                                 if (r?.status == "ok") {
                                     connId?.let { id -> BankConnections.update(context, id) { it.copy(tanMedium = m.name) } }

@@ -320,7 +320,7 @@ object BackgroundRefresh {
             val connect = withFintsThread {
                 val input =
                     kotlinx.serialization.json.buildJsonObject { put("blz", blz); put("user", kennung); put("pin", pin); put("product", PRODUCT_ID) }.toString()
-                WimgJni.nativeFintsConnect(input)?.let { json.decodeFromString<FintsResult>(it) }
+                com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsConnect(input) }?.let { json.decodeFromString<FintsResult>(it) }
             } ?: return Outcome.Silent
 
             when (connect.status) {
@@ -340,7 +340,7 @@ object BackgroundRefresh {
             // Restore the saved TAN medium if the bank insists on one.
             if (connect.tan_medium_required == true) {
                 conn.tanMedium?.let { medium ->
-                    withFintsThread { WimgJni.nativeFintsSetTanMedium(kotlinx.serialization.json.buildJsonObject { put("name", medium) }.toString()) }
+                    withFintsThread { com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsSetTanMedium(kotlinx.serialization.json.buildJsonObject { put("name", medium) }.toString()) } }
                 }
             }
 
@@ -351,7 +351,7 @@ object BackgroundRefresh {
             val from = isoDate(cal)
 
             val fetch = withFintsThread {
-                WimgJni.nativeFintsFetch(kotlinx.serialization.json.buildJsonObject { put("from", from); put("to", to) }.toString())
+                com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsFetch(kotlinx.serialization.json.buildJsonObject { put("from", from); put("to", to) }.toString()) }
                     ?.let { json.decodeFromString<FintsResult>(it) }
             } ?: return Outcome.Silent
 

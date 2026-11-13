@@ -11,7 +11,7 @@ class WimgApp : Application() {
         try {
             LibWimg.initialize(this)
             // Register FinTS HTTP callback (OkHttp for bank HTTPS requests)
-            WimgJni.nativeSetHttpCallback(FintsHttpCallback())
+            com.wimg.app.bridge.LibWimg.native { WimgJni.nativeSetHttpCallback(FintsHttpCallback()) }
             com.wimg.app.services.MonthEndWorker.schedule(this)
         } catch (e: Exception) {
             initError = e.message

@@ -60,12 +60,12 @@ fun RecurringDetailScreen(id: String, navController: NavController?) {
     var pattern by remember(id) {
         mutableStateOf(
             com.wimg.app.ui.components.ScreenCache.get<List<RecurringPattern>>(REC_KEY)?.firstOrNull { it.id == id }
-                ?: runCatching { LibWimg.getRecurring().firstOrNull { it.id == id } }.getOrNull(),
+                ?: runCatching { LibWimg.ifFree { LibWimg.getRecurring() }?.firstOrNull { it.id == id } }.getOrNull(),
         )
     }
     // Small query (one pattern's payments): read right away so the page is
     // complete on its first frame instead of filling in a moment later.
-    var payments by remember(id) { mutableStateOf(runCatching { LibWimg.getRecurringPayments(id) }.getOrDefault(emptyList())) }
+    var payments by remember(id) { mutableStateOf(runCatching { LibWimg.ifFree { LibWimg.getRecurringPayments(id) } }.getOrNull() ?: emptyList()) }
 
     LaunchedEffect(id, Changes.version) {
         val (p, list) = withContext(Dispatchers.IO) {
