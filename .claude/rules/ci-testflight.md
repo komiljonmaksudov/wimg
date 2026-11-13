@@ -41,9 +41,9 @@ Groups capability enabled (`group.com.wimg.app`).
 
 ## How It Works
 
-`.github/workflows/release.yml` → `build-ios` job:
+`.github/workflows/release.yml` → `build-libwimg-ios` + `build-ios` jobs:
 
-1. Builds `libwimg.xcframework` via `scripts/build-ios.sh`
+1. Builds `libwimg.xcframework` via `scripts/build-ios.sh` (macos-15 job, passed on as an artifact)
 2. Regenerates `wimg.xcodeproj` via `xcodegen`
 3. Writes the API key to `~/.appstoreconnect/private_keys/AuthKey_<KEY_ID>.p8`
 4. Auto-bumps `CURRENT_PROJECT_VERSION` to `$(date +%s)` so every CI run has a
@@ -63,8 +63,10 @@ Both `wimg` and `wimgWidget` targets are signed automatically because
 ./scripts/release.sh patch --push
 ```
 
-Pushes a `v*` tag → CI runs `check` → `build-ios` (+ web + Android) → builds
-land on TestFlight in ~10-15 min. Apple processes the build for another
+Pushes a `v*` tag → CI runs `check` → `build-libwimg-ios` → `build-ios` → builds
+land on TestFlight in ~10-15 min. iOS jobs are skipped when the tag touched
+neither `libwimg/` nor `wimg-ios/`; without the `ASC_*` secrets the upload is
+skipped with a warning. Apple processes the build for another
 5-15 min before it's selectable in the test group.
 
 ## Day-to-Day Flow

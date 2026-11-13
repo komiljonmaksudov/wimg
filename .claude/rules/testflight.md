@@ -12,13 +12,12 @@
 
 ## Upload a New Build (via CI)
 
-1. Bump `MARKETING_VERSION` in `wimg-ios/project.yml` for user-visible releases
-   (e.g. `0.8.0` → `0.8.1`). The CI auto-bumps `CURRENT_PROJECT_VERSION` to
-   a Unix timestamp on every build, so you don't need to touch it.
-2. Run `./scripts/release.sh patch --push` (handles version bump + tag + push).
-3. Wait ~10-15 min for CI to archive + upload, then another 5-15 min for
+1. Run `./scripts/release.sh patch --push` (bumps `MARKETING_VERSION` together
+   with the Android `versionName`, tags, pushes). CI sets
+   `CURRENT_PROJECT_VERSION` to a Unix timestamp on every build.
+2. Wait ~10-15 min for CI to archive + upload, then another 5-15 min for
    Apple to process the build.
-4. App Store Connect → TestFlight → your test group → Builds → **+** → select
+3. App Store Connect → TestFlight → your test group → Builds → **+** → select
    the new build.
 
 ## First-Time Setup (already done)
@@ -41,5 +40,3 @@ Apple-provided encryption (HTTPS/TLS).
 - `embed: false` for libwimg.xcframework — it's a static library (.a), linked at compile time
 - App icon must be 1024x1024 PNG with no alpha channel
 - iPad builds require all 4 orientation entries in Info.plist
-- `release.sh` bumps `MARKETING_VERSION` in `project.yml` automatically
-- `CURRENT_PROJECT_VERSION` is auto-bumped by CI to `$(date +%s)`, so every CI run gets a unique build number

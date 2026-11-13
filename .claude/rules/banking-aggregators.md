@@ -2,7 +2,7 @@
 
 ## Current Approach
 
-FinTS 3.0 direct connection (pure Zig, iOS-only). Free, private, offline.
+FinTS 3.0 direct connection (pure Zig, iOS + Android). Free, private, offline.
 No intermediary sees transaction data.
 
 ## Why Not Aggregators

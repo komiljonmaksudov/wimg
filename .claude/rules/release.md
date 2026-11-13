@@ -12,11 +12,12 @@ git add <files> && git commit -m "feat: add changelog page"
 
 ## What `release.sh` Does
 
-1. Bumps version in `package.json` + `project.yml`
-2. Generates `CHANGELOG.md` entry from commits (filters out `release/chore/ci/build`)
-3. Commits as `release: v0.5.18`
-4. Creates git tag `v0.5.18`
-5. With `--push`: pushes code + tag → CI builds + deploys
+1. Reads the current version from `versionName` in `wimg-android/app/build.gradle.kts`
+2. Bumps `versionName` there + `MARKETING_VERSION` in `wimg-ios/project.yml`
+   (resets `CURRENT_PROJECT_VERSION` to 1)
+3. Generates `CHANGELOG.md` entry from commits (filters out `release/chore/ci/build`)
+4. Commits as `release: v0.5.18`, tags `v0.5.18`
+5. With `--push`: pushes code + tag → CI builds
 
 ## Bump Types
 
@@ -50,7 +51,7 @@ type: description
 | `ci`       | CI/CD pipeline changes                    |
 
 **Filtered from changelog:** `release`, `chore`, `ci`, `build` — these don't appear
-in GitHub Releases or the in-app changelog.
+in GitHub Releases.
 
 **Tip:** Write commit messages for users, not developers. The message becomes the
 changelog entry. `feat: add monthly spending chart` reads better than
@@ -58,23 +59,22 @@ changelog entry. `feat: add monthly spending chart` reads better than
 
 ## CI Pipeline (`.github/workflows/release.yml`)
 
-Triggered on tag push (`v*`):
+Triggered on tag push (`v*`) or manual dispatch:
 
 ```
-check          → zig fmt, zig test, oxfmt, oxlint, svelte-check, tsc
+detect-changes     → iOS/Android builds only if the tag touched libwimg/ or the platform dir
+check              → zig fmt + zig build test (libwimg, wimg-sync-zig),
+                     translation tables match i18n/en.ts (codegen + git diff),
+                     tsc --noEmit for wimg-sync
   ↓
-build-web      → WASM build, SvelteKit build, deploy to CF Pages
-build-ios      → XCFramework build
-build-android  → libwimg.so (arm64) via NDK
-deploy-sync    → CF Worker deploy (after web, uses compact WASM)
+build-wasm         → compact WASM (artifact only)
+build-libwimg-ios  → XCFramework (macos-15)
+build-ios          → archive + TestFlight upload (macos-26; skipped without ASC_* secrets)
+build-android      → libwimg.so + debug APK (+ signed Play bundle if keystore secrets exist)
+build-sync-server  → wimg-sync-zig Linux binary
   ↓
-release        → GitHub Release with WASM + XCFramework + .so artifacts
+release            → GitHub Release: compact WASM, XCFramework, .so, APK, wimg-sync-linux-x86_64
 ```
 
-## Breaking Releases
-
-If a release includes schema changes that require OPFS clear:
-
-1. Set `IS_BREAKING = true` in `wimg-web/src/lib/version.ts`
-2. The UpdateBanner will show a warning and "Daten löschen & aktualisieren" button
-3. Reset `IS_BREAKING = false` in the next release
+CI never deploys. The landing page and sync server ship from a Mac with
+`./scripts/deploy-server.sh [web|sync]`.
