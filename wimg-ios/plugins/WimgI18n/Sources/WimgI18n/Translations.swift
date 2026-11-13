@@ -1126,4 +1126,12 @@ internal let translations: [String: String] = [
     "Abruf nur mit Anmeldung": "fetch needs sign-in",
     "Schnellabfrage (↻) holt die letzten 90 Tage und geht direkt zur TAN, falls die Bank eine verlangt. Nur mit gespeicherter PIN.": "Quick fetch (↻) gets the last 90 days and goes straight to the TAN if the bank asks for one. Only with a saved PIN.",
     "Deine Banken": "Your banks",
+    "Vergleichen mit": "Compare with",
+    "Vormonat": "Last month",
+    "Ø 3 Monate": "Avg. 3 months",
+    "Vorjahr": "Last year",
+    "vs. Ø 3 Monate": "vs. avg. 3 months",
+    "vs. %s %d": "vs. %s %d",
+    "Zeitraum: %s, noch %d Tage": "Period: %s, %d days left",
+    "Zeitraum: %s %d": "Period: %s %d",
 ]

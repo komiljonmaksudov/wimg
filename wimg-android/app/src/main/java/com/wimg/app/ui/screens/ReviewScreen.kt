@@ -129,7 +129,7 @@ fun ReviewScreen(selectedAccount: String?, navController: NavController? = null)
 
     BarContribution(
         chip = BarChipSpec(shortMonths[month - 1] + if (year != now.get(Calendar.YEAR)) " ${year % 100}" else "", pickerOpen, { pickerOpen = !pickerOpen }),
-        panel = if (pickerOpen) { { MonthPickerPanel(year, month, shortMonths, now) { y, m -> year = y; month = m; pickerOpen = false } } } else null,
+        panel = if (pickerOpen) { { MonthPickerPanel(year, month, shortMonths, now, onPick = { y, m -> year = y; month = m; pickerOpen = false }) } } else null,
         onPanelDismiss = { pickerOpen = false },
     )
 

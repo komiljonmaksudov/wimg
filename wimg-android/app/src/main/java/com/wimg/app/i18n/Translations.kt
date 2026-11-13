@@ -1132,6 +1132,14 @@ private val translations: Map<String, String> = mapOf(
     "Abruf nur mit Anmeldung" to "fetch needs sign-in",
     "Schnellabfrage (↻) holt die letzten 90 Tage und geht direkt zur TAN, falls die Bank eine verlangt. Nur mit gespeicherter PIN." to "Quick fetch (↻) gets the last 90 days and goes straight to the TAN if the bank asks for one. Only with a saved PIN.",
     "Deine Banken" to "Your banks",
+    "Vergleichen mit" to "Compare with",
+    "Vormonat" to "Last month",
+    "Ø 3 Monate" to "Avg. 3 months",
+    "Vorjahr" to "Last year",
+    "vs. Ø 3 Monate" to "vs. avg. 3 months",
+    "vs. %s %d" to "vs. %s %d",
+    "Zeitraum: %s, noch %d Tage" to "Period: %s, %d days left",
+    "Zeitraum: %s %d" to "Period: %s %d",
 )
 
 /** Composable lookup — recomposes when LocaleState.locale flips. */

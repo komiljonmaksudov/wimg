@@ -82,6 +82,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.wimg.app.i18n.L
 import com.wimg.app.ui.theme.StatusBarState
 import com.wimg.app.ui.theme.Wimg
@@ -444,9 +445,24 @@ fun BarChip(
     unfold: Boolean = false,
     active: Boolean = false,
     contentDescription: String? = null,
+    ring: Float? = null,
     onClick: () -> Unit,
 ) {
     val c = Wimg.colors
+    if (ring != null) {
+        Box(
+            modifier
+                .size(WimgDimens.touchTarget)
+                .pressable(label = contentDescription, onClick = onClick)
+                .clip(WimgShape.button)
+                .background(if (active) c.ink else c.neutralTint)
+                .then(if (contentDescription != null) Modifier.semantics { this.contentDescription = contentDescription } else Modifier),
+            contentAlignment = Alignment.Center,
+        ) {
+            PeriodRing(ring, label, if (active) c.inkText else c.text, if (active) c.inkText.copy(alpha = 0.25f) else c.line)
+        }
+        return
+    }
     Row(
         modifier
             .height(WimgDimens.touchTarget)
@@ -724,7 +740,27 @@ data class BarChipSpec(
     val icon: ImageVector? = null,
     /** Spoken label for an icon-only chip. */
     val contentDescription: String? = null,
+    /** Draw a ring instead of text: share of the period still left, [label] inside. */
+    val ring: Float? = null,
 )
+
+/** Period ring (design board "Zeitraum-Knopf", option A): what's left of the
+ *  period as an arc, a short text (days left, or the month) inside. */
+@Composable
+fun PeriodRing(fraction: Float, text: String, color: Color, track: Color, modifier: Modifier = Modifier) {
+    val sweep by androidx.compose.animation.core.animateFloatAsState(fraction.coerceIn(0f, 1f), tween(450, easing = WimgMotion.EaseOut), label = "ring")
+    Box(modifier.size(34.dp), contentAlignment = Alignment.Center) {
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            val stroke = 3.dp.toPx()
+            val inset = stroke / 2
+            val arcSize = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke)
+            val tl = androidx.compose.ui.geometry.Offset(inset, inset)
+            drawArc(track, 0f, 360f, false, tl, arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+            drawArc(color, -90f, 360f * sweep, false, tl, arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+        }
+        Text(text, style = WimgType.chip.copy(fontSize = if (text.length > 2) 10.sp else 12.sp), color = color, maxLines = 1, softWrap = false)
+    }
+}
 
 /** Detail screens replace the place bar with [←] [main action] [⋯]. */
 data class DetailBarSpec(

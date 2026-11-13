@@ -84,6 +84,9 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+/** What Home compares this month's categories with (Zeitraum panel). */
+enum class HomeCompare(val label: String) { PREV("Vormonat"), AVG3("Ø 3 Monate"), LAST_YEAR("Vorjahr") }
+
 internal data class HomeData(
     val summary: MonthlySummary?,
     val previous: MonthlySummary?,
@@ -95,20 +98,23 @@ internal data class HomeData(
 )
 
 @Composable
-fun HomeScreen(selectedAccount: String?, navController: NavController? = null) {
+fun HomeScreen(selectedAccount: String?, navController: NavController? = null, onSelectAccount: (String?) -> Unit = {}) {
     val now = remember { Calendar.getInstance() }
     var year by remember { mutableIntStateOf(now.get(Calendar.YEAR)) }
     var month by remember { mutableIntStateOf(now.get(Calendar.MONTH) + 1) }
-    var data by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<HomeData>(homeKey(year, month, selectedAccount))) }
+    var compare by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(HomeCompare.PREV) }
+    var accounts by remember { mutableStateOf<List<com.wimg.app.models.Account>>(emptyList()) }
+    LaunchedEffect(com.wimg.app.ui.components.Changes.version) { accounts = withContext(Dispatchers.IO) { LibWimg.getAccounts() } }
+    var data by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<HomeData>(homeKey(year, month, selectedAccount, compare))) }
     var pickerOpen by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(year, month, selectedAccount, reload, com.wimg.app.ui.components.Changes.version) {
-        val key = homeKey(year, month, selectedAccount)
+    LaunchedEffect(year, month, selectedAccount, compare, reload, com.wimg.app.ui.components.Changes.version) {
+        val key = homeKey(year, month, selectedAccount, compare)
         com.wimg.app.ui.components.ScreenCache.get<HomeData>(key)?.let { data = it }
-        data = withContext(Dispatchers.IO) { loadHome(year, month, selectedAccount) }.also { com.wimg.app.ui.components.ScreenCache.put(key, it) }
+        data = withContext(Dispatchers.IO) { loadHome(year, month, selectedAccount, compare) }.also { com.wimg.app.ui.components.ScreenCache.put(key, it) }
         withContext(Dispatchers.IO) { com.wimg.app.services.WidgetDataWriter.writeSummary(context) }
     }
     // Early in a month: last month's Rückblick, once, docked on the bar.
@@ -126,15 +132,30 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null) {
 
     val hasData = data?.hasAnyData != false
     BarContribution(
-        chip = if (!hasData) null else BarChipSpec(
-            label = shortMonths[month - 1] + if (year != now.get(Calendar.YEAR)) " ${year % 100}" else "",
-            active = pickerOpen,
-            onClick = { pickerOpen = !pickerOpen },
-        ),
+        // Option A of the "Zeitraum-Knopf" board: a ring with the days left in
+        // the month; a finished month shows a full ring with its name.
+        chip = if (!hasData) null else run {
+            val daysInMonth = Calendar.getInstance().apply { set(year, month - 1, 1) }.getActualMaximum(Calendar.DAY_OF_MONTH)
+            val left = daysInMonth - now.get(Calendar.DAY_OF_MONTH)
+            BarChipSpec(
+                label = if (isCurrent) "$left" else shortMonths[month - 1],
+                active = pickerOpen,
+                onClick = { pickerOpen = !pickerOpen },
+                ring = if (isCurrent) left.toFloat() / daysInMonth else 1f,
+                contentDescription = if (isCurrent) L("Zeitraum: %s, noch %d Tage", months[month - 1], left) else L("Zeitraum: %s %d", months[month - 1], year),
+            )
+        },
         panel = if (pickerOpen) {
             {
-                MonthPickerPanel(year, month, shortMonths, now) { y, m ->
-                    year = y; month = m; pickerOpen = false
+                MonthPickerPanel(year, month, shortMonths, now, onPick = { y, m -> year = y; month = m; pickerOpen = false }) {
+                    PanelLabel(L("Vergleichen mit"))
+                    SegmentRow(HomeCompare.entries.map { L(it.label) }, HomeCompare.entries.indexOf(compare)) { compare = HomeCompare.entries[it] }
+                    if (accounts.size > 1) {
+                        PanelLabel(L("Konto"))
+                        SegmentRow(listOf(L("Alle Konten")) + accounts.map { it.name }, accounts.indexOfFirst { it.id == selectedAccount } + 1) { i ->
+                            onSelectAccount(if (i == 0) null else accounts[i - 1].id)
+                        }
+                    }
                 }
             }
         } else null,
@@ -214,7 +235,11 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null) {
                 item {
                     SectionHeader(
                         L("Ausgaben nach Kategorie"),
-                        if (prevById.isNotEmpty()) L("vs. %s", months[(month + 10) % 12]) else null,
+                        if (prevById.isEmpty()) null else when (compare) {
+                            HomeCompare.PREV -> L("vs. %s", months[(month + 10) % 12])
+                            HomeCompare.AVG3 -> L("vs. Ø 3 Monate")
+                            HomeCompare.LAST_YEAR -> L("vs. %s %d", shortMonths[month - 1], year - 1)
+                        },
                     )
                     StackedBar(cats, total)
                 }
@@ -259,12 +284,32 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null) {
     }
 }
 
-internal fun homeKey(year: Int, month: Int, account: String?) = "home:$year-$month:$account"
+internal fun homeKey(year: Int, month: Int, account: String?, compare: HomeCompare = HomeCompare.PREV) = "home:$year-$month:$account:$compare"
 
-internal fun loadHome(year: Int, month: Int, account: String?): HomeData {
+private fun monthBefore(year: Int, month: Int, n: Int): Pair<Int, Int> {
+    val idx = year * 12 + (month - 1) - n
+    return idx / 12 to idx % 12 + 1
+}
+
+/** The summary to compare with: last month, the average of the last three, or last year's month. */
+private fun comparison(year: Int, month: Int, account: String?, compare: HomeCompare): com.wimg.app.models.MonthlySummary? = when (compare) {
+    HomeCompare.PREV -> monthBefore(year, month, 1).let { (y, m) -> LibWimg.getSummaryFiltered(y, m, account) }
+    HomeCompare.LAST_YEAR -> LibWimg.getSummaryFiltered(year - 1, month, account)
+    HomeCompare.AVG3 -> {
+        val ms = (1..3).mapNotNull { n -> monthBefore(year, month, n).let { (y, m) -> LibWimg.getSummaryFiltered(y, m, account) } }.filter { it.tx_count > 0 }
+        if (ms.isEmpty()) null else {
+            val k = ms.size.toDouble()
+            val cats = ms.flatMap { it.by_category }.groupBy { it.id }.map { (id, list) ->
+                com.wimg.app.models.CategoryBreakdown(id, list.first().name, list.sumOf { it.amount } / k, (list.sumOf { it.count } / k).roundToInt())
+            }
+            com.wimg.app.models.MonthlySummary(year, month, ms.sumOf { it.income } / k, ms.sumOf { it.expenses } / k, ms.sumOf { it.available } / k, (ms.sumOf { it.tx_count } / k).roundToInt(), cats)
+        }
+    }
+}
+
+internal fun loadHome(year: Int, month: Int, account: String?, compare: HomeCompare = HomeCompare.PREV): HomeData {
     val summary = LibWimg.getSummaryFiltered(year, month, account)
-    val (py, pm) = if (month == 1) year - 1 to 12 else year to month - 1
-    val previous = LibWimg.getSummaryFiltered(py, pm, account)
+    val previous = comparison(year, month, account, compare)
     val all = LibWimg.getTransactionsFiltered(account)
     val prefix = "%04d-%02d".format(year, month)
     // Never show a day after today as "the latest" (scheduled or demo bookings).
@@ -427,7 +472,10 @@ private fun DayRow(tx: Transaction, shortMonths: List<String>, pending: Boolean 
 }
 
 @Composable
-internal fun MonthPickerPanel(year: Int, month: Int, shortMonths: List<String>, now: Calendar, onPick: (Int, Int) -> Unit) {
+internal fun MonthPickerPanel(
+    year: Int, month: Int, shortMonths: List<String>, now: Calendar, onPick: (Int, Int) -> Unit,
+    extra: (@Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit)? = null,
+) {
     val c = Wimg.colors
     var shownYear by remember { mutableIntStateOf(year) }
     val curYear = now.get(Calendar.YEAR)
@@ -471,6 +519,7 @@ internal fun MonthPickerPanel(year: Int, month: Int, shortMonths: List<String>, 
                 }
             }
         }
+        extra?.invoke(this)
     }
 }
 
@@ -515,6 +564,29 @@ private fun EmptyAction(icon: androidx.compose.ui.graphics.vector.ImageVector, t
         Column {
             Text(title, style = WimgType.button, color = if (accent) c.inkText else c.text)
             Text(desc, style = WimgType.desc, color = if (accent) c.inkText.copy(alpha = 0.75f) else c.text2)
+        }
+    }
+}
+
+@Composable
+private fun PanelLabel(text: String) {
+    Text(text, style = WimgType.label, color = Wimg.colors.text2, modifier = Modifier.padding(top = 14.dp, bottom = 8.dp))
+}
+
+/** One-line choice in a panel (Vergleich, Konto): the selected cell is ink. */
+@Composable
+private fun SegmentRow(options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    val c = Wimg.colors
+    Row(
+        Modifier.fillMaxWidth().clip(WimgShape.segmentOuter).background(c.neutralTint).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        options.forEachIndexed { i, o ->
+            val on = i == selected
+            Box(
+                Modifier.weight(1f).height(38.dp).clip(WimgShape.segmentInner).background(if (on) c.card else Color.Transparent).pressable { onSelect(i) },
+                contentAlignment = Alignment.Center,
+            ) { Text(o, style = WimgType.chip, color = if (on) c.text else c.text2, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
         }
     }
 }

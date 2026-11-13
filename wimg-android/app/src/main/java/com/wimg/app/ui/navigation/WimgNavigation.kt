@@ -174,7 +174,7 @@ fun WimgNavigation() {
                     ) { entry ->
                         SearchScreen(selectedAccount = selectedAccount, navController = navController, initialQuery = entry.arguments?.getString("q").orEmpty())
                     }
-                    composable("dashboard") { HomeScreen(selectedAccount = selectedAccount, navController = navController) }
+                    composable("dashboard") { HomeScreen(selectedAccount = selectedAccount, navController = navController, onSelectAccount = { selectedAccount = it }) }
                     composable("transactions") { TransactionsScreen(selectedAccount = selectedAccount, navController = navController) }
                     composable("rec/{id}") { entry ->
                         RecurringDetailScreen(id = entry.arguments?.getString("id") ?: "", navController = navController)
@@ -302,7 +302,7 @@ fun WimgNavigation() {
                                 val shown = PLACES.firstOrNull { it.route == (BarState.current.route ?: route) } ?: PLACES.first()
                                 BarChip(label = L(shown.label), icon = shown.icon, unfold = true, active = menuOpen) { BarState.onPanelDismiss(); menuInstant = false; menuOpen = !menuOpen }
                                 BarState.chip?.let { chip ->
-                                    BarChip(label = chip.label, icon = chip.icon, modifier = Modifier.weight(1f, fill = false), active = chip.active && !menuOpen, contentDescription = chip.contentDescription) { menuOpen = false; chip.onClick() }
+                                    BarChip(label = chip.label, icon = chip.icon, modifier = Modifier.weight(1f, fill = false), active = chip.active && !menuOpen, contentDescription = chip.contentDescription, ring = chip.ring) { menuOpen = false; chip.onClick() }
                                 }
                             }
                             detailBar.actionLabel != null -> {

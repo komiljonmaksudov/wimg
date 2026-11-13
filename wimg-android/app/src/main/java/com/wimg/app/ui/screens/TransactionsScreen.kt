@@ -353,7 +353,7 @@ private fun FilterPanel(
         val shortMonths = remember { java.text.DateFormatSymbols(if (com.wimg.app.ui.theme.LocaleState.locale == "en") java.util.Locale.ENGLISH else java.util.Locale.GERMAN).shortMonths.map { it.trimEnd('.') } }
         val (py, pm) = period?.key?.removePrefix("m:")?.split("-")?.mapNotNull { it.toIntOrNull() }?.takeIf { it.size == 2 }?.let { it[0] to it[1] }
             ?: (now.get(Calendar.YEAR) to now.get(Calendar.MONTH) + 1)
-        MonthPickerPanel(py, pm, shortMonths, now) { y, m -> onPeriod(monthPeriod(y, m)); picking = false }
+        MonthPickerPanel(py, pm, shortMonths, now, onPick = { y, m -> onPeriod(monthPeriod(y, m)); picking = false })
         return
     }
     BarPanel {
