@@ -92,25 +92,10 @@ jobs:
           zig fmt --check src/ build.zig
           zig build test
 
-      - name: Install web dependencies
-        working-directory: wimg-web
-        run: bun install --frozen-lockfile
-
-      - name: oxfmt check
-        working-directory: wimg-web
-        run: bunx oxfmt --check
-
-      - name: oxlint
-        working-directory: wimg-web
-        run: bunx oxlint
-
-      - name: bun test
-        working-directory: wimg-web
-        run: bun test
-
-      - name: svelte-check
-        working-directory: wimg-web
-        run: bun run check
+      - name: Translation tables match i18n/en.ts
+        run: |
+          bun scripts/i18n-codegen.ts
+          git diff --exit-code -- wimg-ios/plugins/WimgI18n wimg-android/app/src/main/java/com/wimg/app/i18n
 
       - name: Install sync dependencies
         working-directory: wimg-sync
@@ -120,7 +105,7 @@ jobs:
         working-directory: wimg-sync
         run: bunx tsc --noEmit
 
-  build-and-deploy-web:
+  build-wasm:
     needs: check
     runs-on: ubuntu-latest
     steps:
@@ -129,12 +114,6 @@ jobs:
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: ${{ env.ZIG_VERSION }}
-
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 22
 
       - name: Download SQLite amalgamation
         working-directory: libwimg/vendor
@@ -151,21 +130,10 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: libwimg-wasm
-          path: |
-            wimg-web/static/libwimg.wasm
-            wimg-sync/libwimg-compact.wasm
+          path: wimg-sync/libwimg-compact.wasm
 
-      - name: Install web dependencies
-        working-directory: wimg-web
-        run: bun install --frozen-lockfile
-
-      - name: Build web
-        working-directory: wimg-web
-        run: bun run build
-
-      # No deploy step: CI never touches the VPS. wimg.komiljonmaksudov.com and the
-      # sync server are shipped from a Mac with ./scripts/deploy-server.sh.
-      # This job still builds, so a broken web build fails the release.
+      # No deploy step: CI never touches the VPS. The landing page and the sync
+      # server are shipped from a Mac with ./scripts/deploy-server.sh.
 
   build-libwimg-ios:
     # Historical: Zig 0.15.2's build runner couldn't link on macos-26
@@ -420,7 +388,7 @@ jobs:
   #   cd wimg-sync && bunx wrangler deploy
 
   release:
-    needs: [check, detect-changes, build-and-deploy-web, build-libwimg-ios, build-ios, build-android, build-sync-server]
+    needs: [check, detect-changes, build-wasm, build-libwimg-ios, build-ios, build-android, build-sync-server]
     if: always() && !failure() && !cancelled()
     runs-on: ubuntu-latest
     steps:
@@ -488,7 +456,7 @@ jobs:
 
           # Collect available artifacts
           ASSETS=()
-          [ -f artifacts/libwimg-wasm/wimg-web/static/libwimg.wasm ] && ASSETS+=(artifacts/libwimg-wasm/wimg-web/static/libwimg.wasm)
+          [ -f artifacts/libwimg-wasm/libwimg-compact.wasm ] && ASSETS+=(artifacts/libwimg-wasm/libwimg-compact.wasm)
           [ -f artifacts/libwimg-ios/libwimg.xcframework.zip ] && ASSETS+=(artifacts/libwimg-ios/libwimg.xcframework.zip)
           [ -f artifacts/libwimg-android/libwimg.so ] && ASSETS+=(artifacts/libwimg-android/libwimg.so)
           [ -f artifacts/libwimg-android/wimg.apk ] && ASSETS+=(artifacts/libwimg-android/wimg.apk)

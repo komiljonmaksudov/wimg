@@ -6,16 +6,6 @@ pre-commit:
       glob: "*.zig"
       run: zig fmt --check src/
 
-    web-fmt:
-      root: wimg-web/
-      glob: "*.{ts,svelte,js,css,html}"
-      run: bunx oxfmt --check
-
-    web-lint:
-      root: wimg-web/
-      glob: "*.{ts,svelte,js}"
-      run: bunx oxlint
-
     # Blocks a commit that adds a secret. Skipped (not failed) where gitleaks
     # isn't installed: `brew install gitleaks`.
     gitleaks:

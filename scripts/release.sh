@@ -2,7 +2,6 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PKG="$ROOT/wimg-web/package.json"
 YML="$ROOT/wimg-ios/project.yml"
 CHANGELOG="$ROOT/CHANGELOG.md"
 
@@ -22,7 +21,8 @@ usage() {
 }
 
 current_version() {
-  grep '"version"' "$PKG" | head -1 | sed 's/.*"\([0-9]*\.[0-9]*\.[0-9]*\)".*/\1/'
+  # The Android versionName is the source of truth (bumped together with iOS).
+  grep 'versionName = "' "$ROOT/wimg-android/app/build.gradle.kts" | head -1 | sed 's/.*"\([0-9]*\.[0-9]*\.[0-9]*\)".*/\1/'
 }
 
 bump_version() {
@@ -55,7 +55,7 @@ done
 [[ -n "$BUMP_ARG" ]] || usage
 
 OLD=$(current_version)
-[[ -n "$OLD" ]] || die "could not read version from $PKG"
+[[ -n "$OLD" ]] || die "could not read versionName from wimg-android/app/build.gradle.kts"
 
 case "$BUMP_ARG" in
   patch|minor|major) NEW=$(bump_version "$OLD" "$BUMP_ARG") ;;
@@ -69,8 +69,6 @@ echo "Bumping $OLD → $NEW"
 
 # ── update package.json ──────────────────────────────────────────────────────
 
-sed -i '' "s/\"version\": \"$OLD\"/\"version\": \"$NEW\"/" "$PKG"
-echo "  updated $PKG"
 
 # ── update project.yml ───────────────────────────────────────────────────────
 
@@ -127,7 +125,7 @@ echo "  updated $CHANGELOG"
 
 # ── commit + tag ─────────────────────────────────────────────────────────────
 
-git add "$PKG" "$YML" "$GRADLE" "$CHANGELOG"
+git add "$YML" "$GRADLE" "$CHANGELOG"
 git commit -m "release: v${NEW}"
 git tag "v${NEW}"
 

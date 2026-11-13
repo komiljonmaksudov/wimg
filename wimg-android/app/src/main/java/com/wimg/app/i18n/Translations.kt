@@ -1,4 +1,4 @@
-// Auto-generated from wimg-web/src/lib/translations/en.ts — do not edit manually.
+// Auto-generated from i18n/en.ts — do not edit manually.
 // Run: bun scripts/i18n-codegen.ts
 //
 // This file is regenerated on every codegen run. Edits here will be lost.

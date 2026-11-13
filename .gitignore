@@ -18,18 +18,9 @@ libwimg/vendor/sqlite.zip
 libwimg/vendor/sqlite-amalgamation-*/
 
 # WASM build artifact (generated from zig build)
-wimg-web/static/libwimg.wasm
 wimg-sync/libwimg-compact.wasm
 
 # Web — dependencies & build
-wimg-web/node_modules/
-wimg-web/.svelte-kit/
-wimg-web/build/
-wimg-web/.output/
-wimg-web/.vercel/
-wimg-web/.netlify/
-wimg-web/.wrangler/
-wimg-web/static/*.gguf
 .svelte-kit/
 
 # Sync Worker — dependencies & build
@@ -96,7 +87,7 @@ docs/wimg-full.md
 wimg-ios/plugins/WimgI18n/.build/
 wimg-ios/plugins/WimgI18n/.swiftpm/
 
-# Root-level (no deps here, everything lives in wimg-web/ or wimg-sync/)
+# Root-level (no deps here, everything lives in wimg-sync/)
 /node_modules/
 /package.json
 /bun.lock

@@ -10,7 +10,7 @@
 # Background: https://daniakash.com/posts/simplest-supply-chain-defense/
 # Bun docs:   https://bun.sh/docs/runtime/bunfig#install-minimumreleaseage
 #
-# Applies to every `bun install` in this repo (wimg-web, wimg-sync, root) —
+# Applies to every `bun install` in this repo (wimg-sync, root) —
 # Bun walks up from CWD until it finds this file.
 #
 # To bypass for a specific urgent upgrade:

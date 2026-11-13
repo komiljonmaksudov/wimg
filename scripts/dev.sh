@@ -22,11 +22,6 @@ else
   SYNC_PID=$!
 fi
 
-# Start web dev server in background
-(cd "$ROOT/wimg-web" && bun run dev --host) &
-WEB_PID=$!
-
-# Cleanup both on exit
-trap "kill $SYNC_PID $WEB_PID 2>/dev/null" EXIT
+trap "kill $SYNC_PID 2>/dev/null" EXIT
 
 wait

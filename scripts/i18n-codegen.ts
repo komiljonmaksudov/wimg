@@ -1,6 +1,6 @@
 /**
  * Generates the iOS + Android runtime translation tables from the single
- * `wimg-web/src/lib/translations/en.ts` source of truth.
+ * `i18n/en.ts` source of truth.
  *
  * Outputs:
  *   wimg-ios/plugins/WimgI18n/Sources/WimgI18n/Translations.swift
@@ -9,14 +9,14 @@
  * Usage: bun scripts/i18n-codegen.ts
  */
 import { writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { en } from "../wimg-web/src/lib/translations/en";
+import { en } from "../i18n/en";
 
 // --- iOS: Translations.swift (inside WimgI18n SPM package) ---
 function escapeSwift(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-let swift = `// Auto-generated from wimg-web/src/lib/translations/en.ts — do not edit manually.
+let swift = `// Auto-generated from i18n/en.ts — do not edit manually.
 // Run: bun scripts/i18n-codegen.ts
 //
 // This file is regenerated on every codegen run. Edits here will be lost.
@@ -42,7 +42,7 @@ function escapeKotlin(s: string): string {
     .replace(/\$/g, "\\$");
 }
 
-let kotlin = `// Auto-generated from wimg-web/src/lib/translations/en.ts — do not edit manually.
+let kotlin = `// Auto-generated from i18n/en.ts — do not edit manually.
 // Run: bun scripts/i18n-codegen.ts
 //
 // This file is regenerated on every codegen run. Edits here will be lost.

@@ -1,22 +1,17 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    // Default: wasm32-freestanding for the web target
-    // Enable SIMD for faster embedding inference (supported in all modern browsers)
+    // Default: wasm32-freestanding (the compact build for the wimg-sync worker).
     const target = b.standardTargetOptions(.{
-        .default_target = .{
-            .cpu_arch = .wasm32,
-            .os_tag = .freestanding,
-            .cpu_features_add = std.Target.wasm.featureSet(&.{.simd128}),
-        },
+        .default_target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
     });
     const optimize = b.standardOptimizeOption(.{});
 
     const is_wasm = target.result.cpu.arch == .wasm32;
 
-    // Compact mode: smaller memory buffers for CF Workers (128MB limit).
-    // Default (false) = web app (larger buffers). Use -Dcompact=true for MCP WASM.
-    const compact = b.option(bool, "compact", "Use smaller memory buffers for CF Workers") orelse false;
+    // Compact mode: smaller memory buffers for CF Workers (128MB limit). The web
+    // app with its larger buffers is gone, so compact is the default.
+    const compact = b.option(bool, "compact", "Use smaller memory buffers for CF Workers") orelse true;
 
     // Stub libc include path for wasm32-freestanding
     const libc_include = b.path("vendor/libc");
@@ -106,20 +101,7 @@ pub fn build(b: *std.Build) void {
         // Stack size for WASM
         wasm_lib.stack_size = 1 * 1024 * 1024; // 1 MB stack
 
-        // Max memory: compact (MCP) = default, web = 512 MB (for embedding model ~157MB)
-        if (!compact) {
-            wasm_lib.max_memory = 512 * 1024 * 1024;
-        }
-
         b.installArtifact(wasm_lib);
-
-        // Copy wasm to wimg-web for dev (path relative to project root)
-        const install_to_web = b.addInstallFile(
-            wasm_lib.getEmittedBin(),
-            "../../wimg-web/static/libwimg.wasm",
-        );
-        install_to_web.step.dependOn(&wasm_lib.step);
-        b.getInstallStep().dependOn(&install_to_web.step);
     } else {
         // --- Native library (for testing / iOS / macOS / Android) ---
         const options = b.addOptions();

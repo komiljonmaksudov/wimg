@@ -7,8 +7,8 @@ SHELL := /bin/bash
 SQLITE_ZIP :=https://www.sqlite.org/2026/sqlite-amalgamation-3520000.zip
 SQLITE := libwimg/vendor/sqlite3.c
 
-.PHONY: help dev dev-native wasm web ios android \
-	test check fmt lint i18n \
+.PHONY: help dev dev-native wasm ios android \
+	test check fmt i18n \
 	deploy deploy-web deploy-sync release-patch release-minor
 
 help: ## List targets
@@ -26,7 +26,7 @@ $(SQLITE):
 
 # --- Dev ---------------------------------------------------------------------
 
-dev: $(SQLITE) ## Sync server :8787 + web :5173
+dev: $(SQLITE) ## Sync server :8787 (Cloudflare Worker)
 	./scripts/dev.sh
 
 dev-native: $(SQLITE) ## Same, with the native Zig sync server
@@ -34,11 +34,8 @@ dev-native: $(SQLITE) ## Same, with the native Zig sync server
 
 # --- Build -------------------------------------------------------------------
 
-wasm: ## Build both WASM variants (web + compact)
+wasm: ## Build the compact WASM for the wimg-sync worker
 	./scripts/build-wasm.sh
-
-web: wasm ## Build the static web app
-	cd wimg-web && bun install --frozen-lockfile && bun run build
 
 ios: $(SQLITE) ## Build XCFramework + regenerate the Xcode project
 	./scripts/build-ios.sh
@@ -53,27 +50,23 @@ i18n: ## Regenerate iOS + Android translation tables from en.ts
 
 # --- Quality (same gate as CI's check job) ------------------------------------
 
-test: $(SQLITE) ## All tests: libwimg, sync server, web
+test: $(SQLITE) ## All tests: libwimg, sync server
 	cd libwimg && zig build test
 	cd wimg-sync-zig && zig build test
-	cd wimg-web && bun test
 
-check: fmt lint test ## fmt + lint + tests + svelte-check
-	cd wimg-web && bun run check
+check: fmt test ## fmt + tests + translation tables up to date
+	bun scripts/i18n-codegen.ts && git diff --exit-code -- wimg-ios/plugins/WimgI18n wimg-android/app/src/main/java/com/wimg/app/i18n
 
-fmt: ## Check formatting (zig fmt + oxfmt)
+fmt: ## Check formatting (zig fmt)
 	cd libwimg && zig fmt --check src/
-	cd wimg-web && bunx oxfmt --check
-
-lint: ## oxlint
-	cd wimg-web && bunx oxlint
+	cd wimg-sync-zig && zig fmt --check src/ build.zig
 
 # --- Ship --------------------------------------------------------------------
 
-deploy: ## Build + push web app and sync server to the VPS
+deploy: ## Build + push landing page and sync server to the VPS
 	./scripts/deploy-server.sh
 
-deploy-web: ## Build + push only the web app
+deploy-web: ## Build + push only the landing page
 	./scripts/deploy-server.sh web
 
 deploy-sync: ## Build + push only the sync server
