@@ -40,6 +40,11 @@ import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material3.Text
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
@@ -81,7 +86,7 @@ private fun isPlaceSwitch(from: androidx.navigation.NavBackStackEntry, to: andro
 private const val ONBOARDING_KEY = "wimg_onboarding_done"
 
 /** Routes already rebuilt in the redesign (band + sheet, content under the bar). */
-private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}", "recurring", "rec/{id}", "settings", "settings/lock", "settings/data", "settings/sync", "settings/sync/key", "settings/sync/link", "fints", "fints/add", "fints/{id}?quick={quick}", "import", "dev/bar", "about", "about/news", "about/faq", "about/privacy", "about/licenses", "review")
+private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}", "recurring", "rec/{id}", "settings", "settings/lock", "settings/data", "settings/rules", "manual", "settings/sync", "settings/sync/key", "settings/sync/link", "fints", "fints/add", "fints/{id}?quick={quick}", "import", "dev/bar", "about", "about/news", "about/faq", "about/privacy", "about/licenses", "review")
 
 /** Everything the place chip can switch to, in menu order. */
 val PLACES = listOf(
@@ -133,6 +138,8 @@ fun WimgNavigation() {
         }
     }
     var menuOpen by remember { mutableStateOf(false) }
+    // "+" without a page-specific action: Bank verbinden / CSV / von Hand (board 12/07).
+    var addOpen by remember { mutableStateOf(false) }
     val entry = navController.currentBackStackEntryAsState().value
     val route = entry?.destination?.route
     // Set before the NavHost composes, not a frame later (see BarContribution).
@@ -199,6 +206,8 @@ fun WimgNavigation() {
                     composable("settings") { SettingsScreen(navController = navController) }
                     composable("settings/lock") { SettingsLockScreen(navController) }
                     composable("settings/data") { SettingsDataScreen(navController) }
+                    composable("settings/rules") { SettingsRulesScreen(navController) }
+                    composable("manual") { ManualEntryScreen(navController) }
                     composable("settings/sync") { SettingsSyncScreen(navController) }
                     composable("settings/sync/key") { SettingsSyncKeyScreen(navController) }
                     composable("settings/sync/link") { SettingsSyncLinkScreen(navController) }
@@ -215,6 +224,7 @@ fun WimgNavigation() {
         // After the NavHost, so these callbacks are registered last and win over
         // its back handling: back closes the menu or panel before leaving the screen.
         BackHandler(enabled = menuOpen) { menuOpen = false }
+        BackHandler(enabled = addOpen) { addOpen = false }
         BackHandler(enabled = panel != null && !menuOpen) { BarState.onPanelDismiss() }
 
         if (underBar) {
@@ -230,13 +240,13 @@ fun WimgNavigation() {
         }
 
         // Scrim behind the place menu or a screen's panel.
-        AnimatedVisibility(menuOpen || panel != null, enter = fadeIn(tween(200)), exit = if (menuInstant) ExitTransition.None else fadeOut(tween(160))) {
+        AnimatedVisibility(menuOpen || addOpen || panel != null, enter = fadeIn(tween(200)), exit = if (menuInstant) ExitTransition.None else fadeOut(tween(160))) {
             Box(
                 Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.36f))
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                        if (menuOpen) menuOpen = false else BarState.onPanelDismiss()
+                        if (menuOpen) menuOpen = false else if (addOpen) addOpen = false else BarState.onPanelDismiss()
                     },
             )
         }
@@ -268,7 +278,14 @@ fun WimgNavigation() {
                     )
                 }
                 androidx.compose.animation.AnimatedVisibility(
-                    panel != null && !menuOpen,
+                    addOpen,
+                    enter = fadeIn(tween(200, easing = WimgMotion.EaseOut)) + scaleIn(tween(220, easing = WimgMotion.EaseOut), initialScale = 0.96f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.9f, 1f)),
+                    exit = fadeOut(tween(120)) + scaleOut(tween(120), targetScale = 0.98f),
+                ) {
+                    AddMenu(Modifier.padding(bottom = 10.dp)) { r -> addOpen = false; navController.navigate(r) }
+                }
+                androidx.compose.animation.AnimatedVisibility(
+                    panel != null && !menuOpen && !addOpen,
                     enter = fadeIn(tween(200, easing = WimgMotion.EaseOut)) + scaleIn(tween(220, easing = WimgMotion.EaseOut), initialScale = 0.96f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
                     exit = fadeOut(tween(150)) + scaleOut(tween(150), targetScale = 0.97f),
                 ) {
@@ -290,7 +307,7 @@ fun WimgNavigation() {
                 }
                 // Search is reachable from every page, except inside a flow that a
                 // detour would break (bank setup mid-TAN, CSV import).
-                val searchHere = detailBar == null || (route?.startsWith("fints") != true && route != "import")
+                val searchHere = detailBar == null || (route?.startsWith("fints") != true && route != "import" && route != "manual")
                 FloatingBar(
                     divider = detailBar == null || detailBar.onMore != null || searchHere,
                     fill = detailBar?.actionLabel != null,
@@ -319,7 +336,11 @@ fun WimgNavigation() {
                         if (detailBar == null) {
                             BarIcon(BarIcons.Search, L("Suche")) { menuOpen = false; navController.navigate("search") }
                             val add = BarState.current.onAdd
-                            BarIcon(BarIcons.Add, BarState.current.addLabel ?: L("Hinzufügen"), accent = true) { menuOpen = false; if (add != null) add() else navController.goTo("import") }
+                            if (addOpen) BarIcon(androidx.compose.material.icons.Icons.Outlined.Close, L("Schließen"), accent = true) { addOpen = false }
+                            else BarIcon(BarIcons.Add, BarState.current.addLabel ?: L("Hinzufügen"), accent = true) {
+                                menuOpen = false; BarState.onPanelDismiss()
+                                if (add != null) add() else addOpen = true
+                            }
                         } else {
                             if (searchHere) BarIcon(BarIcons.Search, L("Suche")) { navController.navigate("search") }
                             detailBar.onMore?.let { more ->
@@ -338,5 +359,26 @@ private fun NavHostController.goTo(route: String) {
     navigate(route) {
         popUpTo("dashboard") { inclusive = route == "dashboard" }
         launchSingleTop = true
+    }
+}
+
+/** "Hinzufügen" above the bar (board 12/07): the three ways data gets into wimg. */
+@Composable
+private fun AddMenu(modifier: Modifier = Modifier, onPick: (String) -> Unit) {
+    val c = Wimg.colors
+    com.wimg.app.ui.components.BarPanel(modifier) {
+        Text(L("Hinzufügen"), style = com.wimg.app.ui.theme.WimgType.sheetTitle, color = c.text, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
+        listOf(
+            Triple("fints", Icons.Outlined.AccountBalance, L("Bank verbinden") to L("Umsätze per FinTS abrufen")),
+            Triple("import", Icons.Outlined.FileUpload, L("CSV importieren") to L("Comdirect, Trade Republic, Scalable")),
+            Triple("manual", androidx.compose.material.icons.Icons.Outlined.Edit, L("Umsatz von Hand") to L("Z. B. Bargeld")),
+        ).forEach { (route, icon, text) ->
+            com.wimg.app.ui.components.WimgRow(text.first, desc = text.second, onClick = { onPick(route) }, leading = {
+                androidx.compose.foundation.layout.Box(
+                    Modifier.size(44.dp).clip(com.wimg.app.ui.theme.WimgShape.iconTile).background(c.neutralTint),
+                    contentAlignment = Alignment.Center,
+                ) { androidx.compose.material3.Icon(icon, contentDescription = null, tint = c.text, modifier = Modifier.size(22.dp)) }
+            })
+        }
     }
 }

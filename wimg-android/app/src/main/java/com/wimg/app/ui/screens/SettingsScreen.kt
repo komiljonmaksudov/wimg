@@ -91,6 +91,9 @@ import com.wimg.app.ui.components.BarClearance
 import com.wimg.app.ui.components.barClearance
 import com.wimg.app.ui.components.BarContribution
 import com.wimg.app.ui.components.BarPanel
+import com.wimg.app.models.WimgCategory
+import com.wimg.app.ui.theme.categoryBar
+import androidx.compose.material.icons.outlined.Search
 import com.wimg.app.ui.components.Changes
 import com.wimg.app.ui.components.DetailBarSpec
 import com.wimg.app.ui.components.Dock
@@ -260,6 +263,8 @@ fun SettingsScreen(navController: NavController? = null) {
                     }
                 },
             )
+            RowDivider()
+            WimgRow(L("Gelernte Regeln"), desc = L("Ansehen und löschen"), chevron = true, onClick = { navController?.navigate("settings/rules") })
         }
 
         GroupLabel(L("Daten"))
@@ -814,5 +819,120 @@ fun SettingsSyncLinkScreen(navController: NavController?) {
         if (input.isNotEmpty() && key == null) QuietLine(L("Das sieht nicht wie ein Sync-Schlüssel aus. Er hat 32 Zeichen aus 0–9 und a–f."), color = c.danger)
         QuietLine(L("Der Schlüssel verlässt dieses Gerät nicht. wimgs Server bekommt nur verschlüsselte Daten."), icon = Icons.Outlined.Lock)
         QuietLine(L("Auf dem anderen Gerät: Einstellungen › wimg Sync › Sync-Schlüssel anzeigen."), icon = Icons.Outlined.Info)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Gelernte Regeln (board 22)
+// ---------------------------------------------------------------------------
+
+private data class RuleRow(val rule: com.wimg.app.models.Rule, val count: Int)
+
+/** Rules with how many transactions each one sorted (same category, text found). */
+private fun loadRules(): List<RuleRow> {
+    val txs = LibWimg.getTransactions()
+    return LibWimg.getRules().map { r ->
+        RuleRow(r, txs.count { it.category == r.category && it.description.contains(r.pattern, ignoreCase = true) })
+    }
+}
+
+@Composable
+fun SettingsRulesScreen(navController: NavController?) {
+    val c = Wimg.colors
+    val scope = rememberCoroutineScope()
+    var rows by remember { mutableStateOf<List<RuleRow>?>(null) }
+    var query by remember { mutableStateOf("") }
+    var open by remember { mutableStateOf<RuleRow?>(null) }
+    LaunchedEffect(Changes.version) { rows = withContext(Dispatchers.IO) { loadRules() } }
+
+    BarContribution(
+        null,
+        open?.let { r -> { RulePanel(r, onCancel = { open = null }) { reset ->
+            open = null
+            scope.launch {
+                withContext(Dispatchers.IO) { LibWimg.deleteRule(r.rule.id, reset) }
+                Changes.bump()
+                Dock.info(__t("Regel gelöscht"), if (reset) __t("%d Umsätze wieder ohne Kategorie").format(r.count) else null)
+            }
+        } } },
+        { open = null },
+        DetailBarSpec(onBack = { navController?.popBackStack() }, actionLabel = null, actionIcon = null, onAction = {}, backLabel = L("Einstellungen")),
+    )
+
+    SettingsPage(L("Einstellungen · Kategorien"), L("Gelernte Regeln")) {
+        Spacer(Modifier.height(14.dp))
+        androidx.compose.foundation.text.BasicTextField(
+            value = query, onValueChange = { query = it }, singleLine = true,
+            textStyle = WimgType.body.copy(color = c.text),
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(c.accent),
+            modifier = Modifier.fillMaxWidth().clip(WimgShape.group).background(c.neutralTint).padding(horizontal = 16.dp, vertical = 16.dp),
+            decorationBox = { inner ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Search, contentDescription = null, tint = c.text2, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Box { if (query.isEmpty()) Text(L("Stichwort oder Kategorie"), style = WimgType.body, color = c.text2); inner() }
+                }
+            },
+        )
+        val all = rows ?: return@SettingsPage
+        val q = query.trim()
+        val shown = all.filter { q.isEmpty() || it.rule.pattern.contains(q, true) || L(WimgCategory.fromId(it.rule.category).label).contains(q, true) }
+        // Learned (priority 1) first, newest first; then the ones wimg ships with.
+        val learned = shown.filter { it.rule.priority == 1 }.sortedByDescending { it.rule.id }
+        val shipped = shown.filter { it.rule.priority != 1 }.sortedByDescending { it.count }
+        listOf(L("Gelernt") to learned, L("Mitgeliefert") to shipped).forEach { (label, list) ->
+            if (list.isEmpty()) return@forEach
+            GroupLabel(if (label == L("Gelernt")) L("%d gelernt · zuletzt gelernt zuerst", list.size) else L("%d mitgeliefert", list.size))
+            WimgGroup {
+                list.forEachIndexed { i, r ->
+                    if (i > 0) RowDivider()
+                    val cat = WimgCategory.fromId(r.rule.category)
+                    WimgRow(
+                        "„${r.rule.pattern}“",
+                        desc = "→ ${L(cat.label)} · " + if (r.count == 1) L("1 Umsatz") else L("%d Umsätze", r.count),
+                        chevron = true,
+                        onClick = { open = r },
+                    )
+                }
+            }
+        }
+        if (shown.isEmpty()) QuietLine(L("Keine Regel passt zu „%s“.", q))
+        QuietLine(L("wimg lernt eine Regel, wenn du einem Umsatz von Hand eine Kategorie gibst. Regeln gelten nur für neue und noch nicht zugeordnete Umsätze."))
+    }
+}
+
+@Composable
+private fun RulePanel(r: RuleRow, onCancel: () -> Unit, onDelete: (reset: Boolean) -> Unit) {
+    val c = Wimg.colors
+    var reset by remember { mutableStateOf(false) }
+    val cat = WimgCategory.fromId(r.rule.category)
+    BarPanel {
+        Text("„${r.rule.pattern}“", style = WimgType.sheetTitle, color = c.text, maxLines = 2)
+        Spacer(Modifier.height(12.dp))
+        WimgGroup {
+            WimgRow(L("Wenn der Text enthält"), trailing = { ValueText(r.rule.pattern) })
+            RowDivider()
+            WimgRow(L("dann Kategorie"), trailing = {
+                Box(Modifier.size(9.dp).clip(CircleShape).background(c.categoryBar(cat.id)))
+                Spacer(Modifier.width(8.dp))
+                ValueText(L(cat.label))
+            })
+            RowDivider()
+            WimgRow(L("Betrifft"), trailing = { ValueText(if (r.count == 1) L("1 Umsatz") else L("%d Umsätze", r.count)) })
+        }
+        Text(L("Regel löschen"), style = WimgType.label, color = c.danger, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
+        WimgGroup {
+            RadioRow(L("Kategorien behalten"), L("Die Umsätze bleiben %s. Nur neue werden nicht mehr zugeordnet.", L(cat.label)), !reset) { reset = false }
+            RowDivider()
+            RadioRow(L("Auch zurücksetzen"), L("Die Umsätze sind danach wieder ohne Kategorie."), reset) { reset = true }
+        }
+        Row(Modifier.padding(top = 16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.weight(1f).height(50.dp).pressable(onClick = onCancel).clip(CircleShape).border(1.dp, c.line, CircleShape), contentAlignment = Alignment.Center) {
+                Text(L("Abbrechen"), style = WimgType.button, color = c.text)
+            }
+            Box(Modifier.weight(1f).height(50.dp).pressable { onDelete(reset) }.clip(CircleShape).border(1.5.dp, c.danger, CircleShape), contentAlignment = Alignment.Center) {
+                Text(L("Löschen"), style = WimgType.button, color = c.danger)
+            }
+        }
     }
 }
