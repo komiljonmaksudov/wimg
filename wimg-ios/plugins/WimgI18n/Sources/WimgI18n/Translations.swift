@@ -78,6 +78,8 @@ internal let translations: [String: String] = [
     "Nur Einnahmen": "Income only",
     "Über 100 €": "Over €100",
     "Ausgeschlossene": "Excluded",
+    "So weit wie möglich": "As far as possible",
+    "So weit zurück, wie deine Bank erlaubt · meist mit TAN": "As far back as your bank allows · usually with a TAN",
     "Dieser Monat": "This month",
     "Letzter Monat": "Last month",
     "Immer": "All time",

@@ -420,7 +420,8 @@ private fun DockedRowContent(r: DockRow) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(r.title, style = WimgType.chip, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (r.sub != null) Text(r.sub, style = WimgType.caption, color = c.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // Errors say what to do: up to 3 lines instead of one cut-off line.
+                if (r.sub != null) Text(r.sub, style = WimgType.caption, color = c.text2, maxLines = if (r.kind == DockKind.Error) 3 else 1, overflow = TextOverflow.Ellipsis)
             }
             if (r.action != null && r.onAction != null) {
                 Spacer(Modifier.width(8.dp))
@@ -715,6 +716,11 @@ object BarIcons {
 
 /** Space a list leaves at its end so the last row clears the floating bar. */
 val BarClearance: Dp = WimgDimens.listBottomClearance
+
+/** A page to open from places that have no NavController (e.g. a Dock action). */
+object NavRequest {
+    var route by mutableStateOf<String?>(null)
+}
 
 /** Space to leave under content: the bar, plus the docked row while one is shown. */
 @Composable

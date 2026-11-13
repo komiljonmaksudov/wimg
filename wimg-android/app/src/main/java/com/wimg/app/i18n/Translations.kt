@@ -84,6 +84,8 @@ private val translations: Map<String, String> = mapOf(
     "Nur Einnahmen" to "Income only",
     "Über 100 €" to "Over €100",
     "Ausgeschlossene" to "Excluded",
+    "So weit wie möglich" to "As far as possible",
+    "So weit zurück, wie deine Bank erlaubt · meist mit TAN" to "As far back as your bank allows · usually with a TAN",
     "Dieser Monat" to "This month",
     "Letzter Monat" to "Last month",
     "Immer" to "All time",

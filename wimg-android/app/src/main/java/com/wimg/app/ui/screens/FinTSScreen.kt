@@ -194,6 +194,9 @@ private object FintsJob {
     var running by mutableStateOf(false)
         private set
 
+    /** The bank rejected the login during a fetch: the bank screen opens its login form. */
+    var loginRequested by mutableStateOf(false)
+
     /** Last fetch needed a TAN: the challenge for the bank screen to pick up. */
     var pendingTan by mutableStateOf<FintsResult?>(null)
     var lastRange: Pair<String, String>? = null
@@ -208,7 +211,13 @@ private object FintsJob {
             running = false
             when {
                 result == null -> Dock.error(__t("Abruf fehlgeschlagen"), bankText(null), __t("Erneut")) { fetch(context, range, bankName, onDone) }
-                isAuthRejected(result) -> { forgetPin(context); Dock.error(__t("Anmeldung abgelehnt"), bankText(result)) }
+                isAuthRejected(result) -> {
+                    forgetPin(context)
+                    Dock.error(__t("Anmeldung abgelehnt"), bankText(result), __t("Neu anmelden")) {
+                        loginRequested = true
+                        com.wimg.app.ui.components.NavRequest.route = "fints"
+                    }
+                }
                 result.status == "tan_required" -> {
                     pendingTan = result
                     Dock.show(DockRow(DockKind.Prompt, __t("TAN erforderlich"), __t("Für ältere Umsätze verlangt die Bank eine TAN.")))
@@ -270,6 +279,9 @@ fun FinTSScreen(navController: NavController? = null) {
         WimgJni.nativeSetHttpCallback(FintsHttpCallback())
         banks = withFintsThread { WimgJni.nativeFintsGetBanks()?.let { runCatching { json.decodeFromString<List<BankInfo>>(it) }.getOrNull() } ?: emptyList() }
         prefs.getString(KEY_BLZ, null)?.let { blz -> bank = banks.find { it.blz == blz } }
+    }
+    LaunchedEffect(FintsJob.loginRequested) {
+        if (FintsJob.loginRequested) { FintsJob.loginRequested = false; setup = true; step = Step.Login; pin = ""; error = null }
     }
     // A fetch that ended in a TAN request continues here.
     LaunchedEffect(FintsJob.pendingTan) {
@@ -390,9 +402,12 @@ fun FinTSScreen(navController: NavController? = null) {
         val t = tan ?: return
         val decoupled = t.decoupled == true
         busy = true; error = null
+        // Waiting is shown on the bar (spinner on the button + this row), not on the page.
+        Dock.show(DockRow(DockKind.Sync, __t("Warte auf die Bank…"), bank?.name))
         scope.launch {
             val r = runCatching { withFintsThread { decode(WimgJni.nativeFintsSendTan(tanBody(if (decoupled) "" else tanInput.trim()))) } }.getOrNull()
             busy = false
+            Dock.dismiss()
             when {
                 r == null -> error = bankText(null)
                 r.status == "tan_required" -> { tan = r; tanInput = ""; if (!decoupled) error = r.message }
@@ -548,7 +563,7 @@ fun FinTSScreen(navController: NavController? = null) {
             Step.Range -> FormPage {
                 Text((if (older) L("Wie weit zurück soll wimg holen? Schon vorhandene Umsätze werden übersprungen.") else L("Wie weit zurück soll wimg beim ersten Abruf holen?")), style = WimgType.body, color = c.text2, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp))
                 WimgGroup {
-                    listOf(90 to L("3 Monate"), 182 to L("6 Monate"), 365 to L("1 Jahr"), 730 to L("2 Jahre")).forEachIndexed { i, (days, label) ->
+                    listOf(90 to L("3 Monate"), 182 to L("6 Monate"), 365 to L("1 Jahr"), 730 to L("2 Jahre"), 3650 to L("So weit wie möglich")).forEachIndexed { i, (days, label) ->
                         if (i > 0) RowDivider()
                         val on = rangeChoice == days
                         WimgRow(label, onClick = { rangeChoice = days }, leading = {
@@ -582,7 +597,7 @@ private fun BankChip(b: BankInfo, onChange: () -> Unit) {
 }
 
 @Composable
-private fun Field(label: String, value: String, onChange: (String) -> Unit, secret: Boolean = false) {
+private fun Field(label: String, value: String, onChange: (String) -> Unit, secret: Boolean = false, numeric: Boolean = false) {
     val c = Wimg.colors
     Text(label, style = WimgType.label.copy(fontSize = WimgType.label.fontSize * 1.1f), color = c.text, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
     BasicTextField(
@@ -590,7 +605,11 @@ private fun Field(label: String, value: String, onChange: (String) -> Unit, secr
         textStyle = WimgType.body.copy(fontSize = WimgType.body.fontSize * 1.1f, color = c.text),
         cursorBrush = SolidColor(c.accent),
         visualTransformation = if (secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-        keyboardOptions = if (secret) KeyboardOptions(keyboardType = KeyboardType.Password) else KeyboardOptions.Default,
+        keyboardOptions = when {
+            secret -> KeyboardOptions(keyboardType = KeyboardType.Password)
+            numeric -> KeyboardOptions(keyboardType = KeyboardType.NumberPassword)
+            else -> KeyboardOptions.Default
+        },
         modifier = Modifier.fillMaxWidth().clip(WimgShape.group).background(c.card).border(1.dp, c.line, WimgShape.group).padding(horizontal = 16.dp, vertical = 18.dp),
     )
 }
@@ -684,7 +703,8 @@ private fun TanPage(bankName: String, tan: FintsResult?, input: String, onInput:
                 )
                 Text(L("Mit der photoTAN-App scannen und die TAN eingeben."), style = WimgType.body, color = c.text2, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 12.dp))
             }
-            Field(L("TAN"), input, onInput)
+            // TANs are digits (photoTAN, chipTAN, smsTAN): number pad.
+            Field(L("TAN"), input, onInput, numeric = true)
         }
         val challenge = tan?.challenge?.takeIf { it.isNotBlank() }
         if (challenge != null) {
@@ -694,7 +714,6 @@ private fun TanPage(bankName: String, tan: FintsResult?, input: String, onInput:
             }
         }
         if (error != null) ErrorBox(error)
-        if (busy) Text(L("Warte auf die Bank…"), style = WimgType.desc, color = c.text2, modifier = Modifier.padding(top = 14.dp))
     }
 }
 
@@ -755,7 +774,7 @@ private fun BankDetail(b: BankInfo, prefs: android.content.SharedPreferences, re
             WimgGroup {
                 WimgRow(
                     L("Ältere Umsätze holen"),
-                    desc = L("Bis zu 2 Jahre zurück, so weit die Bank erlaubt · meist mit TAN"),
+                    desc = L("So weit zurück, wie deine Bank erlaubt · meist mit TAN"),
                     chevron = true, onClick = onOlder,
                 )
             }

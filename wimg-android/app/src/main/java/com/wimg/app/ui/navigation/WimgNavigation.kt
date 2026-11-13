@@ -1,5 +1,6 @@
 package com.wimg.app.ui.navigation
 
+import androidx.compose.foundation.layout.imePadding
 import com.wimg.app.ui.screens.loadRecurring
 import com.wimg.app.ui.screens.REC_KEY
 import com.wimg.app.ui.screens.loadTx
@@ -112,6 +113,9 @@ fun WimgNavigation() {
     }
 
     val navController = rememberNavController()
+    LaunchedEffect(com.wimg.app.ui.components.NavRequest.route) {
+        com.wimg.app.ui.components.NavRequest.route?.let { navController.navigate(it) { popUpTo("dashboard") }; com.wimg.app.ui.components.NavRequest.route = null }
+    }
     LaunchedEffect(afterOnboarding) {
         afterOnboarding?.let { navController.navigate(it); afterOnboarding = null }
     }
@@ -141,7 +145,9 @@ fun WimgNavigation() {
     // others still stop above it until they're redesigned.
     val underBar = route in REDESIGNED
 
-    Box(Modifier.fillMaxSize()) {
+    // Edge to edge: the system no longer resizes for the keyboard, so the app does.
+    // Pages and the floating bar end above it (TAN, PIN, search fields stay visible).
+    Box(Modifier.fillMaxSize().imePadding()) {
         Column(Modifier.fillMaxSize()) {
             // Account picker only renders when there is more than one account.
             AccountPicker(
@@ -229,31 +235,35 @@ fun WimgNavigation() {
                 .padding(bottom = WimgDimens.barBottomGap),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            AnimatedVisibility(
-                menuOpen,
-                enter = fadeIn(tween(200, easing = WimgMotion.EaseOut)) + scaleIn(tween(220, easing = WimgMotion.EaseOut), initialScale = 0.96f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.3f, 1f)),
-                exit = if (menuInstant) ExitTransition.None else fadeOut(tween(90)) + scaleOut(tween(90), targetScale = 0.98f),
-            ) {
-                PlaceMenu(
-                    places = PLACES,
-                    current = route,
-                    onPick = { p ->
-                        menuInstant = true
-                        menuOpen = false
-                        navController.goTo(p.route)
-                    },
-                    modifier = Modifier.padding(bottom = 10.dp),
-                )
-            }
-            AnimatedVisibility(
-                panel != null && !menuOpen,
-                enter = fadeIn(tween(200, easing = WimgMotion.EaseOut)) + scaleIn(tween(220, easing = WimgMotion.EaseOut), initialScale = 0.96f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
-                exit = fadeOut(tween(150)) + scaleOut(tween(150), targetScale = 0.97f),
-            ) {
-                // Keep the last panel while it animates out.
-                var last by remember { mutableStateOf(panel) }
-                if (panel != null) last = panel
-                Box(Modifier.padding(bottom = 10.dp)) { last?.invoke() }
+            // Menu and panel share one spot above the bar: when one replaces the
+            // other, the outgoing one fades on top instead of pushing the new one up.
+            Box(contentAlignment = Alignment.BottomCenter) {
+                androidx.compose.animation.AnimatedVisibility(
+                    menuOpen,
+                    enter = fadeIn(tween(200, easing = WimgMotion.EaseOut)) + scaleIn(tween(220, easing = WimgMotion.EaseOut), initialScale = 0.96f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.3f, 1f)),
+                    exit = if (menuInstant) ExitTransition.None else fadeOut(tween(90)) + scaleOut(tween(90), targetScale = 0.98f),
+                ) {
+                    PlaceMenu(
+                        places = PLACES,
+                        current = route,
+                        onPick = { p ->
+                            menuInstant = true
+                            menuOpen = false
+                            navController.goTo(p.route)
+                        },
+                        modifier = Modifier.padding(bottom = 10.dp),
+                    )
+                }
+                androidx.compose.animation.AnimatedVisibility(
+                    panel != null && !menuOpen,
+                    enter = fadeIn(tween(200, easing = WimgMotion.EaseOut)) + scaleIn(tween(220, easing = WimgMotion.EaseOut), initialScale = 0.96f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)),
+                    exit = fadeOut(tween(150)) + scaleOut(tween(150), targetScale = 0.97f),
+                ) {
+                    // Keep the last panel while it animates out.
+                    var last by remember { mutableStateOf(panel) }
+                    if (panel != null) last = panel
+                    Box(Modifier.padding(bottom = 10.dp)) { last?.invoke() }
+                }
             }
             val detailBar = BarState.detail
             if (detailBar != null || route?.startsWith("search") != true) {
@@ -264,8 +274,11 @@ fun WimgNavigation() {
                     detailBar.actionLabel != null -> "action"
                     else -> "back"
                 }
+                // Search is reachable from every page, except inside a flow that a
+                // detour would break (bank setup mid-TAN, CSV import).
+                val searchHere = detailBar == null || (route != "fints" && route != "import")
                 FloatingBar(
-                    divider = detailBar == null || detailBar.onMore != null,
+                    divider = detailBar == null || detailBar.onMore != null || searchHere,
                     fill = detailBar?.actionLabel != null,
                     contentKey = kind,
                     left = {
@@ -293,6 +306,7 @@ fun WimgNavigation() {
                             BarIcon(BarIcons.Search, L("Suche")) { menuOpen = false; navController.navigate("search") }
                             BarIcon(BarIcons.Add, L("Hinzufügen"), accent = true) { menuOpen = false; navController.goTo("import") }
                         } else {
+                            if (searchHere) BarIcon(BarIcons.Search, L("Suche")) { navController.navigate("search") }
                             detailBar.onMore?.let { more ->
                                 BarIcon(androidx.compose.material.icons.Icons.Filled.MoreHoriz, L("Mehr")) { more() }
                             }

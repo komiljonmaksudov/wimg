@@ -1,5 +1,7 @@
 package com.wimg.app.ui.screens
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import java.util.Calendar
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
@@ -345,7 +347,8 @@ private fun FilterPanel(
             val thisMonth = monthPeriod(now.get(Calendar.YEAR), now.get(Calendar.MONTH) + 1).copy(label = L("Dieser Monat"), key = "this")
             val lastMonth = (now.clone() as Calendar).apply { add(Calendar.MONTH, -1) }.let { monthPeriod(it.get(Calendar.YEAR), it.get(Calendar.MONTH) + 1) }.copy(label = L("Letzter Monat"), key = "last")
             val options = listOf<TxPeriod?>(null, thisMonth, lastMonth, lastDays(91, L("3 Monate"), "3m"), lastDays(365, L("12 Monate"), "12m"))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // One scrollable line: the panel stays as tall as before the period filter.
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 options.forEach { o ->
                     PeriodChip(o?.label ?: L("Immer"), period?.key == o?.key) { onPeriod(o) }
                 }
