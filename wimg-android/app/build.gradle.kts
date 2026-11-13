@@ -7,12 +7,12 @@ plugins {
 
 android {
     namespace = "com.wimg.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.wimg.app"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         // Bumped by scripts/release.sh alongside package.json and project.yml.
         // Play requires a strictly increasing versionCode for every upload, so
         // CI overrides it with a timestamp (-PwimgVersionCode), the same trick
