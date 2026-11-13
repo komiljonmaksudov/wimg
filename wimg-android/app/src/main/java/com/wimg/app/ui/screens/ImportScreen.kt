@@ -1,5 +1,9 @@
 package com.wimg.app.ui.screens
 
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material.icons.outlined.Remove
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.foundation.clickable
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -15,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -57,11 +62,8 @@ import com.wimg.app.ui.components.BarContribution
 import com.wimg.app.ui.components.Changes
 import com.wimg.app.ui.components.DetailBarSpec
 import com.wimg.app.ui.components.GroupLabel
-import com.wimg.app.ui.components.RowDivider
 import com.wimg.app.ui.components.StepBand
 import com.wimg.app.ui.components.WimgDates
-import com.wimg.app.ui.components.WimgGroup
-import com.wimg.app.ui.components.WimgRow
 import com.wimg.app.ui.components.amountText
 import com.wimg.app.ui.theme.Wimg
 import com.wimg.app.ui.theme.WimgShape
@@ -104,7 +106,7 @@ fun ImportScreen(navController: NavController) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var step by remember { mutableStateOf(ImportStep.Source) }
-    var source by remember { mutableIntStateOf(0) }
+    var openHelp by remember { mutableIntStateOf(-1) }
     var picked by remember { mutableStateOf<Picked?>(null) }
     var result by remember { mutableStateOf<ImportResult?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -157,8 +159,10 @@ fun ImportScreen(navController: NavController) {
                 val n = (p?.rows?.size ?: 0) - (p?.duplicates ?: 0)
                 DetailBarSpec(
                     onBack = { step = ImportStep.Source; picked = null; error = null },
-                    actionLabel = if (n == 1) L("1 Umsatz importieren") else L("%d Umsätze importieren", n), actionIcon = null, actionBusy = busy,
-                    onAction = { if (!busy && n > 0) doImport() },
+                    actionLabel = when (n) { 0 -> L("Nichts zu importieren"); 1 -> L("1 Umsatz importieren"); else -> L("%d Umsätze importieren", n) },
+                    actionIcon = null, actionBusy = busy,
+                    // Everything already in wimg: the button just leaves.
+                    onAction = { if (busy) Unit else if (n > 0) doImport() else navController.navigate("dashboard") { popUpTo(0) } },
                 )
             }
             ImportStep.Done -> DetailBarSpec(
@@ -182,20 +186,34 @@ fun ImportScreen(navController: NavController) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = barClearance())) {
             when (step) {
                 ImportStep.Source -> {
-                    GroupLabel(L("Von welcher Bank oder welchem Broker?"))
-                    WimgGroup {
-                        SOURCES.forEachIndexed { i, s ->
-                            if (i > 0) RowDivider()
-                            WimgRow(s.name, onClick = { source = i }, leading = { Radio(source == i) }, trailing = { Text(L(s.account), style = WimgType.desc, color = c.text2) })
-                        }
-                    }
-                    val s = SOURCES[source]
-                    Column(Modifier.padding(top = 16.dp).fillMaxWidth().clip(WimgShape.group).background(c.neutralTint).padding(18.dp)) {
-                        Text(L("So kommst du an die Datei"), style = WimgType.button, color = c.text)
-                        s.steps.forEachIndexed { i, line ->
-                            Row(Modifier.padding(top = 8.dp)) {
-                                Text("${i + 1}.", style = WimgType.body, color = c.text, modifier = Modifier.width(22.dp))
-                                Text(L(line), style = WimgType.body, color = c.text)
+                    // No bank to choose: libwimg recognises the file, the preview shows
+                    // which bank it is. The rows only say how to get the file.
+                    Text(
+                        L("Wähle die CSV-Datei deiner Bank. wimg erkennt selbst, von wem sie ist; sie bleibt auf deinem Gerät."),
+                        style = WimgType.body, color = c.text2, modifier = Modifier.padding(top = 14.dp, start = 4.dp, end = 4.dp),
+                    )
+                    GroupLabel(L("So kommst du an die Datei"))
+                    Column(Modifier.fillMaxWidth().clip(WimgShape.group).background(c.card).border(1.dp, c.line, WimgShape.group)) {
+                        SOURCES.forEachIndexed { i, src ->
+                            if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(c.line))
+                            val open = openHelp == i
+                            Column(
+                                Modifier.fillMaxWidth().background(if (open) c.accentSoft else Color.Transparent)
+                                    .clickable { openHelp = if (open) -1 else i }.padding(horizontal = 16.dp, vertical = 14.dp),
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(src.name, style = WimgType.rowTitle.copy(fontWeight = FontWeight.Bold), color = c.text)
+                                        Text(L(src.account), style = WimgType.desc, color = c.text2)
+                                    }
+                                    Icon(if (open) Icons.Outlined.Remove else Icons.Outlined.Add, contentDescription = null, tint = if (open) c.accent else c.text2, modifier = Modifier.size(22.dp))
+                                }
+                                if (open) src.steps.forEachIndexed { n, line ->
+                                    Row(Modifier.padding(top = 8.dp)) {
+                                        Text("${n + 1}.", style = WimgType.body, color = c.text, modifier = Modifier.width(22.dp))
+                                        Text(L(line), style = WimgType.body, color = c.text)
+                                    }
+                                }
                             }
                         }
                     }
@@ -264,14 +282,6 @@ fun ImportScreen(navController: NavController) {
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun Radio(on: Boolean) {
-    val c = Wimg.colors
-    Box(Modifier.size(22.dp).clip(CircleShape).border(2.dp, if (on) c.ink else c.text3, CircleShape), contentAlignment = Alignment.Center) {
-        if (on) Box(Modifier.size(11.dp).clip(CircleShape).background(c.ink))
     }
 }
 

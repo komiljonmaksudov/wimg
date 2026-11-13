@@ -78,6 +78,8 @@ internal let translations: [String: String] = [
     "Nur Einnahmen": "Income only",
     "Über 100 €": "Over €100",
     "Ausgeschlossene": "Excluded",
+    "Wähle die CSV-Datei deiner Bank. wimg erkennt selbst, von wem sie ist; sie bleibt auf deinem Gerät.": "Choose your bank's CSV file. wimg recognises which bank it's from; it stays on your device.",
+    "Nichts zu importieren": "Nothing to import",
     "Vorgemerkt · %d": "Pending · %d",
     "vorgemerkt": "pending",
     "Vorgemerkt": "Pending",

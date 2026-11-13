@@ -84,6 +84,8 @@ private val translations: Map<String, String> = mapOf(
     "Nur Einnahmen" to "Income only",
     "Über 100 €" to "Over €100",
     "Ausgeschlossene" to "Excluded",
+    "Wähle die CSV-Datei deiner Bank. wimg erkennt selbst, von wem sie ist; sie bleibt auf deinem Gerät." to "Choose your bank's CSV file. wimg recognises which bank it's from; it stays on your device.",
+    "Nichts zu importieren" to "Nothing to import",
     "Vorgemerkt · %d" to "Pending · %d",
     "vorgemerkt" to "pending",
     "Vorgemerkt" to "Pending",
