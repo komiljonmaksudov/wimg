@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.TrendingDown
 import androidx.compose.material.icons.automirrored.outlined.TrendingUp
+import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.outlined.AttachMoney
 import androidx.compose.material.icons.outlined.LocalOffer
 import androidx.compose.material.icons.outlined.Refresh
@@ -63,6 +64,9 @@ import com.wimg.app.ui.theme.WimgShape
 import com.wimg.app.ui.theme.WimgType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import androidx.compose.material.icons.outlined.AccountBalanceWallet
+import androidx.compose.ui.draw.clip
 import java.text.DateFormatSymbols
 import java.util.Calendar
 import java.util.Locale
@@ -72,6 +76,8 @@ import kotlin.math.roundToInt
 /** Month the Rückblick should open on (set by the month-end message on Home). */
 object ReviewTarget {
     var ym by mutableStateOf<Pair<Int, Int>?>(null)
+    /** Gehaltsmonat: first day of the period to open. */
+    var period by mutableStateOf<String?>(null)
 }
 
 internal class ReviewData(
@@ -80,6 +86,8 @@ internal class ReviewData(
     val biggest: Transaction?,
     val lastDate: String?,
     val fixedPaid: List<Pair<String, Double>>,
+    /** Gehaltsmonat: the largest income that is not the salary. */
+    val otherIncome: Transaction? = null,
 )
 
 private fun prevMonth(y: Int, m: Int) = if (m == 1) y - 1 to 12 else y to m - 1
@@ -101,6 +109,19 @@ internal fun loadReview(year: Int, month: Int, account: String?): ReviewData {
     return ReviewData(summary, previous, inMonth.filter { it.amount < 0 }.minByOrNull { it.amount }, inMonth.maxOfOrNull { it.date }, fixed)
 }
 
+internal fun loadReviewRange(p: com.wimg.app.models.PeriodInfo, prev: com.wimg.app.models.PeriodInfo?, account: String?, salaryMode: Boolean): ReviewData {
+    val summary = LibWimg.getSummaryRange(p.from, p.to, account)
+    val previous = prev?.let { LibWimg.getSummaryRange(it.from, it.to, account) }?.takeIf { it.tx_count > 0 }
+    val today = com.wimg.app.ui.components.WimgDates.todayIso()
+    val inRange = LibWimg.getTransactionsFiltered(account).filter { it.date >= p.from && it.date <= p.to && !it.isExcluded && it.date <= today }
+    val fixed = runCatching {
+        LibWimg.getRecurring().filter { it.active == 1 && !it.isHidden && it.amount < 0 && it.last_seen >= p.from && it.last_seen <= p.to }.map { it.displayName to it.amount }
+    }.getOrDefault(emptyList())
+    // The salary is booked on the period's first day; any other income is "weitere".
+    val other = if (salaryMode) inRange.filter { it.amount > 0 && it.date != p.from }.maxByOrNull { it.amount } else null
+    return ReviewData(summary, previous, inRange.filter { it.amount < 0 }.minByOrNull { it.amount }, inRange.maxOfOrNull { it.date }, fixed, other)
+}
+
 /** Share of spending change vs. the previous month, in % (negative = less). */
 private fun changePct(now: Double, before: Double): Int? =
     if (abs(before) < 0.01) null else ((abs(now) - abs(before)) / abs(before) * 100).roundToInt()
@@ -112,13 +133,20 @@ fun ReviewScreen(selectedAccount: String?, navController: NavController? = null)
     var year by remember { mutableIntStateOf(start.first) }
     var month by remember { mutableIntStateOf(start.second) }
     var pickerOpen by remember { mutableStateOf(false) }
+    // Gehaltsmonat: periods from salary to salary (or from a fixed day) instead of months.
+    val periods = com.wimg.app.ui.components.rememberPeriods()
+    var periodFrom by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(ReviewTarget.period) }
+    val period = periods?.takeIf { !it.isCalendar }?.let { ps -> ps.periods.firstOrNull { it.from == periodFrom } ?: ps.periods.firstOrNull() }
+    val prevPeriod = period?.let { p -> periods.periods.getOrNull(periods.periods.indexOf(p) + 1) }
+    val cacheKey = if (period != null) "review:${period.from}:$selectedAccount" else reviewKey(year, month, selectedAccount)
     // Last result first (loaded ahead in the background), fresh data replaces it.
     var data by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<ReviewData>(reviewKey(year, month, selectedAccount))) }
-    LaunchedEffect(Unit) { ReviewTarget.ym = null }
-    LaunchedEffect(year, month, selectedAccount, Changes.version) {
-        com.wimg.app.ui.components.ScreenCache.get<ReviewData>(reviewKey(year, month, selectedAccount))?.let { data = it }
-        data = withContext(Dispatchers.IO) { loadReview(year, month, selectedAccount) }
-            .also { com.wimg.app.ui.components.ScreenCache.put(reviewKey(year, month, selectedAccount), it) }
+    LaunchedEffect(Unit) { ReviewTarget.ym = null; ReviewTarget.period = null }
+    LaunchedEffect(year, month, selectedAccount, period, Changes.version) {
+        com.wimg.app.ui.components.ScreenCache.get<ReviewData>(cacheKey)?.let { data = it }
+        data = withContext(Dispatchers.IO) {
+            if (period != null) loadReviewRange(period, prevPeriod, selectedAccount, periods.isSalary) else loadReview(year, month, selectedAccount)
+        }.also { com.wimg.app.ui.components.ScreenCache.put(cacheKey, it) }
     }
 
     val locale = if (LocaleState.locale == "en") Locale.ENGLISH else Locale.GERMAN
@@ -128,8 +156,10 @@ fun ReviewScreen(selectedAccount: String?, navController: NavController? = null)
     val (_, pm) = prevMonth(year, month)
 
     BarContribution(
-        chip = BarChipSpec(shortMonths[month - 1] + if (year != now.get(Calendar.YEAR)) " ${year % 100}" else "", pickerOpen, { pickerOpen = !pickerOpen }),
-        panel = if (pickerOpen) { { MonthPickerPanel(year, month, shortMonths, now, onPick = { y, m -> year = y; month = m; pickerOpen = false }) } } else null,
+        chip = if (period != null) BarChipSpec(com.wimg.app.ui.components.PeriodLabels.short(period), pickerOpen, { pickerOpen = !pickerOpen })
+        else BarChipSpec(shortMonths[month - 1] + if (year != now.get(Calendar.YEAR)) " ${year % 100}" else "", pickerOpen, { pickerOpen = !pickerOpen }),
+        panel = if (!pickerOpen) null else if (period != null) { { ReviewPeriodPanel(periods, period, selectedAccount) { periodFrom = it.from; pickerOpen = false } } }
+        else { { MonthPickerPanel(year, month, shortMonths, now, onPick = { y, m -> year = y; month = m; pickerOpen = false }) } },
         onPanelDismiss = { pickerOpen = false },
     )
 
@@ -144,6 +174,10 @@ fun ReviewScreen(selectedAccount: String?, navController: NavController? = null)
 
     BandScreen(
         band = {
+            if (period != null) {
+                ReviewPeriodBand(periods, period, prevPeriod, s, change)
+                return@BandScreen
+            }
             val over = if (isCurrent && d?.lastDate != null) L("Monatsabschluss · Vorschau mit Daten bis %s", WimgDates.short(d.lastDate)) else L("Monatsabschluss")
             Text(over, style = WimgType.bandOver, color = c.bandSub)
             val head = when {
@@ -174,7 +208,8 @@ fun ReviewScreen(selectedAccount: String?, navController: NavController? = null)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Stat(L("Einnahmen"), amountText(income), c.pos, Modifier.weight(1f))
                 Stat(L("Ausgaben"), amountText(-expenses), c.text, Modifier.weight(1.15f))
-                Stat(L("Umsätze"), "${s.tx_count}", c.text, Modifier.weight(0.8f))
+                if (period != null) Stat(L("Tage"), "${period.days}", c.text, Modifier.weight(0.8f))
+                else Stat(L("Umsätze"), "${s.tx_count}", c.text, Modifier.weight(0.8f))
             }
 
             GroupLabel(L("Aufgefallen"))
@@ -190,15 +225,15 @@ fun ReviewScreen(selectedAccount: String?, navController: NavController? = null)
                 val changes = s.by_category.filter { it.amount != 0.0 && it.id != 0 && it.id != WimgCategory.INCOME.id }.mapNotNull { cat ->
                     prevById[cat.id]?.let { p -> changePct(cat.amount, p.amount)?.let { cat to it } }
                 }
-                val prevShort = shortMonths[pm - 1]
+                val prevShort = if (period != null) null else shortMonths[pm - 1]
                 changes.filter { it.second > 0 }.maxByOrNull { it.second }?.let { (cat, pct) ->
                     if (!first) RowDivider(); first = false
-                    Item(Icons.AutoMirrored.Outlined.TrendingUp, c.danger, L("Stärkster Anstieg vs. %s", prevShort),
+                    Item(Icons.AutoMirrored.Outlined.TrendingUp, c.danger, if (prevShort == null) L("Stärkster Anstieg") else L("Stärkster Anstieg vs. %s", prevShort),
                         "${L(WimgCategory.fromId(cat.id).label)} ▲ $pct %", amountText(abs(cat.amount), showPlus = false))
                 }
                 changes.filter { it.second < 0 }.minByOrNull { it.second }?.let { (cat, pct) ->
                     if (!first) RowDivider(); first = false
-                    Item(Icons.AutoMirrored.Outlined.TrendingDown, c.pos, L("Stärkster Rückgang vs. %s", prevShort),
+                    Item(Icons.AutoMirrored.Outlined.TrendingDown, c.pos, if (prevShort == null) L("Stärkster Rückgang") else L("Stärkster Rückgang vs. %s", prevShort),
                         "${L(WimgCategory.fromId(cat.id).label)} ▼ ${-pct} %", amountText(abs(cat.amount), showPlus = false))
                 }
                 s.by_category.firstOrNull { it.id == 0 && it.amount != 0.0 }?.let { cat ->
@@ -207,9 +242,13 @@ fun ReviewScreen(selectedAccount: String?, navController: NavController? = null)
                     Item(Icons.Outlined.LocalOffer, c.text2, L("Noch nicht zugeordnet"),
                         "${L(WimgCategory.UNCATEGORIZED.label)} · $share %", amountText(abs(cat.amount), showPlus = false)) {
                         TxTarget.category = 0
-                        TxTarget.period = monthPeriod(year, month)
+                        TxTarget.period = period?.let { txPeriodOf(it, periods.isSalary) } ?: monthPeriod(year, month)
                         navController?.navigate("transactions") { popUpTo("dashboard") }
                     }
+                }
+                d.otherIncome?.let { t ->
+                    if (!first) RowDivider(); first = false
+                    Item(Icons.AutoMirrored.Outlined.Undo, c.text2, L("Weitere Einnahme"), t.displayTitle, amountText(t.amount)) { navController?.navigate("tx/${t.id}") }
                 }
                 if (d.fixedPaid.isNotEmpty()) {
                     if (!first) RowDivider(); first = false
@@ -282,4 +321,167 @@ suspend fun offerMonthEnd(context: Context, account: String?, onOpen: (Int, Int)
         change?.takeIf { it != 0 }?.let { (if (it < 0) __t("Ausgaben ▼ %d %%") else __t("Ausgaben ▲ %d %%")).format(abs(it)) },
     ).joinToString(" · ")
     Dock.show(DockRow(DockKind.Prompt, __t("Dein %s ist abgeschlossen").format(names[m - 1]), sub, __t("Ansehen"), { onOpen(y, m) }))
+}
+
+// ---------------------------------------------------------------------------
+// Gehaltsmonat (board 26A)
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun ReviewPeriodBand(
+    periods: com.wimg.app.models.Periods,
+    p: com.wimg.app.models.PeriodInfo,
+    prev: com.wimg.app.models.PeriodInfo?,
+    s: MonthlySummary?,
+    change: Int?,
+) {
+    val c = Wimg.colors
+    val lbl = com.wimg.app.ui.components.PeriodLabels
+    val salary = periods.isSalary
+    val over = when {
+        salary && p.current -> L("Gehaltsmonat %s · läuft noch", lbl.long(p))
+        salary -> L("Gehaltsmonat %s", lbl.long(p))
+        p.current -> L("%s · läuft noch", lbl.long(p))
+        else -> lbl.long(p)
+    }
+    Text(over, style = WimgType.bandOver, color = c.bandSub)
+    val net = (s?.income ?: 0.0) - abs(s?.expenses ?: 0.0)
+    val head = when {
+        s == null || s.tx_count == 0 -> null
+        salary && net >= 0 && p.current -> L("Vom Gehalt sind noch %s übrig.", "\u0000")
+        salary && net >= 0 -> L("Vom Gehalt sind %s übrig geblieben.", "\u0000")
+        net < 0 -> L("Du hast %s mehr ausgegeben als eingenommen.", "\u0000")
+        else -> L("Du hast %s mehr eingenommen als ausgegeben.", "\u0000")
+    }
+    Text(
+        if (head == null) buildAnnotatedString { append(L("In diesem Zeitraum gibt es noch keine Umsätze.")) }
+        else buildAnnotatedString {
+            val (a, b) = head.split("\u0000", limit = 2).let { it[0] to it.getOrElse(1) { "" } }
+            append(a)
+            withStyle(SpanStyle(color = if (net < 0) c.bandNeg else c.bandPos)) { append(amountText(abs(net), showPlus = false)) }
+            append(b)
+        },
+        style = WimgType.title.copy(fontSize = WimgType.title.fontSize * 1.05f), color = Color.White, modifier = Modifier.padding(top = 6.dp),
+    )
+    if (change != null && change != 0 && prev != null) {
+        val range = lbl.long(prev)
+        Text(
+            when {
+                salary && change < 0 -> L("%d %% weniger ausgegeben als im Gehaltsmonat davor (%s).", -change, range)
+                salary -> L("%d %% mehr ausgegeben als im Gehaltsmonat davor (%s).", change, range)
+                change < 0 -> L("%d %% weniger ausgegeben als im Monat davor (%s).", -change, range)
+                else -> L("%d %% mehr ausgegeben als im Monat davor (%s).", change, range)
+            },
+            style = WimgType.body, color = c.bandSub, modifier = Modifier.padding(top = 8.dp),
+        )
+    }
+}
+
+/** "Gehaltsmonat wählen" (board 26/03): periods with their length and what was left. */
+@Composable
+private fun ReviewPeriodPanel(periods: com.wimg.app.models.Periods, selected: com.wimg.app.models.PeriodInfo, account: String?, onPick: (com.wimg.app.models.PeriodInfo) -> Unit) {
+    val c = Wimg.colors
+    val lbl = com.wimg.app.ui.components.PeriodLabels
+    val shown = periods.periods.take(6)
+    var nets by remember { mutableStateOf<Map<String, Double>>(emptyMap()) }
+    LaunchedEffect(shown) {
+        nets = withContext(Dispatchers.IO) { shown.associate { p -> p.from to (LibWimg.getSummaryRange(p.from, p.to, account)?.let { it.income - abs(it.expenses) } ?: 0.0) } }
+    }
+    com.wimg.app.ui.components.BarPanel {
+        Text(if (periods.isSalary) L("Gehaltsmonat wählen") else L("Zeitraum wählen"), style = WimgType.sheetTitle, color = c.text, modifier = Modifier.padding(start = 4.dp, bottom = 12.dp))
+        shown.forEachIndexed { i, p ->
+            val on = p == selected
+            Row(
+                Modifier.fillMaxWidth().clip(WimgShape.segmentOuter).background(if (on) c.neutralTint else Color.Transparent)
+                    .clickable { onPick(p) }.padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(lbl.long(p), style = WimgType.rowTitle, color = c.text)
+                    val net = nets[p.from]
+                    val sub = when {
+                        p.early_days > 0 -> if (p.early_days == 1) L("%d Tage · Gehalt 1 Tag früher", p.days) else L("%d Tage · Gehalt %d Tage früher", p.days, p.early_days)
+                        net == null -> L("%d Tage", p.days)
+                        net >= 0 -> L("%d Tage · %s übrig", p.days, amountText(net, showPlus = false))
+                        else -> L("%d Tage · %s", p.days, amountText(net))
+                    }
+                    Text(sub, style = WimgType.desc, color = c.text2)
+                }
+                val badge = when {
+                    p.current -> L("läuft")
+                    i == 1 && shown.first().current && com.wimg.app.ui.components.PeriodLabels.daysIn(shown.first()) <= 10 -> L("gerade fertig")
+                    else -> null
+                }
+                if (badge != null) {
+                    Text(badge, style = WimgType.caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = c.pos,
+                        modifier = Modifier.clip(androidx.compose.foundation.shape.CircleShape).background(c.pos.copy(alpha = 0.12f)).padding(horizontal = 10.dp, vertical = 4.dp))
+                }
+            }
+        }
+        if (periods.isSalary) com.wimg.app.ui.components.QuietLine(L("Ein Gehaltsmonat läuft von Gehalt zu Gehalt, deshalb sind die Längen verschieden."))
+    }
+}
+
+private val askedThisSession = mutableSetOf<String>()
+private const val PERIOD_SEEN_KEY = "wimg_period_seen"
+private const val INCOME_SEEN_KEY = "wimg_income_seen"
+
+/**
+ * Gehaltsmonat prompts on Übersicht, docked on the bar, at most one:
+ * "Ist das dein Gehalt?" for a salary wimg found (board 3/01), the end of a
+ * period when the new salary is there (26/04, 26/11), and an extra income that
+ * doesn't start a period (26/12). True when one was shown.
+ */
+suspend fun offerSalaryPrompts(context: Context, p: com.wimg.app.models.Periods, account: String?, onOpen: (String) -> Unit): Boolean {
+    if (Dock.row != null) return true
+    val prefs = context.getSharedPreferences("wimg", 0)
+    val io = kotlinx.coroutines.CoroutineScope(Dispatchers.IO)
+    val wallet = androidx.compose.material.icons.Icons.Outlined.AccountBalanceWallet
+    val sal = p.salary
+    if (sal != null && !sal.confirmed && askedThisSession.add(sal.key)) {
+        Dock.show(DockRow(
+            DockKind.Prompt, __t("Ist das dein Gehalt?"), __t("%s · %d× um den %d.").format(sal.name, sal.count, sal.day),
+            action = "Ja", onAction = {
+                io.launch {
+                    LibWimg.answerSalary(sal.key, 1)
+                    if (p.chosen == "calendar") LibWimg.setPeriodMode("salary")
+                    Changes.bump()
+                }
+            },
+            action2 = "Nein", onAction2 = { io.launch { LibWimg.answerSalary(sal.key, 0); Changes.bump() } },
+            icon = wallet,
+        ))
+        return true
+    }
+    if (p.isCalendar) return false
+    val cur = p.current ?: return false
+    val prev = p.periods.getOrNull(1)
+    val daysIn = com.wimg.app.ui.components.PeriodLabels.daysIn(cur)
+    if (prev != null && daysIn <= 10 && prefs.getString(PERIOD_SEEN_KEY, null) != prev.from) {
+        prefs.edit().putString(PERIOD_SEEN_KEY, prev.from).apply()
+        val s = withContext(Dispatchers.IO) { LibWimg.getSummaryRange(prev.from, prev.to, account) }
+        val net = (s?.income ?: 0.0) - abs(s?.expenses ?: 0.0)
+        val range = com.wimg.app.ui.components.PeriodLabels.long(prev)
+        val netText = if (net >= 0) __t("%s übrig").format(amountText(net, showPlus = false)) else __t("%s zu viel").format(amountText(-net, showPlus = false))
+        val (title, sub) = when {
+            p.isSalary && daysIn <= 1 && cur.early_days > 0 -> __t("Gehalt schon heute da") to __t("Zeitraum davor: %d Tage").format(prev.days)
+            p.isSalary -> __t("Gehalt ist da: Rückblick fertig") to "$range · $netText"
+            else -> __t("Dein Monat bis zum %d. ist fertig").format(prev.to.takeLast(2).toInt()) to "$range · $netText"
+        }
+        Dock.show(DockRow(DockKind.Prompt, title, sub, action = "Ansehen", onAction = { onOpen(prev.from) }, icon = if (p.isSalary) wallet else null))
+        return true
+    }
+    if (p.isSalary) {
+        val seen = prefs.getStringSet(INCOME_SEEN_KEY, emptySet()) ?: emptySet()
+        val weekAgo = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -7) }.let { "%04d-%02d-%02d".format(it.get(Calendar.YEAR), it.get(Calendar.MONTH) + 1, it.get(Calendar.DAY_OF_MONTH)) }
+        val inc = p.other_income.firstOrNull { it.id !in seen && it.date >= weekAgo } ?: return false
+        prefs.edit().putStringSet(INCOME_SEEN_KEY, (seen.toList().takeLast(40) + inc.id).toSet()).apply()
+        Dock.show(DockRow(
+            DockKind.Prompt, __t("%s von %s").format(amountText(inc.amount), inc.title), __t("Einnahme, kein neuer Zeitraum"),
+            action = "Ist Gehalt", onAction = { io.launch { LibWimg.answerSalary(inc.key, 1); Changes.bump() } },
+            icon = androidx.compose.material.icons.Icons.AutoMirrored.Outlined.Undo, timeoutMs = 10_000,
+        ))
+        return true
+    }
+    return false
 }

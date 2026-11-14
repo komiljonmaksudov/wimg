@@ -75,12 +75,16 @@ class MainActivity : FragmentActivity() {
             com.wimg.app.ui.screens.ReviewTarget.ym = it[0] to it[1]
         }
         intent.removeExtra(EXTRA_MONTH)
+        // Gehaltsmonat: the period's first day.
+        intent.getStringExtra(EXTRA_PERIOD)?.let { com.wimg.app.ui.screens.ReviewTarget.period = it }
+        intent.removeExtra(EXTRA_PERIOD)
         if (route in OPENABLE) com.wimg.app.ui.components.NavRequest.route = route
     }
 
     companion object {
         const val EXTRA_ROUTE = "wimg_route"
         const val EXTRA_MONTH = "wimg_month"
+        const val EXTRA_PERIOD = "wimg_period"
         private val OPENABLE = setOf("transactions", "recurring", "review", "fints")
     }
 

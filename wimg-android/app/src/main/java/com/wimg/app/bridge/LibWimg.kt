@@ -114,6 +114,29 @@ object LibWimg {
         WimgJni.nativeUpdateAccount(body) == 0
     }
 
+    // --- Gehaltsmonat ---
+
+    private fun ymd(iso: String) = iso.replace("-", "").toInt()
+
+    /** Periods (newest first) as of today. */
+    fun getPeriods(count: Int = 12): Periods? = lock.withLock {
+        val today = java.util.Calendar.getInstance().let { it.get(java.util.Calendar.YEAR) * 10000 + (it.get(java.util.Calendar.MONTH) + 1) * 100 + it.get(java.util.Calendar.DAY_OF_MONTH) }
+        val str = WimgJni.nativeGetPeriods(today, count) ?: return null
+        runCatching { json.decodeFromString<Periods>(str) }.getOrNull()
+    }
+
+    /** Summary of [from]..[to] (ISO dates, inclusive). */
+    fun getSummaryRange(from: String, to: String, account: String?): MonthlySummary? = lock.withLock {
+        val str = WimgJni.nativeGetSummaryRange(ymd(from), ymd(to), account ?: "") ?: return null
+        json.decodeFromString(str)
+    }
+
+    /** "calendar", "salary" or "day" (with the start [day]). */
+    fun setPeriodMode(mode: String, day: Int = 0) = lock.withLock { WimgJni.nativeSetPeriodMode(mode, day) == 0 }
+
+    /** 1 = this is my salary, 0 = it isn't, 2 = only this payer. */
+    fun answerSalary(key: String, answer: Int) = lock.withLock { WimgJni.nativeSalaryAnswer(key, answer) == 0 }
+
     // --- wimg Sync devices ---
 
     fun getDevices(): List<SyncDevice> = lock.withLock {

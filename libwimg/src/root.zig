@@ -7,6 +7,7 @@ const db_mod = @import("db.zig");
 const parser = @import("parser.zig");
 const categories = @import("categories.zig");
 const summary = @import("summary.zig");
+const period = @import("period.zig");
 const crypto = @import("crypto.zig");
 const recurring = @import("recurring.zig");
 
@@ -762,6 +763,95 @@ export fn wimg_get_rules() ?[*]const u8 {
     const len_bytes: [4]u8 = @bitCast(@as(u32, @intCast(n)));
     @memcpy(buf[0..4], &len_bytes);
     return buf.ptr;
+}
+
+// --- Gehaltsmonat (periods) ---
+
+fn lengthPrefixed(name: []const u8, size: usize, comptime fill: fn ([]u8) ?usize) ?[*]const u8 {
+    const buf = fba.allocator().alloc(u8, size + 4) catch {
+        setError("{s}: failed to allocate buffer", .{name});
+        return null;
+    };
+    const n = fill(buf[4..]) orelse {
+        setError("{s}: failed", .{name});
+        fba.allocator().free(buf);
+        return null;
+    };
+    const len_bytes: [4]u8 = @bitCast(@as(u32, @intCast(n)));
+    @memcpy(buf[0..4], &len_bytes);
+    return buf.ptr;
+}
+
+var periods_args: struct { today: u32 = 0, count: u32 = 0 } = .{};
+
+/// Periods for Übersicht, Rückblick, Umsätze, widgets: the chosen mode, the
+/// salary wimg found (if any) and [count] periods, newest first. today = YYYYMMDD.
+export fn wimg_get_periods(today_ymd: u32, count: u32) ?[*]const u8 {
+    if (global_db == null) {
+        setError("wimg_get_periods: database not initialized", .{});
+        return null;
+    }
+    periods_args = .{ .today = today_ymd, .count = @min(count, 48) };
+    return lengthPrefixed("wimg_get_periods", 64 * 1024, struct {
+        fn fill(out: []u8) ?usize {
+            var database = global_db.?;
+            return period.periodsJson(&database, periods_args.today, periods_args.count, out);
+        }
+    }.fill);
+}
+
+/// Summary of any range of days (YYYYMMDD, inclusive), like wimg_get_summary_filtered.
+export fn wimg_get_summary_range(from_ymd: u32, to_ymd: u32, acct: [*]const u8, acct_len: u32) ?[*]const u8 {
+    const database = global_db orelse {
+        setError("wimg_get_summary_range: database not initialized", .{});
+        return null;
+    };
+    const buf_size: usize = 8 * 1024;
+    const buf = fba.allocator().alloc(u8, buf_size + 4) catch {
+        setError("wimg_get_summary_range: failed to allocate buffer", .{});
+        return null;
+    };
+    const n = summary.getSummaryJsonRange(database.handle, from_ymd, to_ymd, buf.ptr + 4, buf_size, acct, acct_len) orelse {
+        sqliteError("wimg_get_summary_range: failed", database.handle);
+        fba.allocator().free(buf);
+        return null;
+    };
+    const len_bytes: [4]u8 = @bitCast(@as(u32, @intCast(n)));
+    @memcpy(buf[0..4], &len_bytes);
+    return buf.ptr;
+}
+
+/// "Ein Monat beginnt": "calendar", "salary" or "day" (with [day] 1–28). Synced.
+export fn wimg_set_period_mode(mode_ptr: [*]const u8, mode_len: u32, day: u32) i32 {
+    var database = global_db orelse {
+        setError("wimg_set_period_mode: database not initialized", .{});
+        return -1;
+    };
+    const mode = mode_ptr[0..mode_len];
+    if (std.meta.stringToEnum(period.Mode, mode) == null) {
+        setError("wimg_set_period_mode: unknown mode", .{});
+        return -1;
+    }
+    database.setSetting("period_mode", mode) catch return -1;
+    if (day >= 1 and day <= 28) {
+        var b: [4]u8 = undefined;
+        const d = std.fmt.bufPrint(&b, "{d}", .{day}) catch return -1;
+        database.setSetting("period_day", d) catch return -1;
+    }
+    return 0;
+}
+
+/// "Ist das dein Gehalt?" for a payer key: 1 = yes, 0 = no, 2 = only this one.
+export fn wimg_salary_answer(key_ptr: [*]const u8, key_len: u32, answer: u8) i32 {
+    var database = global_db orelse {
+        setError("wimg_salary_answer: database not initialized", .{});
+        return -1;
+    };
+    period.answerSalary(&database, key_ptr[0..key_len], answer) catch |err| {
+        setError("wimg_salary_answer: failed: {s}", .{@errorName(err)});
+        return -1;
+    };
+    return 0;
 }
 
 // --- wimg Sync devices ---

@@ -126,6 +126,10 @@ fun RecurringScreen(navController: androidx.navigation.NavController? = null) {
     }
 
     val month = remember { Calendar.getInstance().let { "%04d-%02d".format(it.get(Calendar.YEAR), it.get(Calendar.MONTH) + 1) } }
+    // Gehaltsmonat: "this month" is the running salary or "Fester Tag" period.
+    val periods = com.wimg.app.ui.components.rememberPeriods()
+    val period = periods?.takeIf { !it.isCalendar }?.current
+    val range = period?.let { it.from to it.to } ?: ("$month-01" to "$month-31")
     val today = remember { WimgDates.todayIso() }
     // "Nicht wiederkehrend": out of the list and the sums, back via the filter.
     val all = (patterns ?: emptyList()).filter { !it.isHidden }
@@ -137,9 +141,9 @@ fun RecurringScreen(navController: androidx.navigation.NavController? = null) {
     // Hero: fixed costs per month (quarterly/yearly spread over their months).
     val perMonth = expenses.sumOf { abs(it.amount) * monthlyFactor(it.interval) }
     // Progress: what falls into this month, paid (seen this month) vs. still open.
-    val dueThisMonth = expenses.filter { it.last_seen.startsWith(month) || (it.next_due ?: "").startsWith(month) || it.interval == "monthly" }
-    val paid = dueThisMonth.filter { it.last_seen.startsWith(month) }.sumOf { abs(it.amount) }
-    val open = dueThisMonth.filter { !it.last_seen.startsWith(month) }.sumOf { abs(it.amount) }
+    val dueThisMonth = expenses.filter { inRange(it.last_seen, range) || inRange(it.next_due, range) || it.interval == "monthly" }
+    val paid = dueThisMonth.filter { inRange(it.last_seen, range) }.sumOf { abs(it.amount) }
+    val open = dueThisMonth.filter { !inRange(it.last_seen, range) }.sumOf { abs(it.amount) }
 
     val shown = all.filter { p ->
         (showInactive || p.active == 1) &&
@@ -247,7 +251,7 @@ fun RecurringScreen(navController: androidx.navigation.NavController? = null) {
     val c = Wimg.colors
     BandScreen(
         band = {
-            Text(L("Fixkosten pro Monat"), style = WimgType.bandOver, color = c.bandSub)
+            Text(if (periods?.isSalary == true) L("Fixkosten pro Gehaltsmonat") else L("Fixkosten pro Monat"), style = WimgType.bandOver, color = c.bandSub)
             com.wimg.app.ui.components.RollingAmount(perMonth, WimgType.amountHero, WimgType.amountHeroCents, Color.White, Changes.version, Modifier.padding(top = 2.dp), showPlus = false)
             Text(
                 if (expenses.size == 1) L("1 feste Zahlung erkannt") else L("%d feste Zahlungen erkannt", expenses.size),
@@ -259,8 +263,15 @@ fun RecurringScreen(navController: androidx.navigation.NavController? = null) {
                     Box(Modifier.fillMaxHeight().fillMaxWidth((paid / (paid + open)).toFloat()).clip(CircleShape).background(Color.White))
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                    BandFigure(L("Bezahlt im %s.", monthName), amountText(paid, showPlus = false), Modifier.weight(1f))
-                    BandFigure(L("Noch offen"), amountText(open, showPlus = false))
+                    BandFigure(
+                        when {
+                            periods?.isSalary == true -> L("Seit dem Gehalt bezahlt")
+                            period != null -> L("Bezahlt seit dem %d.", periods!!.day)
+                            else -> L("Bezahlt im %s.", monthName)
+                        },
+                        amountText(paid, showPlus = false), Modifier.weight(1f), stacked = period != null,
+                    )
+                    BandFigure(if (periods?.isSalary == true) L("Bis zum Gehalt offen") else L("Noch offen"), amountText(open, showPlus = false), stacked = period != null, end = true)
                 }
             }
         },
@@ -300,13 +311,16 @@ fun RecurringScreen(navController: androidx.navigation.NavController? = null) {
         }
         val sections = buildList {
             INTERVALS.forEach { (id, label, _) ->
-                val items = shown.filter { it.amount < 0 && it.interval == id }.sortedWith(compareBy({ dueDay(it, month) ?: 99 }, { it.displayName }))
+                val items = shown.filter { it.amount < 0 && it.interval == id }.sortedWith(compareBy({ dueDate(it, range) ?: "9" }, { it.displayName }))
                 if (items.isNotEmpty()) add(L(label) to items)
             }
             val income = shown.filter { it.amount > 0 }
             if (income.isNotEmpty()) add(L("Einnahmen") to income)
         }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = barClearance())) {
+            if (period != null) item(key = "range") {
+                Text(com.wimg.app.ui.components.PeriodLabels.long(period), style = WimgType.chip, color = c.text2, modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp))
+            }
             sections.forEachIndexed { si, (title, items) ->
                 item(key = "s_$title") {
                     val total = items.sumOf { it.amount }
@@ -316,17 +330,19 @@ fun RecurringScreen(navController: androidx.navigation.NavController? = null) {
                     }
                 }
                 items(items, key = { it.id }) { p ->
-                    PatternRow(p, month, today, last = p == items.last()) { navController?.navigate("rec/${p.id}") }
+                    PatternRow(p, range, today, last = p == items.last()) { navController?.navigate("rec/${p.id}") }
                 }
             }
         }
     }
 }
 
-/** Day of this month the payment was made or is due, or null. */
-private fun dueDay(p: RecurringPattern, month: String): Int? = when {
-    p.last_seen.startsWith(month) -> p.last_seen.takeLast(2).toIntOrNull()
-    (p.next_due ?: "").startsWith(month) -> p.next_due!!.takeLast(2).toIntOrNull()
+private fun inRange(date: String?, range: Pair<String, String>) = date != null && date >= range.first && date <= range.second
+
+/** Date in this month (or Gehaltsmonat) the payment was made or is due, or null. */
+private fun dueDate(p: RecurringPattern, range: Pair<String, String>): String? = when {
+    inRange(p.last_seen, range) -> p.last_seen
+    inRange(p.next_due, range) -> p.next_due
     else -> null
 }
 
@@ -337,7 +353,15 @@ internal fun daysUntil(date: String): Int? {
 }
 
 @Composable
-private fun BandFigure(label: String, value: String, modifier: Modifier = Modifier) {
+private fun BandFigure(label: String, value: String, modifier: Modifier = Modifier, stacked: Boolean = false, end: Boolean = false) {
+    // Gehaltsmonat labels are longer: label over value (board 26/07).
+    if (stacked) {
+        Column(modifier, horizontalAlignment = if (end) Alignment.End else Alignment.Start) {
+            Text(label, style = WimgType.desc, color = Wimg.colors.bandSub, maxLines = 1)
+            Text(value, style = WimgType.amountStat, color = Color.White, modifier = Modifier.padding(top = 2.dp))
+        }
+        return
+    }
     Row(modifier, verticalAlignment = Alignment.Bottom) {
         Text(label, style = WimgType.desc, color = Wimg.colors.bandSub)
         Spacer(Modifier.width(6.dp))
@@ -346,12 +370,13 @@ private fun BandFigure(label: String, value: String, modifier: Modifier = Modifi
 }
 
 @Composable
-private fun PatternRow(p: RecurringPattern, month: String, today: String, last: Boolean, onClick: () -> Unit) {
+private fun PatternRow(p: RecurringPattern, range: Pair<String, String>, today: String, last: Boolean, onClick: () -> Unit) {
     val c = Wimg.colors
-    val paidNow = p.last_seen.startsWith(month)
+    val paidNow = inRange(p.last_seen, range)
     val income = p.amount > 0
-    val day = dueDay(p, month)
-    val shortMonth = WimgDates.shortMonths()[month.takeLast(2).toInt() - 1]
+    val due = dueDate(p, range)
+    val day = due?.takeLast(2)?.toIntOrNull()
+    val shortMonth = due?.substring(5, 7)?.toIntOrNull()?.let { WimgDates.shortMonths()[it - 1] } ?: ""
     val inactive = p.active != 1
     // Compare what was actually paid (not a fixed amount the user set), and
     // only while libwimg reports a change (gone after "Stimmt, neuer Preis").

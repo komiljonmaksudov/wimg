@@ -35,6 +35,7 @@ wimg/
 │       ├── categories.zig     keyword rules
 │       ├── booking.zig        booking-type prefixes → row title + kind
 │       ├── recurring.zig      recurring detection
+│       ├── period.zig         Gehaltsmonat: salary detection, periods
 │       ├── summary.zig        monthly summaries
 │       ├── crypto.zig         HKDF + XChaCha20-Poly1305
 │       ├── types.zig, sqlite_c.zig, dbg.zig

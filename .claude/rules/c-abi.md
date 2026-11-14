@@ -65,6 +65,15 @@ export fn wimg_derive_key(sync_key_ptr: [*]const u8, sync_key_len: u32) ?[*]cons
 export fn wimg_encrypt_field(pt_ptr: [*]const u8, pt_len: u32, key_ptr: [*]const u8, nonce_ptr: [*]const u8) ?[*]const u8
 export fn wimg_decrypt_field(ct_ptr: [*]const u8, ct_len: u32, key_ptr: [*]const u8) ?[*]const u8
 
+// Gehaltsmonat (period.zig). Dates YYYYMMDD. Periods JSON:
+// {"mode","chosen","day","today","salary":{"key","title","amount","day","count","confirmed","last","next","overdue_days"}?,
+//  "periods":[{"from","to","days","current","salary"?,"early_days"}] (newest first),
+//  "other_income":[{"id","date","amount","title","key"}], "payers":[{"key","title","amount","count","last"}]}
+export fn wimg_get_periods(today_ymd: u32, count: u32) ?[*]const u8
+export fn wimg_get_summary_range(from_ymd: u32, to_ymd: u32, acct: [*]const u8, acct_len: u32) ?[*]const u8
+export fn wimg_set_period_mode(mode_ptr: [*]const u8, mode_len: u32, day: u32) i32   // "calendar" | "salary" | "day"
+export fn wimg_salary_answer(key_ptr: [*]const u8, key_len: u32, answer: u8) i32     // 1 yes, 0 no, 2 only this payer
+
 // wimg Sync devices (board 21)
 export fn wimg_touch_device(data: [*]const u8, len: u32) i32      // {"id","name","kind"} → 0 ok, 1 removed by another device, -1 error
 export fn wimg_get_devices() ?[*]const u8                         // [{"id","name","kind","last_seen"}]

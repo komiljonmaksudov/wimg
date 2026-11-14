@@ -55,6 +55,10 @@ object WimgJni {
     // Sync
     external fun nativeGetChanges(sinceTs: Long): String?
     external fun nativeApplyChanges(json: String): Int
+    external fun nativeGetPeriods(today: Int, count: Int): String?
+    external fun nativeGetSummaryRange(from: Int, to: Int, account: String): String?
+    external fun nativeSetPeriodMode(mode: String, day: Int): Int
+    external fun nativeSalaryAnswer(key: String, answer: Int): Int
     external fun nativeTouchDevice(json: String): Int
     external fun nativeGetDevices(): String?
     external fun nativeRemoveDevice(id: String): Int

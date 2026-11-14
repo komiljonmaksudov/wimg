@@ -23,6 +23,10 @@ extern int32_t wimg_detect_recurring(void);
 extern const uint8_t *wimg_get_recurring_payments(const uint8_t *id, uint32_t id_len);
 extern const uint8_t *wimg_undo(void);
 extern const uint8_t *wimg_get_rules(void);
+extern const uint8_t *wimg_get_periods(uint32_t today_ymd, uint32_t count);
+extern const uint8_t *wimg_get_summary_range(uint32_t from_ymd, uint32_t to_ymd, const uint8_t *acct, uint32_t acct_len);
+extern int32_t wimg_set_period_mode(const uint8_t *mode, uint32_t mode_len, uint32_t day);
+extern int32_t wimg_salary_answer(const uint8_t *key, uint32_t key_len, uint8_t answer);
 extern int32_t wimg_touch_device(const uint8_t *data, uint32_t len);
 extern const uint8_t *wimg_get_devices(void);
 extern int32_t wimg_remove_device(const uint8_t *id, uint32_t id_len);
@@ -165,6 +169,31 @@ JNIEXPORT jstring JNICALL JNI_FN(nativeImportCsv)(JNIEnv *env, jobject obj, jbyt
 
 #define WITH_UTF(js, var, len) const char *var = (*env)->GetStringUTFChars(env, js, NULL); jsize len = (*env)->GetStringUTFLength(env, js);
 #define END_UTF(js, var) (*env)->ReleaseStringUTFChars(env, js, var);
+
+JNIEXPORT jstring JNICALL JNI_FN(nativeGetPeriods)(JNIEnv *env, jobject obj, jint today, jint count) {
+    return ptr_to_jstring(env, wimg_get_periods((uint32_t)today, (uint32_t)count));
+}
+
+JNIEXPORT jstring JNICALL JNI_FN(nativeGetSummaryRange)(JNIEnv *env, jobject obj, jint from, jint to, jstring acct) {
+    WITH_UTF(acct, c, n)
+    const uint8_t *ptr = wimg_get_summary_range((uint32_t)from, (uint32_t)to, (const uint8_t *)c, n);
+    END_UTF(acct, c)
+    return ptr_to_jstring(env, ptr);
+}
+
+JNIEXPORT jint JNICALL JNI_FN(nativeSetPeriodMode)(JNIEnv *env, jobject obj, jstring mode, jint day) {
+    WITH_UTF(mode, c, n)
+    int32_t rc = wimg_set_period_mode((const uint8_t *)c, n, (uint32_t)day);
+    END_UTF(mode, c)
+    return rc;
+}
+
+JNIEXPORT jint JNICALL JNI_FN(nativeSalaryAnswer)(JNIEnv *env, jobject obj, jstring key, jint answer) {
+    WITH_UTF(key, c, n)
+    int32_t rc = wimg_salary_answer((const uint8_t *)c, n, (uint8_t)answer);
+    END_UTF(key, c)
+    return rc;
+}
 
 JNIEXPORT jint JNICALL JNI_FN(nativeTouchDevice)(JNIEnv *env, jobject obj, jstring json) {
     WITH_UTF(json, c, n)

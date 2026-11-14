@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.wimg.app.bridge.LibWimg
 import com.wimg.app.i18n.L
+import com.wimg.app.i18n.__t
 import com.wimg.app.models.Account
 import com.wimg.app.models.Transaction
 import com.wimg.app.models.WimgCategory
@@ -90,6 +91,13 @@ fun monthPeriod(year: Int, month: Int): TxPeriod {
     val short = java.text.DateFormatSymbols(if (com.wimg.app.ui.theme.LocaleState.locale == "en") java.util.Locale.ENGLISH else java.util.Locale.GERMAN).shortMonths[month - 1].trimEnd('.')
     return TxPeriod(from, iso(c), "$short $year", "m:$year-$month")
 }
+
+/** A Gehaltsmonat or "Fester Tag" period as an Umsätze filter. */
+fun txPeriodOf(p: com.wimg.app.models.PeriodInfo, salary: Boolean): TxPeriod = TxPeriod(
+    p.from, p.to,
+    if (p.current && salary) __t("Seit %s").format(com.wimg.app.ui.components.PeriodLabels.dotted(p.from)) else com.wimg.app.ui.components.PeriodLabels.short(p),
+    "p:${p.from}" + if (p.current && salary) ":salary" else "",
+)
 
 private fun lastDays(days: Int, label: String, key: String): TxPeriod {
     val c = Calendar.getInstance()
@@ -150,6 +158,7 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
         TxTarget.category = null; TxTarget.period = null; TxTarget.account = null
     }
     var filterOpen by remember { mutableStateOf(false) }
+    val periods = com.wimg.app.ui.components.rememberPeriods()
 
     LaunchedEffect(selectedAccount, Changes.version) {
         com.wimg.app.ui.components.ScreenCache.get<TxData>(txKey(selectedAccount))?.let { data = it }
@@ -192,7 +201,7 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
     val compact by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 48 } }
 
     BarContribution(
-        chip = BarChipSpec(label = "", active = filterOpen || filterActive, onClick = { filterOpen = !filterOpen }, icon = Icons.Outlined.Tune, contentDescription = L("Filter")),
+        chip = BarChipSpec(label = if (period?.key?.endsWith(":salary") == true) L("Gehalt") else period?.label ?: "", active = filterOpen || filterActive, onClick = { filterOpen = !filterOpen }, icon = Icons.Outlined.Tune, contentDescription = L("Filter")),
         panel = if (filterOpen) {
             {
                 FilterPanel(
@@ -202,6 +211,7 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
                     resultCount = filtered.size,
                     accountLabel = if (allAccounts.size > 1) (allAccounts.firstOrNull { it.id == selectedAccount }?.name ?: L("Alle Konten")) else null,
                     selectedAccount = selectedAccount, onAccount = onSelectAccount,
+                    periods = periods,
                     onReset = { filter = TxFilter.ALL; categories = emptySet(); period = null },
                     onDone = { filterOpen = false },
                 )
@@ -214,6 +224,8 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
     val title = when {
         anchored && allAccounts.size > 1 -> L("Kontostand · %s", accounts.singleOrNull()?.takeIf { selectedAccount != null }?.name ?: L("alle Konten"))
         anchored -> L("Kontostand")
+        period?.key?.endsWith(":salary") == true && filter == TxFilter.ALL && categories.isEmpty() ->
+            L("Seit dem Gehalt am %s", com.wimg.app.ui.components.PeriodLabels.dotted(period!!.from))
         filterActive -> L("Summe der Treffer")
         else -> L("Summe der Umsätze")
     }
@@ -356,6 +368,7 @@ private fun FilterPanel(
     accountLabel: String? = null,
     selectedAccount: String? = null,
     onAccount: (String?) -> Unit = {},
+    periods: com.wimg.app.models.Periods? = null,
 ) {
     val c = Wimg.colors
     var picking by remember { mutableStateOf(false) }
@@ -402,7 +415,23 @@ private fun FilterPanel(
             PeriodChip(accountLabel + "  ›", selectedAccount != null) { pickingAccount = true }
         }
         Text(L("Zeitraum"), style = WimgType.label, color = c.text2, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
-        run {
+        // Gehaltsmonat: its periods first; calendar months are one tap away.
+        var calendarChips by remember { mutableStateOf(periods == null || periods.isCalendar || period?.key?.startsWith("m:") == true) }
+        if (!calendarChips && periods != null) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PeriodChip(L("Immer"), period == null) { onPeriod(null) }
+                periods.periods.take(4).forEach { p ->
+                    val tp = txPeriodOf(p, periods.isSalary)
+                    val label = when {
+                        !p.current -> tp.label
+                        periods.isSalary -> L("Aktueller Gehaltsmonat")
+                        else -> L("Aktueller Monat")
+                    }
+                    PeriodChip(label, period?.from == tp.from && period.to == tp.to) { onPeriod(tp) }
+                }
+                PeriodChip(L("Kalendermonate"), false) { calendarChips = true }
+            }
+        } else run {
             val thisMonth = monthPeriod(now.get(Calendar.YEAR), now.get(Calendar.MONTH) + 1).copy(label = L("Dieser Monat"), key = "this")
             val lastMonth = (now.clone() as Calendar).apply { add(Calendar.MONTH, -1) }.let { monthPeriod(it.get(Calendar.YEAR), it.get(Calendar.MONTH) + 1) }.copy(label = L("Letzter Monat"), key = "last")
             val options = listOf<TxPeriod?>(null, thisMonth, lastMonth, lastDays(91, L("3 Monate"), "3m"), lastDays(365, L("12 Monate"), "12m"))
@@ -414,6 +443,7 @@ private fun FilterPanel(
                 // A specific month (from Home, or picked) shows as its own chip.
                 val custom = period?.takeIf { it.key.startsWith("m:") }
                 PeriodChip(custom?.label ?: L("Monat wählen…"), custom != null) { picking = true }
+                if (periods != null && !periods.isCalendar) PeriodChip(if (periods.isSalary) L("Gehaltsmonate") else L("Zeiträume"), false) { calendarChips = false }
             }
         }
         Text(L("Kategorien"), style = WimgType.label, color = c.text2, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))

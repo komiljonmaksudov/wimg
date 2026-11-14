@@ -34,7 +34,7 @@ pub const DbError = error{
     StepFailed,
 };
 
-const CURRENT_SCHEMA_VERSION = 20;
+const CURRENT_SCHEMA_VERSION = 21;
 
 /// SQL condition: the row's account is not hidden ("Konten ein- und ausblenden").
 pub const visible_accounts = "account NOT IN (SELECT id FROM accounts WHERE hidden = 1)";
@@ -380,9 +380,21 @@ pub const Db = struct {
             ) catch {};
         }
 
+        if (version < 21) {
+            // v21: settings that follow the user to every device (Gehaltsmonat:
+            // period_mode, period_day, salary_payers, salary_rejected). LWW per key.
+            self.exec(
+                \\CREATE TABLE IF NOT EXISTS settings (
+                \\  key TEXT PRIMARY KEY,
+                \\  value TEXT NOT NULL DEFAULT '',
+                \\  updated_at INTEGER NOT NULL DEFAULT 0
+                \\);
+            ) catch {};
+        }
+
         // Store current version
         if (version < CURRENT_SCHEMA_VERSION) {
-            self.setMeta("schema_version", "20") catch {};
+            self.setMeta("schema_version", "21") catch {};
         }
     }
 
@@ -531,7 +543,7 @@ pub const Db = struct {
         _ = c.sqlite3_close(self.handle);
     }
 
-    fn exec(self: *Db, sql: [*:0]const u8) DbError!void {
+    pub fn exec(self: *Db, sql: [*:0]const u8) DbError!void {
         const rc = c.sqlite3_exec(self.handle, sql, null, null, null);
         if (rc != c.SQLITE_OK) return DbError.ExecFailed;
     }
@@ -3405,6 +3417,7 @@ pub const Db = struct {
         const decision_tables = [_]struct { name: []const u8, sql: [*:0]const u8 }{
             .{ .name = "recurring_overrides", .sql = "SELECT id, json_object('name', name, 'category', category, 'interval', interval, 'fixed_amount', fixed_amount, 'hidden', hidden, 'hidden_at', hidden_at, 'accepted_amount', accepted_amount), updated_at FROM recurring_overrides WHERE updated_at >= ?1;" },
             .{ .name = "recurring_oneoffs", .sql = "SELECT pattern_id || ':' || tx_id, json_object('pattern_id', pattern_id, 'tx_id', tx_id, 'oneoff', oneoff), updated_at FROM recurring_oneoffs WHERE updated_at >= ?1;" },
+            .{ .name = "settings", .sql = "SELECT key, json_object('value', value), updated_at FROM settings WHERE updated_at >= ?1;" },
             .{ .name = "sync_devices", .sql = "SELECT id, json_object('name', name, 'kind', kind, 'last_seen', last_seen, 'deleted', deleted), updated_at FROM sync_devices WHERE updated_at >= ?1;" },
         };
         for (decision_tables) |t| {
@@ -3558,6 +3571,9 @@ pub const Db = struct {
                     self.applyGoalChange(row_id, data_str, updated_at) catch continue;
                 }
                 applied += 1;
+            } else if (std.mem.eql(u8, table, "settings")) {
+                const data_str = self.extractDataObject(obj) orelse continue;
+                if (self.applySettingChange(row_id, data_str, updated_at) catch false) applied += 1;
             } else if (std.mem.eql(u8, table, "sync_devices")) {
                 const data_str = self.extractDataObject(obj) orelse continue;
                 if (self.applyDeviceChange(row_id, data_str, updated_at) catch false) applied += 1;
@@ -3568,6 +3584,46 @@ pub const Db = struct {
         }
 
         return applied;
+    }
+
+    fn applySettingChange(self: *Db, key: []const u8, data: []const u8, updated_at: i64) DbError!bool {
+        const sql =
+            \\INSERT INTO settings (key, value, updated_at) VALUES (?1, COALESCE(json_extract(?2, '$.value'), ''), ?3)
+            \\ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            \\WHERE excluded.updated_at > settings.updated_at;
+        ;
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, sql, -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(st.?);
+        _ = c.sqlite3_bind_text(st.?, 1, key.ptr, @intCast(key.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_text(st.?, 2, data.ptr, @intCast(data.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_int64(st.?, 3, updated_at);
+        if (c.sqlite3_step(st.?) != c.SQLITE_DONE) return DbError.StepFailed;
+        return c.sqlite3_changes(self.handle) > 0;
+    }
+
+    /// A synced setting, copied into [buf]; null when unset (or too long).
+    pub fn getSetting(self: *Db, key: []const u8, buf: []u8) ?[]const u8 {
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, "SELECT value FROM settings WHERE key = ?1;", -1, &st, null) != c.SQLITE_OK or st == null) return null;
+        defer _ = c.sqlite3_finalize(st.?);
+        _ = c.sqlite3_bind_text(st.?, 1, key.ptr, @intCast(key.len), c.SQLITE_STATIC);
+        if (c.sqlite3_step(st.?) != c.SQLITE_ROW) return null;
+        const p = c.sqlite3_column_text(st.?, 0) orelse return null;
+        const n: usize = @intCast(c.sqlite3_column_bytes(st.?, 0));
+        if (n > buf.len) return null;
+        @memcpy(buf[0..n], p[0..n]);
+        return buf[0..n];
+    }
+
+    pub fn setSetting(self: *Db, key: []const u8, value: []const u8) DbError!void {
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, "INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;", -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(st.?);
+        _ = c.sqlite3_bind_text(st.?, 1, key.ptr, @intCast(key.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_text(st.?, 2, value.ptr, @intCast(value.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_int64(st.?, 3, nowMs());
+        if (c.sqlite3_step(st.?) != c.SQLITE_DONE) return DbError.StepFailed;
     }
 
     /// Newer row wins, but a removal sticks: once deleted, a device stays
@@ -5199,4 +5255,22 @@ test "sync devices: list, removal sticks and reaches the removed device" {
     _ = try b.applyChanges(buf[0..n]);
     try std.testing.expect(!(try b.touchDevice("dev-b", "Pixel", "phone")));
     try std.testing.expectError(DbError.StepFailed, a.removeDevice("unknown"));
+}
+
+test "settings sync: last write per key wins" {
+    var a = try Db.init(":memory:");
+    defer a.close();
+    var b = try Db.init(":memory:");
+    defer b.close();
+    try a.setSetting("period_mode", "salary");
+    var buf: [16384]u8 = undefined;
+    const n = (try a.getChangesJson(0, &buf, buf.len)) orelse return error.TestUnexpectedResult;
+    _ = try b.applyChanges(buf[0..n]);
+    var vb: [32]u8 = undefined;
+    try std.testing.expectEqualStrings("salary", b.getSetting("period_mode", &vb).?);
+    // An older value from elsewhere does not win.
+    _ = try b.applyChanges(
+        \\{"rows":[{"table":"settings","id":"period_mode","data":{"value":"calendar"},"updated_at":1}]}
+    );
+    try std.testing.expectEqualStrings("salary", b.getSetting("period_mode", &vb).?);
 }

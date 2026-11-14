@@ -58,6 +58,8 @@ object BackgroundRefresh {
     private const val NOTIFICATION_ID = 4711
     private const val MONTH_END_NOTIFICATION_ID = 4712
     private const val MONTH_END_KEY = "wimg_month_end_notified"
+    private const val SALARY_NOTIFICATION_ID = 4713
+    private const val SALARY_KEY = "wimg_salary_notified"
     private const val SETTINGS_PREFS = "wimg_settings"
 
     /** Dedupe TAN notifications so a daily run on a TAN bank doesn't produce
@@ -93,11 +95,13 @@ object BackgroundRefresh {
     const val NOTIFY_MONTH_END = "wimg_notify_month_end"
     const val NOTIFY_NEW_TX = "wimg_notify_new_tx"
     const val NOTIFY_TAN = "wimg_notify_tan"
+    /** "Gehalt eingegangen" (off by default). */
+    const val NOTIFY_SALARY = "wimg_notify_salary"
     /** "Nicht stören": "22-8" style start and end hour, or empty for off. */
     const val QUIET_HOURS = "wimg_quiet_hours"
 
     fun notifyOn(context: Context, key: String): Boolean =
-        context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).getBoolean(key, true)
+        context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).getBoolean(key, key != NOTIFY_SALARY)
 
     fun setNotify(context: Context, key: String, on: Boolean) =
         context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).edit().putBoolean(key, on).apply()
@@ -224,8 +228,77 @@ object BackgroundRefresh {
         }
     }
 
+    /**
+     * Gehaltsmonat (board 26/08): when a salary or "Fester Tag" period ended,
+     * the late salary, and "Gehalt eingegangen" in calendar mode.
+     * Returns true when periods aren't calendar months (the month notice is skipped then).
+     */
+    internal fun notifyPeriods(context: Context, force: Boolean = false): Boolean {
+        val periods = runCatching { com.wimg.app.bridge.LibWimg.getPeriods(3) }.getOrNull() ?: return false
+        val prefs = context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE)
+        val hide = amountsHidden(context)
+        val salary = periods.salary
+        val money = { v: Double -> com.wimg.app.ui.components.amountText(v, showPlus = false) }
+
+        // The salary is late (after 3 days, once per expected date).
+        if (periods.isSalary && salary != null && salary.overdue_days >= 3 && notifyOn(context, NOTIFY_MONTH_END)) {
+            val key = "late:${salary.next}"
+            if (force || prefs.getString(SALARY_KEY, null) != key) {
+                if (post(context, tr(context, "Noch kein Gehalt von %s").format(salary.name),
+                        tr(context, "Sonst kam es um den %d. Der Gehaltsmonat bleibt offen, bis es da ist.").format(salary.day),
+                        route = "dashboard", id = SALARY_NOTIFICATION_ID, force = force)) prefs.edit().putString(SALARY_KEY, key).apply()
+            }
+        }
+        // Calendar months, but the salary just came in.
+        if (periods.isCalendar || periods.mode == "day") {
+            if (salary != null && salary.confirmed && notifyOn(context, NOTIFY_SALARY)) {
+                val key = "in:${salary.last}"
+                val recent = salary.last >= com.wimg.app.ui.components.WimgDates.todayIso().let { t ->
+                    Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -3) }.let { "%04d-%02d-%02d".format(it.get(Calendar.YEAR), it.get(Calendar.MONTH) + 1, it.get(Calendar.DAY_OF_MONTH)) }
+                }
+                if ((force || prefs.getString(SALARY_KEY, null) != key) && recent) {
+                    if (post(context, tr(context, "Gehalt ist da"), if (hide) salary.name else "${salary.name} · +${money(salary.amount)}",
+                            route = "dashboard", id = SALARY_NOTIFICATION_ID, force = force)) prefs.edit().putString(SALARY_KEY, key).apply()
+                }
+            }
+            if (periods.isCalendar) return false
+        }
+
+        val cur = periods.current ?: return true
+        val prev = periods.periods.getOrNull(1) ?: return true
+        if (!force && com.wimg.app.ui.components.PeriodLabels.daysIn(cur) > 5) return true
+        val wanted = notifyOn(context, NOTIFY_MONTH_END) || (periods.isSalary && notifyOn(context, NOTIFY_SALARY))
+        if (!force && !wanted) return true
+        val key = "p:${prev.from}"
+        if (!force && prefs.getString(MONTH_END_KEY, null) == key) return true
+        val s = com.wimg.app.bridge.LibWimg.getSummaryRange(prev.from, prev.to, null) ?: return true
+        if (s.tx_count == 0) return true
+        val before = periods.periods.getOrNull(2)?.let { com.wimg.app.bridge.LibWimg.getSummaryRange(it.from, it.to, null) }
+        val spent = kotlin.math.abs(s.expenses)
+        val prevSpent = kotlin.math.abs(before?.expenses ?: 0.0)
+        val pct = if (prevSpent > 0) kotlin.math.round((spent - prevSpent) / prevSpent * 100).toInt() else null
+        val net = s.income - spent
+        val (title, body) = if (periods.isSalary) {
+            val parts = listOfNotNull(
+                if (!hide && net >= 0) tr(context, "%s sind übrig geblieben").format(money(net)) else null,
+                pct?.takeIf { it != 0 }?.let { if (it < 0) tr(context, "%d %% weniger ausgegeben als davor").format(-it) else tr(context, "%d %% mehr ausgegeben als davor").format(it) },
+            )
+            tr(context, "Gehalt ist da, dein Gehaltsmonat ist fertig") to
+                (if (parts.isEmpty()) "" else parts.joinToString(", ").replaceFirstChar { it.uppercase() } + ". ") + tr(context, "Tippe für den Rückblick.")
+        } else {
+            val compare = pct?.takeIf { it != 0 }?.let { if (it < 0) tr(context, "Ausgaben %d %% unter dem Monat davor.").format(-it) else tr(context, "Ausgaben %d %% über dem Monat davor.").format(it) }
+            tr(context, "Dein Monat bis zum %d. ist fertig").format(prev.to.takeLast(2).toInt()) to
+                listOfNotNull(compare, tr(context, "Tippe für den Rückblick.")).joinToString(" ")
+        }
+        if (post(context, title, body, route = "review", id = MONTH_END_NOTIFICATION_ID, period = prev.from, force = force)) {
+            prefs.edit().putString(MONTH_END_KEY, key).apply()
+        }
+        return true
+    }
+
     /** Month-end notice (board 13): once per month in its first days, opens Rückblick. */
     internal fun notifyMonthEnd(context: Context, force: Boolean = false) {
+        if (notifyPeriods(context, force)) return
         val cal = Calendar.getInstance()
         if (!force && (cal.get(Calendar.DAY_OF_MONTH) > 5 || !notifyOn(context, NOTIFY_MONTH_END))) return
         cal.add(Calendar.MONTH, -1)
@@ -263,7 +336,7 @@ object BackgroundRefresh {
         if (sent) prefs.edit().putString(MONTH_END_KEY, key).apply()
     }
 
-    private fun post(context: Context, title: String, body: String, route: String, action: String? = null, id: Int = NOTIFICATION_ID, month: String? = null, force: Boolean = false): Boolean {
+    private fun post(context: Context, title: String, body: String, route: String, action: String? = null, id: Int = NOTIFICATION_ID, month: String? = null, force: Boolean = false, period: String? = null): Boolean {
         if (!hasNotificationPermission(context)) return false
         if (!force && inQuietHours(context)) return false
         ensureChannel(context)
@@ -273,6 +346,7 @@ object BackgroundRefresh {
             Intent(context, MainActivity::class.java)
                 .putExtra(MainActivity.EXTRA_ROUTE, route)
                 .apply { if (month != null) putExtra(MainActivity.EXTRA_MONTH, month) }
+                .apply { if (period != null) putExtra(MainActivity.EXTRA_PERIOD, period) }
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

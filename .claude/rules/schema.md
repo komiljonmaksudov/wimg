@@ -130,6 +130,15 @@ CREATE TABLE sync_devices (
   updated_at INTEGER NOT NULL DEFAULT 0
 );
 
+-- v21: settings that follow the user to every device (synced, LWW per key).
+-- Gehaltsmonat: period_mode ("calendar" | "salary" | "day"), period_day (1–28),
+-- salary_payers / salary_rejected (payer keys, one per line).
+CREATE TABLE settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL DEFAULT 0
+);
+
 -- Kept for cheap resurrection; no UI since 2026-05-14.
 CREATE TABLE debts (
   id TEXT PRIMARY KEY,

@@ -104,6 +104,12 @@ int32_t wimg_update_account(const uint8_t *data, uint32_t len);
 // sums (get_transactions_filtered/get_pending/get_summary with empty account).
 int32_t wimg_set_account_hidden(const uint8_t *id, uint32_t id_len, uint8_t hidden);
 
+// Gehaltsmonat. Periods JSON (see .claude/rules/c-abi.md); today/from/to = YYYYMMDD.
+const uint8_t *wimg_get_periods(uint32_t today_ymd, uint32_t count);
+const uint8_t *wimg_get_summary_range(uint32_t from_ymd, uint32_t to_ymd, const uint8_t *acct, uint32_t acct_len);
+int32_t wimg_set_period_mode(const uint8_t *mode, uint32_t mode_len, uint32_t day); // "calendar" | "salary" | "day"
+int32_t wimg_salary_answer(const uint8_t *key, uint32_t key_len, uint8_t answer);   // 1 yes, 0 no, 2 only this one
+
 // wimg Sync devices. touch: {"id","name","kind"} -> 0 ok, 1 removed by another
 // device (stop syncing), -1 error. get: [{"id","name","kind","last_seen"}].
 int32_t wimg_touch_device(const uint8_t *data, uint32_t len);

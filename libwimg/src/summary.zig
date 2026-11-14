@@ -7,7 +7,17 @@ const Category = types.Category;
 
 /// Generate a monthly summary as JSON, optionally filtered by account.
 pub fn getSummaryJsonFiltered(handle: *c.sqlite3, year: u16, month: u8, buf: [*]u8, buf_len: usize, acct_ptr: ?[*]const u8, acct_len: u32) ?usize {
+    const base: u32 = @as(u32, year) * 10000 + @as(u32, month) * 100;
+    return getSummaryJsonRange(handle, base + 1, base + 31, buf, buf_len, acct_ptr, acct_len);
+}
+
+/// Summary of the days [from_ymd]..[to_ymd] (YYYYMMDD, inclusive): a calendar
+/// month, a salary period or a "Fester Tag" period. Same JSON as a month;
+/// "year"/"month" are those of the first day.
+pub fn getSummaryJsonRange(handle: *c.sqlite3, from_ymd: u32, to_ymd: u32, buf: [*]u8, buf_len: usize, acct_ptr: ?[*]const u8, acct_len: u32) ?usize {
     const has_filter = acct_ptr != null and acct_len > 0;
+    const year: u16 = @intCast(from_ymd / 10000);
+    const month: u8 = @intCast((from_ymd / 100) % 100);
 
     const sql_all =
         \\SELECT category,
@@ -15,7 +25,7 @@ pub fn getSummaryJsonFiltered(handle: *c.sqlite3, year: u16, month: u8, buf: [*]
         \\  SUM(CASE WHEN amount_cents < 0 THEN amount_cents ELSE 0 END) as expenses,
         \\  COUNT(*) as cnt
         \\FROM transactions
-        \\WHERE date_year = ?1 AND date_month = ?2 AND excluded = 0
+        \\WHERE (date_year * 10000 + date_month * 100 + date_day) BETWEEN ?1 AND ?2 AND excluded = 0
         \\  AND account NOT IN (SELECT id FROM accounts WHERE hidden = 1)
         \\GROUP BY category
         \\ORDER BY expenses ASC;
@@ -27,7 +37,7 @@ pub fn getSummaryJsonFiltered(handle: *c.sqlite3, year: u16, month: u8, buf: [*]
         \\  SUM(CASE WHEN amount_cents < 0 THEN amount_cents ELSE 0 END) as expenses,
         \\  COUNT(*) as cnt
         \\FROM transactions
-        \\WHERE date_year = ?1 AND date_month = ?2 AND excluded = 0 AND account = ?3
+        \\WHERE (date_year * 10000 + date_month * 100 + date_day) BETWEEN ?1 AND ?2 AND excluded = 0 AND account = ?3
         \\GROUP BY category
         \\ORDER BY expenses ASC;
     ;
@@ -40,8 +50,8 @@ pub fn getSummaryJsonFiltered(handle: *c.sqlite3, year: u16, month: u8, buf: [*]
     defer _ = c.sqlite3_finalize(stmt.?);
 
     const s = stmt.?;
-    if (c.sqlite3_bind_int(s, 1, @intCast(year)) != c.SQLITE_OK) return null;
-    if (c.sqlite3_bind_int(s, 2, @intCast(month)) != c.SQLITE_OK) return null;
+    if (c.sqlite3_bind_int(s, 1, @intCast(from_ymd)) != c.SQLITE_OK) return null;
+    if (c.sqlite3_bind_int(s, 2, @intCast(to_ymd)) != c.SQLITE_OK) return null;
     if (has_filter) {
         if (c.sqlite3_bind_text(s, 3, @ptrCast(acct_ptr.?), @intCast(acct_len), c.SQLITE_STATIC) != c.SQLITE_OK) return null;
     }

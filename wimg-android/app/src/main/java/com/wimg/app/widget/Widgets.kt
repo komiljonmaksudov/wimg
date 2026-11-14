@@ -136,7 +136,12 @@ class MonthWidget : GlanceAppWidget() {
                 GlanceModifier.fillMaxSize().cornerRadius(24.dp).background(Dark).padding(18.dp).clickable(open(context, null)),
             ) {
                 Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                    Text(t(context, "Verfügbar im %s").format(monthName), style = style(DarkSub, 13.sp), modifier = GlanceModifier.defaultWeight())
+                    val headline = when (d.mode) {
+                        "salary" -> t(context, "Bis zum Gehalt verfügbar")
+                        "day" -> t(context, "Bis zum %d. verfügbar").format(d.startDay)
+                        else -> t(context, "Verfügbar im %s").format(monthName)
+                    }
+                    Text(headline, style = style(DarkSub, 13.sp), modifier = GlanceModifier.defaultWeight())
                     Image(ImageProvider(R.mipmap.ic_launcher_round), contentDescription = null, modifier = GlanceModifier.size(22.dp))
                 }
                 if (!d.hasData) {
@@ -149,10 +154,23 @@ class MonthWidget : GlanceAppWidget() {
                     style = style(if (masked) androidx.compose.ui.graphics.Color.White else if (d.available < 0) Neg else Pos, 30.sp, bold = true),
                     maxLines = 1,
                 )
+                if (d.overdueDay > 0) {
+                    // Salary late: no minus alarm, just the note (board 26/06).
+                    Text(t(context, "Gehalt erwartet am %d., noch nicht da").format(d.overdueDay), style = style(Neg, 13.sp), maxLines = 1)
+                }
                 Spacer(GlanceModifier.defaultWeight())
                 Image(ImageProvider(bar), contentDescription = null, contentScale = androidx.glance.layout.ContentScale.FillBounds, modifier = GlanceModifier.fillMaxWidth().height(6.dp))
                 Spacer(GlanceModifier.height(10.dp))
-                Row(GlanceModifier.fillMaxWidth()) {
+                if (d.mode != "calendar") Row(GlanceModifier.fillMaxWidth()) {
+                    Column(GlanceModifier.defaultWeight()) {
+                        Text(t(context, "Ausgaben"), style = style(DarkSub, 12.sp))
+                        Text(money(-d.expenses, masked), style = style(androidx.compose.ui.graphics.Color.White, 15.sp, bold = true), maxLines = 1)
+                    }
+                    Column(GlanceModifier.defaultWeight()) {
+                        Text(if (d.daysLeft == 1) t(context, "noch 1 Tag") else t(context, "noch %d Tage").format(d.daysLeft), style = style(DarkSub, 12.sp))
+                        Text(t(context, "%s pro Tag").format(money(d.perDay.coerceAtLeast(0.0), masked)), style = style(androidx.compose.ui.graphics.Color.White, 15.sp, bold = true), maxLines = 1)
+                    }
+                } else Row(GlanceModifier.fillMaxWidth()) {
                     Column(GlanceModifier.defaultWeight()) {
                         Text(t(context, "Ausgaben"), style = style(DarkSub, 12.sp))
                         Text(money(-d.expenses, masked), style = style(androidx.compose.ui.graphics.Color.White, 15.sp, bold = true), maxLines = 1)
@@ -191,7 +209,8 @@ class FixedCostsWidget : GlanceAppWidget() {
             d.nextMerchant != null -> t(context, "nächste: %s · %s").format(d.nextMerchant, shortDate(d.nextDate))
             else -> t(context, "Keine festen Zahlungen erkannt")
         }
-        provideContent { SmallCard(context, "recurring", t(context, "Fixkosten offen"), money(d.fixedOpen, masked), foot) }
+        val title = if (d.mode == "salary") t(context, "Bis zum Gehalt offen") else t(context, "Fixkosten offen")
+        provideContent { SmallCard(context, "recurring", title, money(d.fixedOpen, masked), foot) }
     }
 }
 

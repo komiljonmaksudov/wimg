@@ -162,7 +162,7 @@ fn asciiUpper(ch: u8) u8 {
 
 // --- Date arithmetic ---
 
-const DateTriple = struct {
+pub const DateTriple = struct {
     year: i32,
     month: i32,
     day: i32,
@@ -174,7 +174,7 @@ fn daysBetween(a: DateTriple, b: DateTriple) i32 {
 
 /// Days since 1970-01-01 (Howard Hinnant's days_from_civil). Only differences
 /// and round trips through `fromRataDie` matter; the epoch is arbitrary.
-fn julianDay(d: DateTriple) i32 {
+pub fn julianDay(d: DateTriple) i32 {
     const y: i32 = if (d.month <= 2) d.year - 1 else d.year;
     const era: i32 = @divFloor(y, 400);
     const yoe: i32 = y - era * 400; // [0, 399]
@@ -191,7 +191,7 @@ fn addDays(d: DateTriple, days: i32) DateTriple {
 /// Exact inverse of `julianDay` (civil_from_days). The previous version mixed
 /// two different day-count algorithms, so addDays() landed in the wrong month
 /// and year (3 Nov 2026 + 30 days came out as 1 Feb 2026).
-fn fromRataDie(days: i32) DateTriple {
+pub fn fromRataDie(days: i32) DateTriple {
     const z: i32 = days + 719468;
     const era: i32 = @divFloor(z, 146097);
     const doe: i32 = z - era * 146097; // [0, 146096]

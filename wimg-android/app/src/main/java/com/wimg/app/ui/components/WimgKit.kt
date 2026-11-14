@@ -429,6 +429,11 @@ data class DockRow(
     /** Auto-dismiss after this many ms (undo uses the 6 s countdown seam). */
     val timeoutMs: Int? = null,
     val id: Long = System.nanoTime(),
+    /** A second, quieter answer left of [action] ("Nein" before "Ja"). */
+    val action2: String? = null,
+    val onAction2: (() -> Unit)? = null,
+    /** Replaces the kind's icon in the circle. */
+    val icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
 )
 
 object Dock {
@@ -492,7 +497,7 @@ private fun DockedRowContent(r: DockRow) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.size(36.dp).clip(CircleShape).background(circleBg), contentAlignment = Alignment.Center) {
-                Icon(icon, contentDescription = null, tint = circleFg, modifier = Modifier.size(19.dp))
+                Icon(r.icon ?: icon, contentDescription = null, tint = circleFg, modifier = Modifier.size(19.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -500,8 +505,15 @@ private fun DockedRowContent(r: DockRow) {
                 // Errors say what to do: up to 3 lines instead of one cut-off line.
                 if (r.sub != null) Text(r.sub, style = WimgType.caption, color = c.text2, maxLines = if (r.kind == DockKind.Error) 3 else 1, overflow = TextOverflow.Ellipsis)
             }
+            if (r.action2 != null && r.onAction2 != null) {
+                Spacer(Modifier.width(4.dp))
+                Box(
+                    Modifier.height(40.dp).pressable { r.onAction2.invoke(); Dock.dismiss(r.id) }.clip(WimgShape.dockAction).padding(horizontal = 10.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text(L(r.action2), style = WimgType.chip, color = c.text2) }
+            }
             if (r.action != null && r.onAction != null) {
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(if (r.action2 != null) 0.dp else 8.dp))
                 // A quiet text action in the row's own colour: the bar below already
                 // holds the filled buttons, a second filled style would compete.
                 Box(

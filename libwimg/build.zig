@@ -220,6 +220,21 @@ pub fn build(b: *std.Build) void {
     const run_recurring_tests = b.addRunArtifact(recurring_tests);
     test_step.dependOn(&run_recurring_tests.step);
 
+    // Gehaltsmonat: salary detection and period maths.
+    const period_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/period.zig"),
+            .target = b.resolveTargetQuery(.{}),
+            .optimize = optimize,
+        }),
+    });
+    period_tests.root_module.addCSourceFile(.{
+        .file = b.path("vendor/sqlite3.c"),
+        .flags = native_sqlite_flags,
+    });
+    period_tests.root_module.link_libc = true;
+    test_step.dependOn(&b.addRunArtifact(period_tests).step);
+
     // FinTS modules (native-only)
     const banks_tests = b.addTest(.{
         .root_module = b.createModule(.{

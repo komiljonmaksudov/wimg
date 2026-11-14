@@ -144,9 +144,9 @@ internal fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> 
                     .clip(WimgShape.segmentInner)
                     .background(if (on) c.card else Color.Transparent)
                     .clickable(role = Role.RadioButton) { onSelect(i) }
-                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                    .padding(horizontal = if (fill) 6.dp else 14.dp, vertical = 9.dp),
                 contentAlignment = Alignment.Center,
-            ) { Text(label, style = WimgType.chip, color = if (on) c.text else c.text2) }
+            ) { Text(label, style = WimgType.chip, color = if (on) c.text else c.text2, maxLines = 1, softWrap = false) }
         }
     }
 }
@@ -210,6 +210,28 @@ fun SettingsScreen(navController: NavController? = null) {
             WimgRow(L("Sprache"), chevron = true, onClick = { navController?.navigate("settings/appearance") }, trailing = {
                 ValueText(languageLabel(context))
             })
+        }
+
+        GroupLabel(L("Zeitraum"))
+        WimgGroup {
+            val periods = com.wimg.app.ui.components.rememberPeriods()
+            WimgRow(
+                L("Monat beginnt"),
+                desc = when {
+                    periods == null -> null
+                    periods.chosen == "salary" && periods.isSalary -> L("Automatisch erkannt · Kalendermonat, wenn kein Gehalt kommt")
+                    periods.chosen == "salary" -> L("Gehalt noch nicht erkannt · bis dahin Kalendermonat")
+                    else -> null
+                },
+                chevron = true, onClick = { navController?.navigate("settings/period") },
+                trailing = {
+                    ValueText(when (periods?.chosen) {
+                        "salary" -> L("mit dem Gehalt")
+                        "day" -> L("am %d.", periods.day)
+                        else -> L("am 1.")
+                    })
+                },
+            )
         }
 
         GroupLabel(L("Synchronisierung"))
@@ -364,6 +386,64 @@ fun SettingsAppearanceScreen(navController: NavController?) {
 }
 
 // ---------------------------------------------------------------------------
+// Zeitraum (board 26/09, 26/10)
+// ---------------------------------------------------------------------------
+
+@Composable
+fun SettingsPeriodScreen(navController: NavController?) {
+    val c = Wimg.colors
+    val scope = rememberCoroutineScope()
+    val periods = com.wimg.app.ui.components.rememberPeriods()
+    var choosingPayer by remember { mutableStateOf(false) }
+    BarContribution(
+        null,
+        if (choosingPayer && periods != null) { { PayerPanel(periods) { choosingPayer = false } } } else null,
+        { choosingPayer = false },
+        DetailBarSpec(onBack = { navController?.popBackStack() }, actionLabel = null, actionIcon = null, onAction = {}, backLabel = L("Einstellungen")),
+    )
+    SettingsPage(L("Einstellungen"), L("Zeitraum")) {
+        val p = periods ?: return@SettingsPage
+        GroupLabel(L("Ein Monat beginnt"))
+        val modes = listOf("salary", "calendar", "day")
+        Segmented(listOf(L("mit dem Gehalt"), L("am 1."), L("Fester Tag")), modes.indexOf(p.chosen).coerceAtLeast(0), { i ->
+            scope.launch {
+                withContext(Dispatchers.IO) { LibWimg.setPeriodMode(modes[i], if (modes[i] == "day") (if (p.day > 1) p.day else 15) else 0) }
+                Changes.bump()
+            }
+        }, fill = true)
+        Spacer(Modifier.height(12.dp))
+        when {
+            p.chosen == "day" -> WimgGroup { Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { DayStepper(p); Spacer(Modifier.height(12.dp)) } }
+            p.salary != null && p.isSalary -> SalaryCard(p.salary, Modifier.background(c.card, WimgShape.group)) { choosingPayer = true }
+            p.chosen == "salary" -> Column(
+                Modifier.fillMaxWidth().clip(WimgShape.group).border(1.dp, c.line, WimgShape.group).padding(16.dp),
+            ) {
+                Text(L("Gehalt noch nicht erkannt"), style = WimgType.rowTitle, color = c.text)
+                Text(L("wimg braucht zwei Gehälter vom selben Absender. Bis dahin zählt es nach Kalendermonat."), style = WimgType.desc, color = c.text2, modifier = Modifier.padding(top = 4.dp))
+                Text(L("Gehalt selbst auswählen"), style = WimgType.button, color = c.accent, modifier = Modifier.padding(top = 10.dp).clip(WimgShape.button).clickable { choosingPayer = true }.padding(vertical = 6.dp))
+            }
+            else -> Unit
+        }
+        GroupLabel(L("Gilt für"))
+        WimgGroup {
+            val on = p.chosen != "calendar"
+            WimgRow(L("Übersicht und Rückblick"), trailing = { if (on) Icon(Icons.Outlined.Check, contentDescription = null, tint = c.pos, modifier = Modifier.size(20.dp)) })
+            RowDivider()
+            WimgRow(L("Wiederkehrend und Widgets"), trailing = { if (on) Icon(Icons.Outlined.Check, contentDescription = null, tint = c.pos, modifier = Modifier.size(20.dp)) })
+            RowDivider()
+            WimgRow(L("Umsätze-Filter"), desc = L("Dort kannst du jederzeit auf Kalendermonate umschalten"))
+        }
+        QuietLine(
+            when {
+                p.chosen == "salary" && !p.isSalary -> L("Du kannst „mit dem Gehalt“ schon wählen. wimg schaltet von selbst um, sobald es das zweite Gehalt sieht.")
+                p.chosen == "day" -> L("Ein Monat läuft vom %d. bis zum Tag davor im nächsten Monat.", p.day)
+                else -> L("Kommt das Gehalt früher oder später, verschiebt sich der Zeitraum mit.")
+            },
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Mitteilungen (board 20/02)
 // ---------------------------------------------------------------------------
 
@@ -398,6 +478,8 @@ fun SettingsNotificationsScreen(navController: NavController?) {
             toggle(BackgroundRefresh.NOTIFY_NEW_TX, L("Neue Umsätze"), L("Nach dem Hintergrund-Abruf, gesammelt"))
             RowDivider()
             toggle(BackgroundRefresh.NOTIFY_TAN, L("TAN nötig"), L("Wenn die Bank eine TAN will · höchstens 1× am Tag"))
+            RowDivider()
+            toggle(BackgroundRefresh.NOTIFY_SALARY, L("Gehalt eingegangen"), L("Mit neuem Zeitraum"))
         }
         GroupLabel(L("Ruhezeit"))
         WimgGroup {

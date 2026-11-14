@@ -20,6 +20,12 @@ data class WidgetData(
     val todaySum: Double = 0.0,
     val todayCount: Int = 0,
     val updatedAt: Long = 0,
+    /** Gehaltsmonat: "calendar", "salary" or "day" ([startDay]). */
+    val mode: String = "calendar",
+    val startDay: Int = 1,
+    val daysLeft: Int = 0,
+    /** Salary is late: the day of the month it usually comes, else 0. */
+    val overdueDay: Int = 0,
 ) {
     val hasData get() = updatedAt > 0
 
