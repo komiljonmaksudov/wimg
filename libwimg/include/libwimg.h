@@ -104,6 +104,12 @@ int32_t wimg_update_account(const uint8_t *data, uint32_t len);
 // sums (get_transactions_filtered/get_pending/get_summary with empty account).
 int32_t wimg_set_account_hidden(const uint8_t *id, uint32_t id_len, uint8_t hidden);
 
+// wimg Sync devices. touch: {"id","name","kind"} -> 0 ok, 1 removed by another
+// device (stop syncing), -1 error. get: [{"id","name","kind","last_seen"}].
+int32_t wimg_touch_device(const uint8_t *data, uint32_t len);
+const uint8_t *wimg_get_devices(void);
+int32_t wimg_remove_device(const uint8_t *id, uint32_t id_len);
+
 // Delete an account by ID.
 int32_t wimg_delete_account(const uint8_t *id, uint32_t id_len);
 

@@ -30,6 +30,10 @@ object SyncService {
     private const val KEY_SYNC_KEY = "wimg_sync_key"
     private const val KEY_LAST_TS = "wimg_sync_last_ts"
 
+    private const val KEY_DEVICE_ID = "wimg_sync_device_id"
+    /** Set when another device removed this one or the key was replaced. */
+    const val KEY_REMOVED = "wimg_sync_removed"
+
     private val json = Json { ignoreUnknownKeys = true }
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -45,6 +49,37 @@ object SyncService {
     }
 
     fun isEnabled(context: Context): Boolean = getSyncKey(context) != null
+
+    /** This device's id in the device list (random, never leaves the E2E data). */
+    fun deviceId(context: Context): String {
+        val p = context.getSharedPreferences(PREFS, 0)
+        return p.getString(KEY_DEVICE_ID, null) ?: java.util.UUID.randomUUID().toString().also { p.edit().putString(KEY_DEVICE_ID, it).apply() }
+    }
+
+    /** The name the user gave the phone (Android settings), else the model. */
+    fun deviceName(context: Context): String =
+        runCatching { android.provider.Settings.Global.getString(context.contentResolver, "device_name") }.getOrNull()?.takeIf { it.isNotBlank() }
+            ?: android.os.Build.MODEL
+
+    private fun deviceKind(context: Context) = if (context.resources.configuration.smallestScreenWidthDp >= 600) "tablet" else "phone"
+
+    /** Marks this device as still linked. False: another device removed it. */
+    private fun touchDevice(context: Context): Boolean {
+        val body = kotlinx.serialization.json.buildJsonObject {
+            put("id", kotlinx.serialization.json.JsonPrimitive(deviceId(context)))
+            put("name", kotlinx.serialization.json.JsonPrimitive(deviceName(context)))
+            put("kind", kotlinx.serialization.json.JsonPrimitive(deviceKind(context)))
+        }.toString()
+        return com.wimg.app.bridge.LibWimg.native { WimgJni.nativeTouchDevice(body) } != 1
+    }
+
+    fun wasRemoved(context: Context) = context.getSharedPreferences(PREFS, 0).getBoolean(KEY_REMOVED, false)
+
+    /** This device is out of wimg Sync: stop, keep the data, start fresh next time. */
+    private fun leaveRemoved(context: Context) {
+        clearSync(context)
+        context.getSharedPreferences(PREFS, 0).edit().remove(KEY_DEVICE_ID).putBoolean(KEY_REMOVED, true).apply()
+    }
 
     /** "Alle Daten löschen": removes everything stored under this sync key on the
      *  server. True when the server confirmed it (or sync is off). */
@@ -62,13 +97,13 @@ object SyncService {
 
     fun enableSync(context: Context): String {
         val key = java.util.UUID.randomUUID().toString()
-        context.getSharedPreferences(PREFS, 0).edit().putString(KEY_SYNC_KEY, key).apply()
+        context.getSharedPreferences(PREFS, 0).edit().putString(KEY_SYNC_KEY, key).remove(KEY_REMOVED).apply()
         encryptionKey = com.wimg.app.bridge.LibWimg.native { WimgJni.nativeDeriveKey(key) }
         return key
     }
 
     fun setSyncKey(context: Context, key: String) {
-        context.getSharedPreferences(PREFS, 0).edit().putString(KEY_SYNC_KEY, key).apply()
+        context.getSharedPreferences(PREFS, 0).edit().putString(KEY_SYNC_KEY, key).remove(KEY_REMOVED).apply()
         encryptionKey = com.wimg.app.bridge.LibWimg.native { WimgJni.nativeDeriveKey(key) }
     }
 
@@ -95,11 +130,17 @@ object SyncService {
      * Push then pull. Never throws: a missing network or a server error comes
      * back as [SyncOutcome.error] instead of crashing the caller.
      */
-    suspend fun syncNow(context: Context): SyncOutcome {
+    suspend fun syncNow(context: Context, onProgress: ((done: Int, total: Int) -> Unit)? = null): SyncOutcome {
         if (getSyncKey(context) == null) return SyncOutcome(0, 0, null)
         return try {
             val pushed = pushOrThrow(context)
-            val pulled = pullOrThrow(context)
+            val pulled = pullOrThrow(context, onProgress)
+            // Removed by another device (or the key was replaced): stop here.
+            if (!withContext(Dispatchers.IO) { touchDevice(context) }) {
+                leaveRemoved(context)
+                return SyncOutcome(pushed, pulled, null, removed = true)
+            }
+            pushOrThrow(context) // so the others see this device
             context.getSharedPreferences(PREFS, 0).edit().putLong(KEY_LAST_SYNC_AT, System.currentTimeMillis()).apply()
             SyncOutcome(pushed, pulled, null)
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -125,41 +166,111 @@ object SyncService {
         -1
     }
 
-    private suspend fun pushOrThrow(context: Context): Int = withContext(Dispatchers.IO) {
-        val syncKey = getSyncKey(context) ?: return@withContext 0
-        val lastTs = getLastTs(context)
-        val changesJson = com.wimg.app.bridge.LibWimg.native { WimgJni.nativeGetChanges(lastTs) } ?: return@withContext 0
-
-        val key = encryptionKey ?: com.wimg.app.bridge.LibWimg.native { WimgJni.nativeDeriveKey(syncKey) }.also { encryptionKey = it } ?: return@withContext 0
-
-        // Encrypt rows
-        val payload = json.decodeFromString<SyncPayload>(changesJson)
-        if (payload.rows.isEmpty()) return@withContext 0
-
-        val encryptedRows = payload.rows.map { row ->
+    /** Encrypts [rows] with the key of [syncKey] and posts them. */
+    private fun postRows(syncKey: String, rows: List<SyncRow>): Boolean {
+        val key = com.wimg.app.bridge.LibWimg.native { WimgJni.nativeDeriveKey(syncKey) } ?: return false
+        val encryptedRows = rows.map { row ->
             val dataStr = row.data.toString()
             val nonce = ByteArray(24).also { SecureRandom().nextBytes(it) }
             val encrypted = com.wimg.app.bridge.LibWimg.native { WimgJni.nativeEncryptField(dataStr, key, nonce) } ?: dataStr
             row.copy(data = kotlinx.serialization.json.JsonPrimitive(encrypted))
         }
-
         val body = json.encodeToString(SyncPayload.serializer(), SyncPayload(encryptedRows))
-        val request = Request.Builder()
-            .url("$BASE_URL/sync/$syncKey")
-            .post(body.toRequestBody("application/json".toMediaType()))
-            .build()
+        val request = Request.Builder().url("$BASE_URL/sync/$syncKey").post(body.toRequestBody("application/json".toMediaType())).build()
+        return client.newCall(request).execute().use { it.isSuccessful }
+    }
 
-        val response = client.newCall(request).execute()
-        if (response.isSuccessful) {
+    private suspend fun pushOrThrow(context: Context): Int = withContext(Dispatchers.IO) {
+        val syncKey = getSyncKey(context) ?: return@withContext 0
+        val lastTs = getLastTs(context)
+        val changesJson = com.wimg.app.bridge.LibWimg.native { WimgJni.nativeGetChanges(lastTs) } ?: return@withContext 0
+        val payload = json.decodeFromString<SyncPayload>(changesJson)
+        if (payload.rows.isEmpty()) return@withContext 0
+        if (postRows(syncKey, payload.rows)) {
             suppressUntil = System.currentTimeMillis() + 2000
             val maxTs = payload.rows.maxOfOrNull { it.updated_at } ?: lastTs
             if (maxTs > lastTs) setLastTs(context, maxTs)
-        }
-        response.close()
+        } else throw IOException("push failed")
         payload.rows.size
     }
 
-    private suspend fun pullOrThrow(context: Context): Int = withContext(Dispatchers.IO) {
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    @Volatile private var firstPullRunning = false
+
+    /**
+     * The first sync after linking, with its progress docked on the bar
+     * ("Daten werden geholt · 150 von 584 Umsätzen"). Runs in the app's scope,
+     * so leaving the page doesn't stop it.
+     */
+    fun firstPull(context: Context) {
+        if (firstPullRunning) return
+        firstPullRunning = true
+        val app = context.applicationContext
+        appScope.launch {
+            val row = com.wimg.app.ui.components.DockRow(com.wimg.app.ui.components.DockKind.Sync, com.wimg.app.i18n.__t("Daten werden geholt"), null, progress = 0f)
+            com.wimg.app.ui.components.Dock.show(row)
+            val r = syncNow(app) { done, total ->
+                appScope.launch {
+                    com.wimg.app.ui.components.Dock.show(row.copy(sub = com.wimg.app.i18n.__t("%d von %d Umsätzen").format(done, total), progress = if (total > 0) done.toFloat() / total else 1f))
+                }
+            }
+            firstPullRunning = false
+            if (r.error != null) com.wimg.app.ui.components.Dock.error(com.wimg.app.i18n.__t("Noch nicht synchron"), com.wimg.app.i18n.__t("Schlüssel gespeichert, aber der Server ist nicht erreichbar. wimg versucht es beim nächsten Öffnen."))
+            else com.wimg.app.ui.components.Dock.info(com.wimg.app.i18n.__t("Alle Daten da"), if (r.pulled > 0) com.wimg.app.i18n.__t("%d Einträge geholt").format(r.pulled) else null)
+            connectWebSocket(app, appScope)
+        }
+    }
+
+    /** What a key holds on the server, read without using the key on this device. */
+    sealed interface Probe {
+        /** The key has data this device can read. */
+        data class Found(val rows: Int) : Probe
+        /** Nothing under this key, or nothing readable with it: a wrong key. */
+        data object NoMatch : Probe
+        data object Offline : Probe
+    }
+
+    /** Checks a key before linking ("Schlüssel passt nicht"). Never throws. */
+    suspend fun probe(key: String): Probe = withContext(Dispatchers.IO) {
+        runCatching {
+            val body = client.newCall(Request.Builder().url("$BASE_URL/sync/$key?since=0").get().build()).execute().use {
+                if (!it.isSuccessful) return@runCatching Probe.Offline
+                it.body?.string() ?: ""
+            }
+            val rows = json.decodeFromString<SyncPayload>(body).rows
+            val k = com.wimg.app.bridge.LibWimg.native { WimgJni.nativeDeriveKey(key) } ?: return@runCatching Probe.Offline
+            // A few rows are enough to tell whether the key opens them.
+            val readable = rows.take(5).count { r -> com.wimg.app.bridge.LibWimg.native { WimgJni.nativeDecryptField(r.data.toString().trim('"'), k) } != null }
+            if (rows.isEmpty() || readable == 0) Probe.NoMatch else Probe.Found(rows.size)
+        }.getOrDefault(Probe.Offline)
+    }
+
+    /**
+     * "Neuen Schlüssel erstellen": the other devices are removed, the server copy
+     * under the old key is deleted (only the removal marks stay there, so the
+     * others learn they are out), and everything goes up again under a new key.
+     */
+    suspend fun replaceKey(context: Context): Boolean = withContext(Dispatchers.IO) {
+        val old = getSyncKey(context) ?: return@withContext false
+        runCatching {
+            val me = deviceId(context)
+            com.wimg.app.bridge.LibWimg.getDevices().filter { it.id != me }.forEach { com.wimg.app.bridge.LibWimg.removeDevice(it.id) }
+            pushOrThrow(context)
+            val deleted = client.newCall(Request.Builder().url("$BASE_URL/sync/$old").delete().build()).execute().use { it.isSuccessful }
+            if (!deleted) return@runCatching false
+            val all = com.wimg.app.bridge.LibWimg.native { WimgJni.nativeGetChanges(0) }?.let { json.decodeFromString<SyncPayload>(it).rows }.orEmpty()
+            postRows(old, all.filter { it.table == "sync_devices" })
+            webSocket?.close(1000, null)
+            webSocket = null
+            setSyncKey(context, java.util.UUID.randomUUID().toString())
+            setLastTs(context, 0)
+            pushOrThrow(context)
+            context.getSharedPreferences(PREFS, 0).edit().putLong(KEY_LAST_SYNC_AT, System.currentTimeMillis()).apply()
+            true
+        }.getOrDefault(false)
+    }
+
+    private suspend fun pullOrThrow(context: Context, onProgress: ((Int, Int) -> Unit)? = null): Int = withContext(Dispatchers.IO) {
         val syncKey = getSyncKey(context) ?: return@withContext 0
         val lastTs = getLastTs(context)
         val key = encryptionKey ?: com.wimg.app.bridge.LibWimg.native { WimgJni.nativeDeriveKey(syncKey) }.also { encryptionKey = it } ?: return@withContext 0
@@ -179,18 +290,22 @@ object SyncService {
         if (payload.rows.isEmpty()) return@withContext 0
 
         // Decrypt rows
-        val decryptedRows = payload.rows.map { row ->
+        // Rows this key can't open are skipped, never applied as they are.
+        val decryptedRows = payload.rows.mapNotNull { row ->
             val dataStr = row.data.toString().trim('"')
-            val decrypted = com.wimg.app.bridge.LibWimg.native { WimgJni.nativeDecryptField(dataStr, key) }
-            if (decrypted != null) {
-                row.copy(data = json.parseToJsonElement(decrypted))
-            } else {
-                row
-            }
+            com.wimg.app.bridge.LibWimg.native { WimgJni.nativeDecryptField(dataStr, key) }?.let { row.copy(data = json.parseToJsonElement(it)) }
         }
 
-        val decryptedJson = json.encodeToString(SyncPayload.serializer(), SyncPayload(decryptedRows))
-        val applied = com.wimg.app.bridge.LibWimg.native { WimgJni.nativeApplyChanges(decryptedJson) }
+        // In batches, so a first full pull can show how far it is ("150 von 584 Umsätzen").
+        val txTotal = decryptedRows.count { it.table == "transactions" }
+        var txDone = 0
+        var applied = 0
+        decryptedRows.chunked(if (onProgress == null) Int.MAX_VALUE else 100).forEach { batch ->
+            val batchJson = json.encodeToString(SyncPayload.serializer(), SyncPayload(batch))
+            applied += com.wimg.app.bridge.LibWimg.native { WimgJni.nativeApplyChanges(batchJson) }.coerceAtLeast(0)
+            txDone += batch.count { it.table == "transactions" }
+            onProgress?.invoke(txDone, txTotal)
+        }
         if (applied > 0) {
             val maxTs = payload.rows.maxOfOrNull { it.updated_at } ?: lastTs
             if (maxTs > lastTs) setLastTs(context, maxTs)
@@ -238,4 +353,4 @@ object SyncService {
     }
 }
 
-data class SyncOutcome(val pushed: Int, val pulled: Int, val error: Throwable?)
+data class SyncOutcome(val pushed: Int, val pulled: Int, val error: Throwable?, val removed: Boolean = false)

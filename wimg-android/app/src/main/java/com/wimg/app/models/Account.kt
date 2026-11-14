@@ -63,3 +63,12 @@ data class Rule(
     /** 1 = learned from a manual change; higher = shipped with wimg. */
     val priority: Int,
 )
+
+/** A device linked through wimg Sync. [last_seen] in unix ms. */
+@Serializable
+data class SyncDevice(
+    val id: String,
+    val name: String = "",
+    val kind: String = "",
+    val last_seen: Long = 0,
+)

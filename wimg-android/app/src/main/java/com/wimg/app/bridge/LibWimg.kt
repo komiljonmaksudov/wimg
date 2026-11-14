@@ -114,6 +114,15 @@ object LibWimg {
         WimgJni.nativeUpdateAccount(body) == 0
     }
 
+    // --- wimg Sync devices ---
+
+    fun getDevices(): List<SyncDevice> = lock.withLock {
+        val str = WimgJni.nativeGetDevices() ?: return emptyList()
+        runCatching { json.decodeFromString<List<SyncDevice>>(str) }.getOrDefault(emptyList())
+    }
+
+    fun removeDevice(id: String) = lock.withLock { WimgJni.nativeRemoveDevice(id) == 0 }
+
     // --- Recurring ---
 
     fun getRules(): List<Rule> = lock.withLock {

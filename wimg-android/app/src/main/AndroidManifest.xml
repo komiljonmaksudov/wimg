@@ -6,6 +6,9 @@
          posted. Asked for in context after a successful Schnellabfrage, never at
          launch. See services/BackgroundRefresh.kt. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Only for scanning the sync key's QR code (asked for on that page). -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:name=".WimgApp"

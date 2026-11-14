@@ -23,6 +23,9 @@ extern int32_t wimg_detect_recurring(void);
 extern const uint8_t *wimg_get_recurring_payments(const uint8_t *id, uint32_t id_len);
 extern const uint8_t *wimg_undo(void);
 extern const uint8_t *wimg_get_rules(void);
+extern int32_t wimg_touch_device(const uint8_t *data, uint32_t len);
+extern const uint8_t *wimg_get_devices(void);
+extern int32_t wimg_remove_device(const uint8_t *id, uint32_t id_len);
 extern int32_t wimg_set_account_hidden(const uint8_t *id, uint32_t id_len, uint8_t hidden);
 extern int32_t wimg_update_account(const uint8_t *data, uint32_t len);
 extern int32_t wimg_set_recurring_hidden(const uint8_t *id, uint32_t id_len, uint8_t hidden);
@@ -162,6 +165,24 @@ JNIEXPORT jstring JNICALL JNI_FN(nativeImportCsv)(JNIEnv *env, jobject obj, jbyt
 
 #define WITH_UTF(js, var, len) const char *var = (*env)->GetStringUTFChars(env, js, NULL); jsize len = (*env)->GetStringUTFLength(env, js);
 #define END_UTF(js, var) (*env)->ReleaseStringUTFChars(env, js, var);
+
+JNIEXPORT jint JNICALL JNI_FN(nativeTouchDevice)(JNIEnv *env, jobject obj, jstring json) {
+    WITH_UTF(json, c, n)
+    int32_t rc = wimg_touch_device((const uint8_t *)c, n);
+    END_UTF(json, c)
+    return rc;
+}
+
+JNIEXPORT jstring JNICALL JNI_FN(nativeGetDevices)(JNIEnv *env, jobject obj) {
+    return ptr_to_jstring(env, wimg_get_devices());
+}
+
+JNIEXPORT jint JNICALL JNI_FN(nativeRemoveDevice)(JNIEnv *env, jobject obj, jstring id) {
+    WITH_UTF(id, c, n)
+    int32_t rc = wimg_remove_device((const uint8_t *)c, n);
+    END_UTF(id, c)
+    return rc;
+}
 
 JNIEXPORT jint JNICALL JNI_FN(nativeSetAccountHidden)(JNIEnv *env, jobject obj, jstring id, jint hidden) {
     WITH_UTF(id, c, n)

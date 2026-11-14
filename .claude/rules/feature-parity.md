@@ -27,6 +27,7 @@ the debt/goal C ABI + tables.
 | Accounts: hide/show, rename, picker      | no  | yes     | board 20; `accounts.hidden` synced, iOS UI not |
 | Notification settings (per kind, quiet time) | no | yes  | board 20; Android prefs only                 |
 | Language "Systemsprache"                 | no  | yes     | board 20                                     |
+| Sync: device list, remove device, new key, QR scan, wrong-key check | no | yes | board 21; `sync_devices` in libwimg |
 | Update checker (GitHub Releases)         | no  | yes     | iOS uses TestFlight                          |
 | Navigation                               | 4 tabs (Suche, Home, Umsätze, Mehr) | one floating bar + places menu | |
 | Stored bank PIN                          | Keychain `fints_pin` | Keystore AES-256-GCM (`PinStore.kt`) | |

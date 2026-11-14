@@ -55,6 +55,9 @@ object WimgJni {
     // Sync
     external fun nativeGetChanges(sinceTs: Long): String?
     external fun nativeApplyChanges(json: String): Int
+    external fun nativeTouchDevice(json: String): Int
+    external fun nativeGetDevices(): String?
+    external fun nativeRemoveDevice(id: String): Int
     external fun nativeDeriveKey(syncKey: String): ByteArray?
     external fun nativeEncryptField(plaintext: String, key: ByteArray, nonce: ByteArray): String?
     external fun nativeDecryptField(ciphertext: String, key: ByteArray): String?

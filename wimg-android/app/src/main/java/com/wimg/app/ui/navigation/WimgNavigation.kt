@@ -85,7 +85,7 @@ private fun isPlaceSwitch(from: androidx.navigation.NavBackStackEntry, to: andro
 private const val ONBOARDING_KEY = "wimg_onboarding_done"
 
 /** Routes already rebuilt in the redesign (band + sheet, content under the bar). */
-private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}", "recurring", "rec/{id}", "settings", "settings/lock", "settings/data", "settings/rules", "settings/accounts", "settings/notifications", "settings/appearance", "manual", "settings/sync", "settings/sync/key", "settings/sync/link", "fints", "fints/add", "fints/{id}?quick={quick}", "import", "dev/bar", "about", "about/news", "about/faq", "about/privacy", "about/licenses", "review")
+private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}", "recurring", "rec/{id}", "settings", "settings/lock", "settings/data", "settings/rules", "settings/accounts", "settings/notifications", "settings/appearance", "manual", "settings/sync", "settings/sync/key", "settings/sync/link", "settings/sync/linked", "fints", "fints/add", "fints/{id}?quick={quick}", "import", "dev/bar", "about", "about/news", "about/faq", "about/privacy", "about/licenses", "review")
 
 /** Everything the place chip can switch to, in menu order. */
 val PLACES = listOf(
@@ -207,6 +207,7 @@ fun WimgNavigation() {
                     composable("settings/sync") { SettingsSyncScreen(navController) }
                     composable("settings/sync/key") { SettingsSyncKeyScreen(navController) }
                     composable("settings/sync/link") { SettingsSyncLinkScreen(navController) }
+                    composable("settings/sync/linked") { SettingsSyncLinkedScreen(navController) }
                     composable("dev/bar") { BarPlaygroundScreen(navController) }
                     composable("about") { AboutScreen(navController) }
                     composable("about/news") { AboutNewsScreen(navController) }

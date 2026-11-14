@@ -40,6 +40,19 @@ All data encrypted client-side. Key derived from sync key via HKDF-SHA256
 - Echo suppression (2-second window after push)
 - Full sync on linking new device
 
+## Devices, wrong key, new key (board 21, client-side only)
+
+- **Devices**: every device keeps a row in the synced `sync_devices` table
+  (name, kind, last seen). Removing one marks it deleted; when that device
+  pulls the mark, it stops syncing (its local data stays). No server change.
+- **Wrong key**: before linking, the app reads `GET /sync/:key?since=0` without
+  saving the key. No rows, or rows the key can't decrypt → "Schlüssel passt
+  nicht"; nothing is pushed under a wrong key.
+- **New key**: the other devices are marked removed, the server copy under the
+  old key is deleted (`DELETE /sync/:key`), only the removal marks are written
+  back there so the others learn they are out, and everything is pushed again
+  under a fresh key.
+
 ## Storage
 
 One SQLite file for all keys: `sync_rows (sync_key, tbl, row_id, data, updated_at)`,

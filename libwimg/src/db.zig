@@ -34,7 +34,7 @@ pub const DbError = error{
     StepFailed,
 };
 
-const CURRENT_SCHEMA_VERSION = 19;
+const CURRENT_SCHEMA_VERSION = 20;
 
 /// SQL condition: the row's account is not hidden ("Konten ein- und ausblenden").
 pub const visible_accounts = "account NOT IN (SELECT id FROM accounts WHERE hidden = 1)";
@@ -364,9 +364,25 @@ pub const Db = struct {
             self.exec("ALTER TABLE accounts ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;") catch {};
         }
 
+        if (version < 20) {
+            // v20: devices linked through wimg Sync. Each device keeps its own row
+            // fresh; removing one marks it deleted, and that device stops syncing
+            // when it pulls the mark. Synced like everything else (E2E encrypted).
+            self.exec(
+                \\CREATE TABLE IF NOT EXISTS sync_devices (
+                \\  id TEXT PRIMARY KEY,
+                \\  name TEXT NOT NULL DEFAULT '',
+                \\  kind TEXT NOT NULL DEFAULT '',
+                \\  last_seen INTEGER NOT NULL DEFAULT 0,
+                \\  deleted INTEGER NOT NULL DEFAULT 0,
+                \\  updated_at INTEGER NOT NULL DEFAULT 0
+                \\);
+            ) catch {};
+        }
+
         // Store current version
         if (version < CURRENT_SCHEMA_VERSION) {
-            self.setMeta("schema_version", "19") catch {};
+            self.setMeta("schema_version", "20") catch {};
         }
     }
 
@@ -3389,6 +3405,7 @@ pub const Db = struct {
         const decision_tables = [_]struct { name: []const u8, sql: [*:0]const u8 }{
             .{ .name = "recurring_overrides", .sql = "SELECT id, json_object('name', name, 'category', category, 'interval', interval, 'fixed_amount', fixed_amount, 'hidden', hidden, 'hidden_at', hidden_at, 'accepted_amount', accepted_amount), updated_at FROM recurring_overrides WHERE updated_at >= ?1;" },
             .{ .name = "recurring_oneoffs", .sql = "SELECT pattern_id || ':' || tx_id, json_object('pattern_id', pattern_id, 'tx_id', tx_id, 'oneoff', oneoff), updated_at FROM recurring_oneoffs WHERE updated_at >= ?1;" },
+            .{ .name = "sync_devices", .sql = "SELECT id, json_object('name', name, 'kind', kind, 'last_seen', last_seen, 'deleted', deleted), updated_at FROM sync_devices WHERE updated_at >= ?1;" },
         };
         for (decision_tables) |t| {
             var stmt: ?*c.sqlite3_stmt = null;
@@ -3541,6 +3558,9 @@ pub const Db = struct {
                     self.applyGoalChange(row_id, data_str, updated_at) catch continue;
                 }
                 applied += 1;
+            } else if (std.mem.eql(u8, table, "sync_devices")) {
+                const data_str = self.extractDataObject(obj) orelse continue;
+                if (self.applyDeviceChange(row_id, data_str, updated_at) catch false) applied += 1;
             } else if (std.mem.eql(u8, table, "recurring_overrides") or std.mem.eql(u8, table, "recurring_oneoffs")) {
                 const data_str = self.extractDataObject(obj) orelse continue;
                 if (self.applyRecurringDecision(table, row_id, data_str, updated_at) catch false) applied += 1;
@@ -3548,6 +3568,87 @@ pub const Db = struct {
         }
 
         return applied;
+    }
+
+    /// Newer row wins, but a removal sticks: once deleted, a device stays
+    /// deleted even if it pushed a fresher "still here" before it heard of it.
+    fn applyDeviceChange(self: *Db, row_id: []const u8, data: []const u8, updated_at: i64) DbError!bool {
+        const sql =
+            \\INSERT INTO sync_devices (id, name, kind, last_seen, deleted, updated_at)
+            \\VALUES (?1, COALESCE(json_extract(?2, '$.name'), ''), COALESCE(json_extract(?2, '$.kind'), ''),
+            \\  COALESCE(json_extract(?2, '$.last_seen'), 0), COALESCE(json_extract(?2, '$.deleted'), 0), ?3)
+            \\ON CONFLICT (id) DO UPDATE SET
+            \\  name = CASE WHEN excluded.updated_at > sync_devices.updated_at THEN excluded.name ELSE sync_devices.name END,
+            \\  kind = CASE WHEN excluded.updated_at > sync_devices.updated_at THEN excluded.kind ELSE sync_devices.kind END,
+            \\  last_seen = MAX(sync_devices.last_seen, excluded.last_seen),
+            \\  deleted = MAX(sync_devices.deleted, excluded.deleted),
+            \\  updated_at = MAX(sync_devices.updated_at, excluded.updated_at)
+            \\WHERE excluded.updated_at > sync_devices.updated_at OR excluded.deleted > sync_devices.deleted;
+        ;
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, sql, -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(st.?);
+        _ = c.sqlite3_bind_text(st.?, 1, row_id.ptr, @intCast(row_id.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_text(st.?, 2, data.ptr, @intCast(data.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_int64(st.?, 3, updated_at);
+        if (c.sqlite3_step(st.?) != c.SQLITE_DONE) return DbError.StepFailed;
+        return c.sqlite3_changes(self.handle) > 0;
+    }
+
+    /// This device says it is still here. Returns false when another device
+    /// removed it (the row is marked deleted): then it must stop syncing.
+    /// Only writes when something changed or the last mark is older than 5 minutes.
+    pub fn touchDevice(self: *Db, id: []const u8, name: []const u8, kind: []const u8) DbError!bool {
+        {
+            var st: ?*c.sqlite3_stmt = null;
+            if (c.sqlite3_prepare_v2(self.handle, "SELECT deleted FROM sync_devices WHERE id = ?1;", -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+            defer _ = c.sqlite3_finalize(st.?);
+            _ = c.sqlite3_bind_text(st.?, 1, id.ptr, @intCast(id.len), c.SQLITE_STATIC);
+            if (c.sqlite3_step(st.?) == c.SQLITE_ROW and c.sqlite3_column_int(st.?, 0) != 0) return false;
+        }
+        const now = nowMs();
+        const sql =
+            \\INSERT INTO sync_devices (id, name, kind, last_seen, deleted, updated_at) VALUES (?1, ?2, ?3, ?4, 0, ?4)
+            \\ON CONFLICT (id) DO UPDATE SET name = excluded.name, kind = excluded.kind,
+            \\  last_seen = excluded.last_seen, updated_at = excluded.updated_at
+            \\WHERE sync_devices.deleted = 0 AND (sync_devices.name != excluded.name OR sync_devices.kind != excluded.kind
+            \\  OR excluded.last_seen - sync_devices.last_seen > 300000);
+        ;
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, sql, -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(st.?);
+        _ = c.sqlite3_bind_text(st.?, 1, id.ptr, @intCast(id.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_text(st.?, 2, name.ptr, @intCast(name.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_text(st.?, 3, kind.ptr, @intCast(kind.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_int64(st.?, 4, now);
+        if (c.sqlite3_step(st.?) != c.SQLITE_DONE) return DbError.StepFailed;
+        return true;
+    }
+
+    /// Removes a device from wimg Sync (it stops syncing once it hears of it).
+    pub fn removeDevice(self: *Db, id: []const u8) DbError!void {
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, "UPDATE sync_devices SET deleted = 1, updated_at = ?2 WHERE id = ?1;", -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(st.?);
+        _ = c.sqlite3_bind_text(st.?, 1, id.ptr, @intCast(id.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_int64(st.?, 2, nowMs());
+        if (c.sqlite3_step(st.?) != c.SQLITE_DONE) return DbError.StepFailed;
+        if (c.sqlite3_changes(self.handle) == 0) return DbError.StepFailed;
+    }
+
+    /// Linked devices, most recently seen first: [{"id","name","kind","last_seen"}].
+    pub fn getDevicesJson(self: *Db, buf: []u8) DbError!?usize {
+        const sql = "SELECT COALESCE(json_group_array(json_object('id', id, 'name', name, 'kind', kind, 'last_seen', last_seen)), '[]') " ++
+            "FROM (SELECT * FROM sync_devices WHERE deleted = 0 ORDER BY last_seen DESC);";
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, sql, -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(st.?);
+        if (c.sqlite3_step(st.?) != c.SQLITE_ROW) return DbError.StepFailed;
+        const p = c.sqlite3_column_text(st.?, 0) orelse return null;
+        const n: usize = @intCast(c.sqlite3_column_bytes(st.?, 0));
+        if (n > buf.len) return null;
+        @memcpy(buf[0..n], p[0..n]);
+        return n;
     }
 
     /// Last write wins inside the upsert itself. Returns whether the row changed.
@@ -5065,4 +5166,37 @@ fn expectHas(hay: []const u8, ok: bool) !void {
         std.debug.print("JSON: {s}\n", .{hay});
         return error.TestUnexpectedResult;
     }
+}
+
+test "sync devices: list, removal sticks and reaches the removed device" {
+    var a = try Db.init(":memory:");
+    defer a.close();
+    var b = try Db.init(":memory:");
+    defer b.close();
+    try std.testing.expect(try a.touchDevice("dev-a", "Poco", "phone"));
+    try std.testing.expect(try b.touchDevice("dev-b", "Pixel", "phone"));
+
+    var buf: [16384]u8 = undefined;
+    // Both devices see each other after a round of sync.
+    var n = (try a.getChangesJson(0, &buf, buf.len)) orelse return error.TestUnexpectedResult;
+    _ = try b.applyChanges(buf[0..n]);
+    n = (try b.getChangesJson(0, &buf, buf.len)) orelse return error.TestUnexpectedResult;
+    _ = try a.applyChanges(buf[0..n]);
+    n = (try a.getDevicesJson(&buf)) orelse return error.TestUnexpectedResult;
+    try expectHas(buf[0..n], std.mem.indexOf(u8, buf[0..n], "\"name\":\"Pixel\"") != null);
+    try expectHas(buf[0..n], std.mem.indexOf(u8, buf[0..n], "\"name\":\"Poco\"") != null);
+
+    // A removes B. B, still unaware, pushes a fresher "still here": the removal sticks on A.
+    try a.removeDevice("dev-b");
+    try b.exec("UPDATE sync_devices SET last_seen = last_seen + 400000, updated_at = updated_at + 400000 WHERE id = 'dev-b';");
+    n = (try b.getChangesJson(0, &buf, buf.len)) orelse return error.TestUnexpectedResult;
+    _ = try a.applyChanges(buf[0..n]);
+    n = (try a.getDevicesJson(&buf)) orelse return error.TestUnexpectedResult;
+    try expectHas(buf[0..n], std.mem.indexOf(u8, buf[0..n], "Pixel") == null);
+
+    // B pulls the removal and learns it is out.
+    n = (try a.getChangesJson(0, &buf, buf.len)) orelse return error.TestUnexpectedResult;
+    _ = try b.applyChanges(buf[0..n]);
+    try std.testing.expect(!(try b.touchDevice("dev-b", "Pixel", "phone")));
+    try std.testing.expectError(DbError.StepFailed, a.removeDevice("unknown"));
 }

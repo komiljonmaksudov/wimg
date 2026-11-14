@@ -118,6 +118,18 @@ CREATE TABLE snapshots (
   updated_at INTEGER NOT NULL DEFAULT 0
 );
 
+-- v20: devices linked through wimg Sync (synced, E2E encrypted like all rows).
+-- A removal sticks (deleted = MAX on merge); the removed device stops syncing
+-- when it pulls its own mark.
+CREATE TABLE sync_devices (
+  id TEXT PRIMARY KEY,                       -- random per install
+  name TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT '',             -- phone, tablet, laptop
+  last_seen INTEGER NOT NULL DEFAULT 0,      -- unix ms, refreshed at most every 5 min
+  deleted INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0
+);
+
 -- Kept for cheap resurrection; no UI since 2026-05-14.
 CREATE TABLE debts (
   id TEXT PRIMARY KEY,

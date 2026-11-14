@@ -101,8 +101,13 @@ class MainActivity : FragmentActivity() {
         // Failures stay quiet here (offline is normal); Settings shows the state.
         if (SyncService.isEnabled(this)) {
             lifecycleScope.launch {
-                SyncService.syncNow(this@MainActivity)
-                SyncService.connectWebSocket(this@MainActivity, lifecycleScope)
+                val r = SyncService.syncNow(this@MainActivity)
+                if (r.removed) {
+                    com.wimg.app.ui.components.Dock.error(
+                        com.wimg.app.i18n.__t("wimg Sync beendet"),
+                        com.wimg.app.i18n.__t("Dieses Gerät wurde entfernt oder der Schlüssel ersetzt. Deine Daten bleiben hier."),
+                    )
+                } else SyncService.connectWebSocket(this@MainActivity, lifecycleScope)
             }
         }
     }

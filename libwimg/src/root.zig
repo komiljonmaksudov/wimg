@@ -764,6 +764,61 @@ export fn wimg_get_rules() ?[*]const u8 {
     return buf.ptr;
 }
 
+// --- wimg Sync devices ---
+
+/// This device is still linked: {"id","name","kind"}. 0 = ok, 1 = another
+/// device removed it (stop syncing), -1 = error.
+export fn wimg_touch_device(data: [*]const u8, len: u32) i32 {
+    var database = global_db orelse {
+        setError("wimg_touch_device: database not initialized", .{});
+        return -1;
+    };
+    const json = data[0..len];
+    const id = jsonExtractString(json, "\"id\"") orelse {
+        setError("wimg_touch_device: missing id", .{});
+        return -1;
+    };
+    const ok = database.touchDevice(id, jsonExtractString(json, "\"name\"") orelse "", jsonExtractString(json, "\"kind\"") orelse "") catch |err| {
+        setError("wimg_touch_device: failed: {s}", .{@errorName(err)});
+        return -1;
+    };
+    return if (ok) 0 else 1;
+}
+
+/// Linked devices: [{"id","name","kind","last_seen"}], most recently seen first.
+export fn wimg_get_devices() ?[*]const u8 {
+    var database = global_db orelse {
+        setError("wimg_get_devices: database not initialized", .{});
+        return null;
+    };
+    const buf_size: usize = 32 * 1024;
+    const buf = fba.allocator().alloc(u8, buf_size + 4) catch {
+        setError("wimg_get_devices: failed to allocate buffer", .{});
+        return null;
+    };
+    const n = (database.getDevicesJson(buf[4..]) catch null) orelse {
+        setError("wimg_get_devices: query failed", .{});
+        fba.allocator().free(buf);
+        return null;
+    };
+    const len_bytes: [4]u8 = @bitCast(@as(u32, @intCast(n)));
+    @memcpy(buf[0..4], &len_bytes);
+    return buf.ptr;
+}
+
+/// Removes a device from wimg Sync; it stops syncing once it pulls the change.
+export fn wimg_remove_device(id: [*]const u8, id_len: u32) i32 {
+    var database = global_db orelse {
+        setError("wimg_remove_device: database not initialized", .{});
+        return -1;
+    };
+    database.removeDevice(id[0..id_len]) catch |err| {
+        setError("wimg_remove_device: failed: {s}", .{@errorName(err)});
+        return -1;
+    };
+    return 0;
+}
+
 /// Deletes a rule; reset != 0 also makes the transactions it sorted uncategorised.
 export fn wimg_delete_rule(id: i64, reset: u8) i32 {
     var database = global_db orelse {

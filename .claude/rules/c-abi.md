@@ -65,6 +65,11 @@ export fn wimg_derive_key(sync_key_ptr: [*]const u8, sync_key_len: u32) ?[*]cons
 export fn wimg_encrypt_field(pt_ptr: [*]const u8, pt_len: u32, key_ptr: [*]const u8, nonce_ptr: [*]const u8) ?[*]const u8
 export fn wimg_decrypt_field(ct_ptr: [*]const u8, ct_len: u32, key_ptr: [*]const u8) ?[*]const u8
 
+// wimg Sync devices (board 21)
+export fn wimg_touch_device(data: [*]const u8, len: u32) i32      // {"id","name","kind"} → 0 ok, 1 removed by another device, -1 error
+export fn wimg_get_devices() ?[*]const u8                         // [{"id","name","kind","last_seen"}]
+export fn wimg_remove_device(id: [*]const u8, id_len: u32) i32
+
 // Export + raw SQL (MCP `query`)
 export fn wimg_export_csv() ?[*]const u8
 export fn wimg_export_db() ?[*]const u8
