@@ -2004,8 +2004,8 @@ fn wimg_fints_send_tan(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                 fints_session.challenge_ref[0..fints_session.challenge_ref_len],
                 fints_session.challenge_ref_len,
             });
-            const req_preview = @min(msg_len, 280);
-            dbg.print("[FinTS Zig] send tan msg[0..{d}]='{s}'\n", .{ req_preview, msg_buf[0..req_preview] });
+            // Never the request itself: it carries the PIN and the TAN.
+            dbg.print("[FinTS Zig] send tan msg_len={d}\n", .{msg_len});
         }
 
         const resp_len = fints_http_mod.sendFintsMessage(
@@ -2232,8 +2232,8 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
 
         // Debug: log auth init raw message
         if (!is_wasm) {
-            const req_preview = @min(auth_len, 450);
-            dbg.print("[FinTS Zig] auth init msg[0..{d}]='{s}'\n", .{ req_preview, msg_buf[0..req_preview] });
+            // Never the request itself: its signature segment carries the PIN.
+            dbg.print("[FinTS Zig] auth init msg_len={d}\n", .{auth_len});
             dbg.print("[FinTS Zig] auth init total_len={d}\n", .{auth_len});
         }
 
@@ -2424,17 +2424,8 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
             return null;
         };
         if (!is_wasm) {
-            const req_preview = @min(msg_len, 450);
-            if (fetch_mode == .mt940) {
-                dbg.print("[FinTS Zig] fetch hkkaz negotiated_ver={d}\n", .{fints_session.hikaz_version});
-            } else {
-                dbg.print("[FinTS Zig] fetch hkcaz camt_format='{s}'\n", .{fints_session.camtFormatSlice()});
-            }
-            dbg.print("[FinTS Zig] fetch mode={s} msg[0..{d}]='{s}'\n", .{
-                if (fetch_mode == .mt940) "mt940" else "camt",
-                req_preview,
-                msg_buf[0..req_preview],
-            });
+            // Never the request itself: its signature segment carries the PIN.
+            dbg.print("[FinTS Zig] fetch mode={s} msg_len={d}\n", .{ if (fetch_mode == .mt940) "mt940" else "camt", msg_len });
             if (fints_session.account_ktv_len > 0) {
                 dbg.print("[FinTS Zig] fetch account_ktv='{s}'\n", .{fints_session.accountKtvSlice()});
             } else {
