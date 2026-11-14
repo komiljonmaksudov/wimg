@@ -66,7 +66,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.wimg.app.i18n.L
-import com.wimg.app.ui.components.AccountPicker
 import com.wimg.app.ui.components.BarChip
 import com.wimg.app.ui.components.BarClearance
 import com.wimg.app.ui.components.BarIcon
@@ -86,7 +85,7 @@ private fun isPlaceSwitch(from: androidx.navigation.NavBackStackEntry, to: andro
 private const val ONBOARDING_KEY = "wimg_onboarding_done"
 
 /** Routes already rebuilt in the redesign (band + sheet, content under the bar). */
-private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}", "recurring", "rec/{id}", "settings", "settings/lock", "settings/data", "settings/rules", "manual", "settings/sync", "settings/sync/key", "settings/sync/link", "fints", "fints/add", "fints/{id}?quick={quick}", "import", "dev/bar", "about", "about/news", "about/faq", "about/privacy", "about/licenses", "review")
+private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}", "recurring", "rec/{id}", "settings", "settings/lock", "settings/data", "settings/rules", "settings/accounts", "settings/notifications", "settings/appearance", "manual", "settings/sync", "settings/sync/key", "settings/sync/link", "fints", "fints/add", "fints/{id}?quick={quick}", "import", "dev/bar", "about", "about/news", "about/faq", "about/privacy", "about/licenses", "review")
 
 /** Everything the place chip can switch to, in menu order. */
 val PLACES = listOf(
@@ -159,12 +158,6 @@ fun WimgNavigation() {
     // Pages and the floating bar end above it (TAN, PIN, search fields stay visible).
     Box(Modifier.fillMaxSize().imePadding()) {
         Column(Modifier.fillMaxSize()) {
-            // Account picker only renders when there is more than one account.
-            AccountPicker(
-                selectedAccount = selectedAccount,
-                onAccountChanged = { selectedAccount = it },
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
             Box(Modifier.weight(1f).padding(bottom = if (route?.startsWith("search") == true || underBar) 0.dp else BarClearance - 24.dp)) {
                 // Switching places happens dozens of times a day: instant, like tabs.
                 // Only going into or out of a detail page gets a short fade.
@@ -182,7 +175,7 @@ fun WimgNavigation() {
                         SearchScreen(selectedAccount = selectedAccount, navController = navController, initialQuery = entry.arguments?.getString("q").orEmpty())
                     }
                     composable("dashboard") { HomeScreen(selectedAccount = selectedAccount, navController = navController, onSelectAccount = { selectedAccount = it }) }
-                    composable("transactions") { TransactionsScreen(selectedAccount = selectedAccount, navController = navController) }
+                    composable("transactions") { TransactionsScreen(selectedAccount = selectedAccount, navController = navController, onSelectAccount = { selectedAccount = it }) }
                     composable("rec/{id}") { entry ->
                         RecurringDetailScreen(id = entry.arguments?.getString("id") ?: "", navController = navController)
                     }
@@ -207,6 +200,9 @@ fun WimgNavigation() {
                     composable("settings/lock") { SettingsLockScreen(navController) }
                     composable("settings/data") { SettingsDataScreen(navController) }
                     composable("settings/rules") { SettingsRulesScreen(navController) }
+                    composable("settings/accounts") { SettingsAccountsScreen(navController) }
+                    composable("settings/notifications") { SettingsNotificationsScreen(navController) }
+                    composable("settings/appearance") { SettingsAppearanceScreen(navController) }
                     composable("manual") { ManualEntryScreen(navController) }
                     composable("settings/sync") { SettingsSyncScreen(navController) }
                     composable("settings/sync/key") { SettingsSyncKeyScreen(navController) }

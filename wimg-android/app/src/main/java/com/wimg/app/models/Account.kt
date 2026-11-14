@@ -11,7 +11,11 @@ data class Account(
     // Closing balance from the latest FinTS statement (cents). 0 = unknown.
     val balance_cents: Long = 0,
     val balance_date: String = "",
+    /** "Ausgeblendet": left out of "Alle Konten" lists and sums, still fetched and searchable. */
+    val hidden: Int = 0,
 ) {
+    val isHidden: Boolean get() = hidden != 0
+
     /// Statement closing balance in major units, or null if unknown (CSV-only).
     val balance: Double? get() = if (balance_date.isEmpty()) null else balance_cents / 100.0
 }

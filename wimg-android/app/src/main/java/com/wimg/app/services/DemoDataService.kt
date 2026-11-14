@@ -11,12 +11,14 @@ import kotlin.random.Random
 object DemoDataService {
     private const val DEMO_LOADED_KEY = "wimg_demo_loaded"
 
-    private data class FixedTx(val desc: String, val amount: Int?)
+    /** [day]: booking day of the month, or null for one of the first days. */
+    private data class FixedTx(val desc: String, val amount: Int?, val day: Int? = null)
     private data class FrequentTx(val desc: String, val min: Int, val max: Int, val freqMin: Int, val freqMax: Int)
     private data class OccasionalTx(val desc: String, val min: Int, val max: Int)
 
     private val fixedMonthly = listOf(
-        FixedTx("GEHALT {MONTH} 2026 MUSTER GMBH", 325_000),
+        // Salary at the end of the month, like most payrolls (Gehaltsmonat).
+        FixedTx("MUSTER GMBH GEHALT {MONTH} 2026", 325_000, day = 27),
         FixedTx("MIETE {MONTH} 2026 HAUSVERWALTUNG MUSTERSTADT", -95_000),
         FixedTx("GRUENSTROM AG STROM GAS", null),
         FixedTx("FLIMMERKISTE STREAMING", -1_799),
@@ -39,6 +41,7 @@ object DemoDataService {
         OccasionalTx("KAUFHAUS ZENTRUM", -12_000, -1_500),
         OccasionalTx("DROGERIE AM ECK", -2_000, -500),
         OccasionalTx("APOTHEKE AM MARKT", -3_000, -500),
+        OccasionalTx("MUSTERVERSAND ERSTATTUNG", 1_990, 4_990),
     )
 
     private val monthNames = arrayOf(
@@ -51,6 +54,12 @@ object DemoDataService {
         val data = csv.toByteArray(Charsets.ISO_8859_1)
         val result = LibWimg.importCsv(data)
         if (result != null && result.imported > 0) {
+            // A second account: cash entered by hand.
+            val cal = Calendar.getInstance()
+            listOf(Triple(2, "WOCHENMARKT", -1_840), Triple(6, "BAECKEREI MUSTERMANN", -760), Triple(11, "FLOHMARKT", -2_500)).forEach { (back, desc, cents) ->
+                val d = (cal.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -back) }
+                LibWimg.addManualTransaction("%04d-%02d-%02d".format(d.get(Calendar.YEAR), d.get(Calendar.MONTH) + 1, d.get(Calendar.DAY_OF_MONTH)), desc, cents.toLong(), 0, "Bargeld")
+            }
             LibWimg.autoCategorize()
             LibWimg.detectRecurring()
             context.getSharedPreferences("wimg", 0).edit().putBoolean(DEMO_LOADED_KEY, true).apply()
@@ -62,7 +71,8 @@ object DemoDataService {
         data class Row(val date: String, val desc: String, val amount: String, val sortKey: Int)
         val rows = mutableListOf<Row>()
 
-        for (offset in 0 until 3) {
+        val todayKey = cal.get(Calendar.YEAR) * 10000 + (cal.get(Calendar.MONTH) + 1) * 100 + cal.get(Calendar.DAY_OF_MONTH)
+        for (offset in 0 until 4) {
             cal.time = java.util.Date()
             cal.add(Calendar.MONTH, -offset)
             val year = cal.get(Calendar.YEAR)
@@ -72,7 +82,7 @@ object DemoDataService {
 
             // Fixed monthly
             for (tx in fixedMonthly) {
-                val day = Random.nextInt(1, minOf(6, maxDay + 1))
+                val day = tx.day?.let { minOf(it, maxDay) } ?: Random.nextInt(1, minOf(6, maxDay + 1))
                 val desc = tx.desc.replace("{MONTH}", monthName)
                 val cents = tx.amount ?: Random.nextInt(-11_500, -9_499)
                 rows.add(Row(formatDate(year, month, day), desc, formatAmount(cents), year * 10000 + month * 100 + day))
@@ -101,6 +111,8 @@ object DemoDataService {
             }
         }
 
+        // Nothing after today: a demo shows what already happened.
+        rows.removeAll { it.sortKey > todayKey }
         rows.sortByDescending { it.sortKey }
 
         val header = "\"Buchungstag\";\"Wertstellung (Valuta)\";\"Vorgang\";\"Buchungstext\";\"Umsatz in EUR\""

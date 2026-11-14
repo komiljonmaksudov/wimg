@@ -129,12 +129,13 @@ internal fun txKey(account: String?) = "tx:$account"
 
 internal fun loadTx(account: String?) = TxData(
     transactions = LibWimg.getTransactionsFiltered(account).sortedByDescending { it.date },
-    accounts = LibWimg.getAccounts().filter { account == null || it.id == account },
+    // All accounts are needed for the Konto row; the band sums the shown ones.
+    accounts = LibWimg.getAccounts(),
     pending = LibWimg.getPending(account).sortedByDescending { it.date },
 )
 
 @Composable
-fun TransactionsScreen(selectedAccount: String?, navController: NavController? = null) {
+fun TransactionsScreen(selectedAccount: String?, navController: NavController? = null, onSelectAccount: (String?) -> Unit = {}) {
     var data by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<TxData>(txKey(selectedAccount))) }
     // Saveable: the filter survives opening a transaction and coming back.
     var filter by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(TxFilter.ALL) }
@@ -165,9 +166,9 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
     val filterActive = filter != TxFilter.ALL || categories.isNotEmpty() || period != null
 
     // The bank's closing balance, only when every shown account has one (FinTS).
-    val accounts = data?.accounts ?: emptyList()
-    val knownBalance = accounts.isNotEmpty() && accounts.all { it.balance != null }
-    val balance = if (knownBalance) accounts.sumOf { it.balance_cents } / 100.0 else null
+    val allAccounts = data?.accounts ?: emptyList()
+    val accounts = allAccounts.filter { if (selectedAccount == null) !it.isHidden else it.id == selectedAccount }
+    val balance = balanceOf(accounts)
     val balanceDate = accounts.mapNotNull { it.balance_date.takeIf { d -> d.isNotEmpty() } }.maxOrNull()
     val anchored = balance != null && !filterActive
 
@@ -194,6 +195,8 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
                     categories = categories, onCategories = { categories = it },
                     period = period, onPeriod = { period = it },
                     resultCount = filtered.size,
+                    accountLabel = if (allAccounts.size > 1) (allAccounts.firstOrNull { it.id == selectedAccount }?.name ?: L("Alle Konten")) else null,
+                    selectedAccount = selectedAccount, onAccount = onSelectAccount,
                     onReset = { filter = TxFilter.ALL; categories = emptySet(); period = null },
                     onDone = { filterOpen = false },
                 )
@@ -204,6 +207,7 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
 
     val c = Wimg.colors
     val title = when {
+        anchored && allAccounts.size > 1 -> L("Kontostand · %s", accounts.singleOrNull()?.takeIf { selectedAccount != null }?.name ?: L("alle Konten"))
         anchored -> L("Kontostand")
         filterActive -> L("Summe der Treffer")
         else -> L("Summe der Umsätze")
@@ -344,9 +348,17 @@ private fun FilterPanel(
     resultCount: Int,
     onReset: () -> Unit,
     onDone: () -> Unit,
+    accountLabel: String? = null,
+    selectedAccount: String? = null,
+    onAccount: (String?) -> Unit = {},
 ) {
     val c = Wimg.colors
     var picking by remember { mutableStateOf(false) }
+    var pickingAccount by remember { mutableStateOf(false) }
+    if (pickingAccount) {
+        AccountsPanel(selectedAccount, onPick = onAccount, onDone = { pickingAccount = false })
+        return
+    }
     val now = remember { Calendar.getInstance() }
     if (picking) {
         // The same month grid as Home's period chip, in place of the filter panel.
@@ -379,6 +391,10 @@ private fun FilterPanel(
                     Text(L(f.label), style = WimgType.chip, color = if (on) c.text else c.text2)
                 }
             }
+        }
+        if (accountLabel != null) {
+            Text(L("Konto"), style = WimgType.label, color = c.text2, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
+            PeriodChip(accountLabel + "  ›", selectedAccount != null) { pickingAccount = true }
         }
         Text(L("Zeitraum"), style = WimgType.label, color = c.text2, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
         run {

@@ -56,6 +56,7 @@ CREATE TABLE accounts (
   deleted INTEGER NOT NULL DEFAULT 0,
   balance_cents INTEGER NOT NULL DEFAULT 0,
   balance_date TEXT NOT NULL DEFAULT '',
+  hidden INTEGER NOT NULL DEFAULT 0,        -- v19: left out of "Alle Konten" lists and sums
   updated_at INTEGER NOT NULL DEFAULT 0
 );
 

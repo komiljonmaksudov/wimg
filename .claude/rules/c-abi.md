@@ -52,6 +52,7 @@ export fn wimg_get_accounts() ?[*]const u8
 export fn wimg_add_account(data: [*]const u8, len: u32) i32
 export fn wimg_update_account(data: [*]const u8, len: u32) i32
 export fn wimg_delete_account(id: [*]const u8, id_len: u32) i32
+export fn wimg_set_account_hidden(id: [*]const u8, id_len: u32, hidden: u8) i32   // hidden: out of "Alle Konten" (filtered/pending/summary with empty account); wimg_get_transactions keeps it (search)
 
 // Undo/Redo
 export fn wimg_undo() ?[*]const u8

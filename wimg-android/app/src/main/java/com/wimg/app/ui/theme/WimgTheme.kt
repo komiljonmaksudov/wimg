@@ -264,6 +264,13 @@ object ThemeState {
 
 object LocaleState {
     var locale by mutableStateOf("de") // "de" or "en"
+
+    /** The stored choice ("de", "en" or "system"), resolved to "de" or "en". */
+    fun stored(context: android.content.Context): String =
+        when (val s = context.getSharedPreferences("wimg", 0).getString("wimg_locale", "de") ?: "de") {
+            "system" -> if (java.util.Locale.getDefault().language == "de") "de" else "en"
+            else -> s
+        }
 }
 
 /**
@@ -286,7 +293,7 @@ fun WimgTheme(content: @Composable () -> Unit) {
         val prefs = context.getSharedPreferences("wimg", 0)
         val storedTheme = prefs.getInt("wimg_theme", -1)
         if (ThemeState.mode != storedTheme) ThemeState.mode = storedTheme
-        val storedLocale = prefs.getString("wimg_locale", "de") ?: "de"
+        val storedLocale = LocaleState.stored(context)
         if (LocaleState.locale != storedLocale) LocaleState.locale = storedLocale
     }
 

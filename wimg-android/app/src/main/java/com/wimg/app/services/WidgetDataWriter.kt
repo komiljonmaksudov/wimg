@@ -30,7 +30,7 @@ object WidgetDataWriter {
         val open = due.filter { !it.last_seen.startsWith(monthKey) }.sumOf { abs(it.amount) }
         val next = fixed.filter { (it.next_due ?: "") >= today }.minByOrNull { it.next_due!! }
 
-        val todayTx = LibWimg.getTransactions().filter { it.date == today && !it.isExcluded }
+        val todayTx = LibWimg.getTransactionsFiltered(null).filter { it.date == today && !it.isExcluded }
 
         val data = WidgetData(
             month = month,

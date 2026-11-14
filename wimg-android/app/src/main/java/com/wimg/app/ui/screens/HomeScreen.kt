@@ -107,6 +107,7 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
     LaunchedEffect(com.wimg.app.ui.components.Changes.version) { accounts = withContext(Dispatchers.IO) { LibWimg.getAccounts() } }
     var data by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<HomeData>(homeKey(year, month, selectedAccount, compare))) }
     var pickerOpen by remember { mutableStateOf(false) }
+    var pickingAccount by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -147,19 +148,18 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
         },
         panel = if (pickerOpen) {
             {
-                MonthPickerPanel(year, month, shortMonths, now, onPick = { y, m -> year = y; month = m; pickerOpen = false }) {
+                if (pickingAccount) AccountsPanel(selectedAccount, onPick = onSelectAccount, onDone = { pickingAccount = false; pickerOpen = false })
+                else MonthPickerPanel(year, month, shortMonths, now, onPick = { y, m -> year = y; month = m; pickerOpen = false }) {
                     PanelLabel(L("Vergleichen mit"))
                     SegmentRow(HomeCompare.entries.map { L(it.label) }, HomeCompare.entries.indexOf(compare)) { compare = HomeCompare.entries[it] }
                     if (accounts.size > 1) {
                         PanelLabel(L("Konto"))
-                        SegmentRow(listOf(L("Alle Konten")) + accounts.map { it.name }, accounts.indexOfFirst { it.id == selectedAccount } + 1) { i ->
-                            onSelectAccount(if (i == 0) null else accounts[i - 1].id)
-                        }
+                        SegmentRow(listOf((accounts.firstOrNull { it.id == selectedAccount }?.name ?: L("Alle Konten")) + "  ›"), 0) { pickingAccount = true }
                     }
                 }
             }
         } else null,
-        onPanelDismiss = { pickerOpen = false },
+        onPanelDismiss = { pickerOpen = false; pickingAccount = false },
     )
 
     val d = data

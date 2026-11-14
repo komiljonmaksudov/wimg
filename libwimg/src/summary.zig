@@ -16,6 +16,7 @@ pub fn getSummaryJsonFiltered(handle: *c.sqlite3, year: u16, month: u8, buf: [*]
         \\  COUNT(*) as cnt
         \\FROM transactions
         \\WHERE date_year = ?1 AND date_month = ?2 AND excluded = 0
+        \\  AND account NOT IN (SELECT id FROM accounts WHERE hidden = 1)
         \\GROUP BY category
         \\ORDER BY expenses ASC;
     ;

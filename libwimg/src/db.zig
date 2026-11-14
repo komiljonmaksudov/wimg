@@ -34,7 +34,10 @@ pub const DbError = error{
     StepFailed,
 };
 
-const CURRENT_SCHEMA_VERSION = 18;
+const CURRENT_SCHEMA_VERSION = 19;
+
+/// SQL condition: the row's account is not hidden ("Konten ein- und ausblenden").
+pub const visible_accounts = "account NOT IN (SELECT id FROM accounts WHERE hidden = 1)";
 
 pub const Db = struct {
     handle: *c.sqlite3,
@@ -94,6 +97,7 @@ pub const Db = struct {
         \\  deleted INTEGER NOT NULL DEFAULT 0,
         \\  balance_cents INTEGER NOT NULL DEFAULT 0,
         \\  balance_date TEXT NOT NULL DEFAULT '',
+        \\  hidden INTEGER NOT NULL DEFAULT 0,
         \\  updated_at INTEGER NOT NULL DEFAULT 0
         \\);
         \\CREATE TABLE IF NOT EXISTS undo_history (
@@ -354,9 +358,15 @@ pub const Db = struct {
             ) catch {};
         }
 
+        if (version < 19) {
+            // v19: "Konten ein- und ausblenden". A hidden account still gets its
+            // bookings, but they leave "Alle Konten" lists and sums (search keeps them).
+            self.exec("ALTER TABLE accounts ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;") catch {};
+        }
+
         // Store current version
         if (version < CURRENT_SCHEMA_VERSION) {
-            self.setMeta("schema_version", "18") catch {};
+            self.setMeta("schema_version", "19") catch {};
         }
     }
 
@@ -2001,18 +2011,22 @@ pub const Db = struct {
 
     /// Write all transactions as JSON into the provided buffer.
     /// Returns the number of bytes written, or null if buffer is too small.
+    /// Every transaction, hidden accounts included (search, export, backup).
     pub fn getTransactionsJson(self: *Db, buf: [*]u8, buf_len: usize) DbError!?usize {
-        return self.getTransactionsJsonFiltered(buf, buf_len, null, 0);
+        const sql =
+            \\SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, excluded
+            \\FROM transactions
+            \\ORDER BY date_year DESC, date_month DESC, date_day DESC, rowid DESC;
+        ;
+        return self.txnRowsJson(sql, false, null, 0, buf, buf_len);
     }
 
     /// Write transactions as JSON, optionally filtered by account.
     pub fn getTransactionsJsonFiltered(self: *Db, buf: [*]u8, buf_len: usize, acct_ptr: ?[*]const u8, acct_len: u32) DbError!?usize {
         const has_filter = acct_ptr != null and acct_len > 0;
-        const sql_all =
-            \\SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, excluded
-            \\FROM transactions
-            \\ORDER BY date_year DESC, date_month DESC, date_day DESC, rowid DESC;
-        ;
+        // "Alle Konten" leaves out hidden accounts; one account asked for by id is shown.
+        const sql_all = "SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, excluded " ++
+            "FROM transactions WHERE " ++ visible_accounts ++ " ORDER BY date_year DESC, date_month DESC, date_day DESC, rowid DESC;";
         const sql_filtered =
             \\SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, excluded
             \\FROM transactions
@@ -2020,7 +2034,7 @@ pub const Db = struct {
             \\ORDER BY date_year DESC, date_month DESC, date_day DESC, rowid DESC;
         ;
 
-        const sql = if (has_filter) sql_filtered else sql_all;
+        const sql: [*:0]const u8 = if (has_filter) sql_filtered else sql_all;
         return self.txnRowsJson(sql, has_filter, acct_ptr, acct_len, buf, buf_len);
     }
 
@@ -2028,11 +2042,8 @@ pub const Db = struct {
     /// Same JSON shape as getTransactionsJsonFiltered.
     pub fn getPendingJsonFiltered(self: *Db, buf: [*]u8, buf_len: usize, acct_ptr: ?[*]const u8, acct_len: u32) DbError!?usize {
         const has_filter = acct_ptr != null and acct_len > 0;
-        const sql_all =
-            \\SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, 0
-            \\FROM pending_transactions
-            \\ORDER BY date_year DESC, date_month DESC, date_day DESC, rowid DESC;
-        ;
+        const sql_all = "SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, 0 " ++
+            "FROM pending_transactions WHERE " ++ visible_accounts ++ " ORDER BY date_year DESC, date_month DESC, date_day DESC, rowid DESC;";
         const sql_filtered =
             \\SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, 0
             \\FROM pending_transactions
@@ -2183,7 +2194,7 @@ pub const Db = struct {
     }
 
     pub fn getAccountsJson(self: *Db, buf: [*]u8, buf_len: usize) DbError!?usize {
-        const sql = "SELECT id, name, bank, color, balance_cents, balance_date FROM accounts WHERE deleted = 0 ORDER BY name;";
+        const sql = "SELECT id, name, bank, color, balance_cents, balance_date, hidden FROM accounts WHERE deleted = 0 ORDER BY name;";
         var stmt: ?*c.sqlite3_stmt = null;
         if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) != c.SQLITE_OK or stmt == null) return DbError.PrepareFailed;
         defer _ = c.sqlite3_finalize(stmt.?);
@@ -2254,7 +2265,7 @@ pub const Db = struct {
                 pos += jsonEscapeString(buf[pos..buf_len], bp[0..bal_date_len]) orelse return null;
             }
 
-            const p7 = "\"}";
+            const p7 = if (c.sqlite3_column_int(s, 6) != 0) "\",\"hidden\":1}" else "\",\"hidden\":0}";
             if (pos + p7.len > buf_len) return null;
             @memcpy(buf[pos .. pos + p7.len], p7);
             pos += p7.len;
@@ -2298,6 +2309,18 @@ pub const Db = struct {
         if (c.sqlite3_bind_text(s, 3, color, @intCast(color_len), c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
         if (c.sqlite3_bind_int64(s, 4, nowMs()) != c.SQLITE_OK) return DbError.BindFailed;
         if (c.sqlite3_step(s) != c.SQLITE_DONE) return DbError.StepFailed;
+    }
+
+    /// Hides or shows an account in "Alle Konten" lists and sums (synced).
+    pub fn setAccountHidden(self: *Db, id: []const u8, hidden: bool) DbError!void {
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, "UPDATE accounts SET hidden = ?2, updated_at = ?3 WHERE id = ?1;", -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(st.?);
+        _ = c.sqlite3_bind_text(st.?, 1, id.ptr, @intCast(id.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_int(st.?, 2, if (hidden) 1 else 0);
+        _ = c.sqlite3_bind_int64(st.?, 3, nowMs());
+        if (c.sqlite3_step(st.?) != c.SQLITE_DONE) return DbError.StepFailed;
+        if (c.sqlite3_changes(self.handle) == 0) return DbError.StepFailed;
     }
 
     pub fn deleteAccount(self: *Db, id: [*]const u8, id_len: u32) DbError!void {
@@ -2963,7 +2986,7 @@ pub const Db = struct {
 
         // --- accounts ---
         {
-            const sql = "SELECT id, name, bank, color, deleted, updated_at, balance_cents, balance_date FROM accounts WHERE updated_at >= ?1;";
+            const sql = "SELECT id, name, bank, color, deleted, updated_at, balance_cents, balance_date, hidden FROM accounts WHERE updated_at >= ?1;";
             var stmt: ?*c.sqlite3_stmt = null;
             if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) != c.SQLITE_OK or stmt == null) return DbError.PrepareFailed;
             defer _ = c.sqlite3_finalize(stmt.?);
@@ -3032,9 +3055,10 @@ pub const Db = struct {
                     const bd_len: usize = @intCast(c.sqlite3_column_bytes(s, 7));
                     pos += jsonEscapeString(buf[pos..buf_len], bd_ptr[0..bd_len]) orelse return null;
                 }
-                if (pos >= buf_len) return null;
-                buf[pos] = '"';
-                pos += 1;
+                const p_hidden = if (c.sqlite3_column_int(s, 8) != 0) "\",\"hidden\":1" else "\",\"hidden\":0";
+                if (pos + p_hidden.len > buf_len) return null;
+                @memcpy(buf[pos .. pos + p_hidden.len], p_hidden);
+                pos += p_hidden.len;
 
                 const p_close = "},\"updated_at\":";
                 if (pos + p_close.len > buf_len) return null;
@@ -3705,11 +3729,12 @@ pub const Db = struct {
         // Upsert, not INSERT OR REPLACE: REPLACE deletes the row first and would reset
         // the local statement balance to 0. The balance with the newer date wins.
         const sql =
-            \\INSERT INTO accounts (id, name, bank, color, updated_at, balance_cents, balance_date)
-            \\VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            \\INSERT INTO accounts (id, name, bank, color, updated_at, balance_cents, balance_date, hidden)
+            \\VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, COALESCE(json_extract(?8, '$.hidden'), 0))
             \\ON CONFLICT(id) DO UPDATE SET
             \\  name = excluded.name, bank = excluded.bank, color = excluded.color,
             \\  deleted = 0, updated_at = excluded.updated_at,
+            \\  hidden = COALESCE(json_extract(?8, '$.hidden'), accounts.hidden),
             \\  balance_cents = CASE WHEN excluded.balance_date != '' AND excluded.balance_date >= accounts.balance_date
             \\    THEN excluded.balance_cents ELSE accounts.balance_cents END,
             \\  balance_date = CASE WHEN excluded.balance_date != '' AND excluded.balance_date >= accounts.balance_date
@@ -3726,6 +3751,8 @@ pub const Db = struct {
         if (c.sqlite3_bind_int64(s, 5, updated_at) != c.SQLITE_OK) return DbError.BindFailed;
         if (c.sqlite3_bind_int64(s, 6, balance_cents) != c.SQLITE_OK) return DbError.BindFailed;
         if (c.sqlite3_bind_text(s, 7, @ptrCast(balance_date.ptr), @intCast(balance_date.len), c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
+        // Rows from older clients have no "hidden": the local choice stays.
+        if (c.sqlite3_bind_text(s, 8, @ptrCast(data.ptr), @intCast(data.len), c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
         if (c.sqlite3_step(s) != c.SQLITE_DONE) return DbError.StepFailed;
     }
 
@@ -4994,4 +5021,48 @@ test "recurring decisions sync: last write wins, both tables" {
     try std.testing.expectEqualStrings("Musterhost", c.sqlite3_column_text(st.?, 0).?[0..10]);
     try std.testing.expectEqual(@as(c_int, 1), c.sqlite3_column_int(st.?, 1));
     try std.testing.expectEqual(@as(i64, 1010), c.sqlite3_column_int64(st.?, 2));
+}
+
+test "hidden accounts leave Alle Konten lists and sums, stay in search and sync" {
+    var a = try Db.init(":memory:");
+    defer a.close();
+    try a.ensureAccount("giro", "Giro", "#4361ee");
+    try a.ensureAccount("visa", "Visa", "#4361ee");
+    try a.exec("INSERT INTO transactions (id, date_year, date_month, date_day, description, amount_cents, account) VALUES ('gggggggggggggggggggggggggggggggg', 2026, 11, 2, 'MIETE', -50000, 'giro'), ('vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv', 2026, 11, 3, 'KARTE', -2000, 'visa');");
+    try a.setAccountHidden("visa", true);
+
+    var buf: [16384]u8 = undefined;
+    // "Alle Konten": only the visible account.
+    var n = (try a.getTransactionsJsonFiltered(&buf, buf.len, null, 0)) orelse return error.TestUnexpectedResult;
+    try expectHas(buf[0..n], std.mem.indexOf(u8, buf[0..n], "\"id\":\"gggggggggggggggggggggggggggggggg\"") != null);
+    try expectHas(buf[0..n], std.mem.indexOf(u8, buf[0..n], "\"id\":\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"") == null);
+    // Asked for by id, the hidden account still shows.
+    n = (try a.getTransactionsJsonFiltered(&buf, buf.len, "visa", 4)) orelse return error.TestUnexpectedResult;
+    try expectHas(buf[0..n], std.mem.indexOf(u8, buf[0..n], "\"id\":\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"") != null);
+    // Search / export read everything.
+    n = (try a.getTransactionsJson(&buf, buf.len)) orelse return error.TestUnexpectedResult;
+    try expectHas(buf[0..n], std.mem.indexOf(u8, buf[0..n], "\"id\":\"vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\"") != null);
+    // Sums leave it out.
+    n = @import("summary.zig").getSummaryJsonFiltered(a.handle, 2026, 11, &buf, buf.len, null, 0) orelse return error.TestUnexpectedResult;
+    try expectHas(buf[0..n], std.mem.indexOf(u8, buf[0..n], "\"expenses\":500.00") != null);
+    n = (try a.getAccountsJson(&buf, buf.len)) orelse return error.TestUnexpectedResult;
+    try expectHas(buf[0..n], std.mem.indexOf(u8, buf[0..n], "\"id\":\"visa\",\"name\":\"Visa\",\"bank\":\"visa\",\"color\":\"#4361ee\",\"balance_cents\":0,\"balance_date\":\"\",\"hidden\":1}") != null);
+
+    // The choice syncs; a row from an older client (no "hidden") keeps it.
+    n = (try a.getChangesJson(0, &buf, buf.len)) orelse return error.TestUnexpectedResult;
+    var b = try Db.init(":memory:");
+    defer b.close();
+    _ = try b.applyChanges(buf[0..n]);
+    _ = try b.applyChanges(
+        \\{"rows":[{"table":"accounts","id":"visa","data":{"name":"Visa","bank":"visa","color":"#4361ee","deleted":0},"updated_at":99999999999999}]}
+    );
+    n = (try b.getAccountsJson(&buf, buf.len)) orelse return error.TestUnexpectedResult;
+    try expectHas(buf[0..n], std.mem.indexOf(u8, buf[0..n], "\"name\":\"Visa\",\"bank\":\"visa\",\"color\":\"#4361ee\",\"balance_cents\":0,\"balance_date\":\"\",\"hidden\":1}") != null);
+    try std.testing.expectError(DbError.StepFailed, b.setAccountHidden("nope", true));
+}
+fn expectHas(hay: []const u8, ok: bool) !void {
+    if (!ok) {
+        std.debug.print("JSON: {s}\n", .{hay});
+        return error.TestUnexpectedResult;
+    }
 }

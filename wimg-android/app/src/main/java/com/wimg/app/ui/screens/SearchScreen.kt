@@ -126,7 +126,8 @@ fun SearchScreen(selectedAccount: String?, navController: NavController, initial
 
     LaunchedEffect(selectedAccount, Changes.version) {
         val (t, a) = withContext(Dispatchers.IO) {
-            LibWimg.getTransactionsFiltered(selectedAccount).sortedByDescending { it.date } to LibWimg.getAccounts().associateBy { it.id }
+            // Search keeps hidden accounts ("Ihre Umsätze bleiben in der Suche").
+            (if (selectedAccount == null) LibWimg.getTransactions() else LibWimg.getTransactionsFiltered(selectedAccount)).sortedByDescending { it.date } to LibWimg.getAccounts().associateBy { it.id }
         }
         all = t; accounts = a
     }

@@ -23,6 +23,8 @@ extern int32_t wimg_detect_recurring(void);
 extern const uint8_t *wimg_get_recurring_payments(const uint8_t *id, uint32_t id_len);
 extern const uint8_t *wimg_undo(void);
 extern const uint8_t *wimg_get_rules(void);
+extern int32_t wimg_set_account_hidden(const uint8_t *id, uint32_t id_len, uint8_t hidden);
+extern int32_t wimg_update_account(const uint8_t *data, uint32_t len);
 extern int32_t wimg_set_recurring_hidden(const uint8_t *id, uint32_t id_len, uint8_t hidden);
 extern int32_t wimg_edit_recurring(const uint8_t *id, uint32_t id_len, const uint8_t *name, uint32_t name_len, int32_t category, const uint8_t *interval, uint32_t interval_len, int64_t fixed_cents);
 extern int32_t wimg_accept_recurring_price(const uint8_t *id, uint32_t id_len);
@@ -160,6 +162,20 @@ JNIEXPORT jstring JNICALL JNI_FN(nativeImportCsv)(JNIEnv *env, jobject obj, jbyt
 
 #define WITH_UTF(js, var, len) const char *var = (*env)->GetStringUTFChars(env, js, NULL); jsize len = (*env)->GetStringUTFLength(env, js);
 #define END_UTF(js, var) (*env)->ReleaseStringUTFChars(env, js, var);
+
+JNIEXPORT jint JNICALL JNI_FN(nativeSetAccountHidden)(JNIEnv *env, jobject obj, jstring id, jint hidden) {
+    WITH_UTF(id, c, n)
+    int32_t rc = wimg_set_account_hidden((const uint8_t *)c, n, (uint8_t)hidden);
+    END_UTF(id, c)
+    return rc;
+}
+
+JNIEXPORT jint JNICALL JNI_FN(nativeUpdateAccount)(JNIEnv *env, jobject obj, jstring json) {
+    WITH_UTF(json, c, n)
+    int32_t rc = wimg_update_account((const uint8_t *)c, n);
+    END_UTF(json, c)
+    return rc;
+}
 
 JNIEXPORT jint JNICALL JNI_FN(nativeSetRecurringHidden)(JNIEnv *env, jobject obj, jstring id, jint hidden) {
     WITH_UTF(id, c, n)

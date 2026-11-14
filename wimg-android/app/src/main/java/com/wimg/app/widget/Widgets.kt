@@ -63,7 +63,7 @@ suspend fun updateAllWidgets(context: Context) {
 
 /** Widgets run without Compose state: seed the locale the app uses. */
 private fun t(context: Context, key: String): String {
-    val stored = context.getSharedPreferences("wimg", Context.MODE_PRIVATE).getString("wimg_locale", "de") ?: "de"
+    val stored = LocaleState.stored(context)
     if (LocaleState.locale != stored) LocaleState.locale = stored
     return __t(key)
 }

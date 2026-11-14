@@ -88,6 +88,39 @@ object BackgroundRefresh {
     fun hasCredentials(context: Context): Boolean =
         BankConnections.all(context).any { PinStore.has(context, it.id) }
 
+    // MARK: - Mitteilungen (Einstellungen › Mitteilungen, board 20)
+
+    const val NOTIFY_MONTH_END = "wimg_notify_month_end"
+    const val NOTIFY_NEW_TX = "wimg_notify_new_tx"
+    const val NOTIFY_TAN = "wimg_notify_tan"
+    /** "Nicht stören": "22-8" style start and end hour, or empty for off. */
+    const val QUIET_HOURS = "wimg_quiet_hours"
+
+    fun notifyOn(context: Context, key: String): Boolean =
+        context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).getBoolean(key, true)
+
+    fun setNotify(context: Context, key: String, on: Boolean) =
+        context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).edit().putBoolean(key, on).apply()
+
+    /** Start and end hour of the quiet time, or null when it is off. */
+    fun quietHours(context: Context): Pair<Int, Int>? =
+        context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).getString(QUIET_HOURS, "")
+            ?.split("-")?.mapNotNull { it.toIntOrNull() }?.takeIf { it.size == 2 }?.let { it[0] to it[1] }
+
+    fun setQuietHours(context: Context, hours: Pair<Int, Int>?) =
+        context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).edit()
+            .putString(QUIET_HOURS, hours?.let { "${it.first}-${it.second}" } ?: "").apply()
+
+    private fun inQuietHours(context: Context): Boolean {
+        val (from, to) = quietHours(context) ?: return false
+        val h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        return if (from <= to) h in from until to else h >= from || h < to
+    }
+
+    /** "Beträge ausblenden" is on: notifications carry no amounts. */
+    internal fun amountsHidden(context: Context): Boolean =
+        context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE).getBoolean("wimg_secure_screen", false)
+
     // MARK: - Scheduling
 
     fun enqueue(context: Context) {
@@ -150,8 +183,7 @@ object BackgroundRefresh {
      * regardless of the user's setting.
      */
     private fun tr(context: Context, key: String): String {
-        val stored = context.getSharedPreferences("wimg", Context.MODE_PRIVATE)
-            .getString("wimg_locale", "de") ?: "de"
+        val stored = LocaleState.stored(context)
         if (LocaleState.locale != stored) LocaleState.locale = stored
         return __t(key)
     }
@@ -160,7 +192,7 @@ object BackgroundRefresh {
         val bank = outcome.bank?.takeIf { it.isNotBlank() } ?: tr(context, "Deine Bank")
         when (outcome) {
             is Outcome.Imported -> {
-                if (outcome.count <= 0) return
+                if (outcome.count <= 0 || !notifyOn(context, NOTIFY_NEW_TX)) return
                 post(
                     context,
                     if (outcome.count == 1) tr(context, "1 neuer Umsatz") else tr(context, "%d neue Umsätze").format(outcome.count),
@@ -172,15 +204,15 @@ object BackgroundRefresh {
                 val prefs = context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE)
                 val last = prefs.getLong(TAN_LAST_NOTIFIED_KEY, 0L)
                 val now = System.currentTimeMillis()
-                if (last > 0 && now - last < TAN_COOLDOWN_MS) return
-                prefs.edit().putLong(TAN_LAST_NOTIFIED_KEY, now).apply()
-                post(
+                if (!notifyOn(context, NOTIFY_TAN) || (last > 0 && now - last < TAN_COOLDOWN_MS)) return
+                val sent = post(
                     context,
                     tr(context, "TAN erforderlich"),
                     tr(context, "%s möchte für den Abruf eine TAN. Höchstens eine solche Mitteilung pro Tag.").format(bank),
                     route = "fints",
                     action = tr(context, "Jetzt abrufen"),
                 )
+                if (sent) prefs.edit().putLong(TAN_LAST_NOTIFIED_KEY, now).apply()
             }
             is Outcome.AuthFailed -> post(
                 context,
@@ -195,7 +227,7 @@ object BackgroundRefresh {
     /** Month-end notice (board 13): once per month in its first days, opens Rückblick. */
     internal fun notifyMonthEnd(context: Context, force: Boolean = false) {
         val cal = Calendar.getInstance()
-        if (!force && cal.get(Calendar.DAY_OF_MONTH) > 5) return
+        if (!force && (cal.get(Calendar.DAY_OF_MONTH) > 5 || !notifyOn(context, NOTIFY_MONTH_END))) return
         cal.add(Calendar.MONTH, -1)
         val year = cal.get(Calendar.YEAR)
         val month = cal.get(Calendar.MONTH) + 1
@@ -204,7 +236,6 @@ object BackgroundRefresh {
         if (!force && prefs.getString(MONTH_END_KEY, null) == key) return
         val summary = runCatching { com.wimg.app.bridge.LibWimg.getSummaryFiltered(year, month, null) }.getOrNull() ?: return
         if (summary.tx_count == 0) return
-        prefs.edit().putString(MONTH_END_KEY, key).apply()
 
         val names = java.text.DateFormatSymbols(if (LocaleState.locale == "en") java.util.Locale.ENGLISH else java.util.Locale.GERMAN).months
         cal.add(Calendar.MONTH, -1)
@@ -219,18 +250,22 @@ object BackgroundRefresh {
                 else -> tr(context, "Ausgaben wie im %s.").format(names[cal.get(Calendar.MONTH)])
             }
         } else ""
-        post(
+        val sent = post(
             context,
             tr(context, "Dein %s ist abgeschlossen").format(names[month - 1]),
             listOf(compare, tr(context, "Tippe für deinen Monatsabschluss.")).filter { it.isNotEmpty() }.joinToString(" "),
             route = "review",
             id = MONTH_END_NOTIFICATION_ID,
             month = key,
+            force = force,
         )
+        // Not sent in the quiet time: tomorrow's run tries again.
+        if (sent) prefs.edit().putString(MONTH_END_KEY, key).apply()
     }
 
-    private fun post(context: Context, title: String, body: String, route: String, action: String? = null, id: Int = NOTIFICATION_ID, month: String? = null) {
-        if (!hasNotificationPermission(context)) return
+    private fun post(context: Context, title: String, body: String, route: String, action: String? = null, id: Int = NOTIFICATION_ID, month: String? = null, force: Boolean = false): Boolean {
+        if (!hasNotificationPermission(context)) return false
+        if (!force && inQuietHours(context)) return false
         ensureChannel(context)
         val open = PendingIntent.getActivity(
             context,
@@ -250,10 +285,12 @@ object BackgroundRefresh {
             .setAutoCancel(true)
             .setContentIntent(open)
         if (action != null) builder.addAction(0, action, open)
-        try {
+        return try {
             NotificationManagerCompat.from(context).notify(id, builder.build())
+            true
         } catch (_: SecurityException) {
             // Permission revoked between the check above and the post — ignore.
+            false
         }
     }
 

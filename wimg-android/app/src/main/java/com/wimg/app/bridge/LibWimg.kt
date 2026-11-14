@@ -102,6 +102,18 @@ object LibWimg {
         json.decodeFromString(str)
     }
 
+    fun setAccountHidden(id: String, hidden: Boolean) = lock.withLock { WimgJni.nativeSetAccountHidden(id, if (hidden) 1 else 0) == 0 }
+
+    /** "Name in wimg": the bank's id stays, only the shown name changes. */
+    fun renameAccount(account: Account, name: String) = lock.withLock {
+        val body = kotlinx.serialization.json.buildJsonObject {
+            put("id", kotlinx.serialization.json.JsonPrimitive(account.id))
+            put("name", kotlinx.serialization.json.JsonPrimitive(name))
+            put("color", kotlinx.serialization.json.JsonPrimitive(account.color))
+        }.toString()
+        WimgJni.nativeUpdateAccount(body) == 0
+    }
+
     // --- Recurring ---
 
     fun getRules(): List<Rule> = lock.withLock {

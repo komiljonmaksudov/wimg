@@ -86,6 +86,7 @@ import com.wimg.app.ui.components.Dock
 import com.wimg.app.ui.components.DockKind
 import com.wimg.app.ui.components.DockRow
 import com.wimg.app.ui.components.QuietLine
+import com.wimg.app.ui.components.GroupLabel
 import com.wimg.app.ui.components.RowDivider
 import com.wimg.app.ui.components.WimgDates
 import com.wimg.app.ui.components.WimgGroup
@@ -512,7 +513,7 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
     )
 
     if (!setup && bank != null && conn != null) {
-        BankDetail(bank!!, conn, reload, onOlder = { fetchOlder() })
+        BankDetail(bank!!, conn, reload, onOlder = { fetchOlder() }, onRename = { navController?.navigate("settings/accounts") })
         return
     }
     if (!setup && conn != null) {
@@ -740,7 +741,7 @@ private fun TanPage(bankName: String, tan: FintsResult?, input: String, onInput:
 }
 
 @Composable
-private fun BankDetail(b: BankInfo, conn: BankConnection, reload: Int, onOlder: () -> Unit) {
+private fun BankDetail(b: BankInfo, conn: BankConnection, reload: Int, onOlder: () -> Unit, onRename: () -> Unit) {
     val context = LocalContext.current
     val c = Wimg.colors
     var accounts by remember { mutableStateOf<List<Account>>(emptyList()) }
@@ -784,6 +785,16 @@ private fun BankDetail(b: BankInfo, conn: BankConnection, reload: Int, onOlder: 
                 })
                 RowDivider()
                 WimgRow(L("Umsätze"), trailing = { Text("$count", style = WimgType.body, color = c.text) })
+            }
+            if (accounts.isNotEmpty()) {
+                GroupLabel(L("Konten bei dieser Anmeldung"))
+                AccountToggles(accounts, fetched = true)
+                QuietLine(L("Ausgeblendete Konten zählen nicht in „Verfügbar“ und den Kategorien. Ihre Umsätze bleiben in der Suche."))
+                WimgGroup {
+                    accounts.forEach { a ->
+                        WimgRow(L("Name in wimg"), desc = if (a.name != a.id) L("Von der Bank: %s", a.id) else L("Von der Bank"), chevron = true, onClick = onRename, trailing = { Text(a.name, style = WimgType.body, color = c.text2, maxLines = 1) })
+                    }
+                }
             }
             Spacer(Modifier.height(14.dp))
             WimgGroup {

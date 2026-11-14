@@ -1036,6 +1036,19 @@ export fn wimg_delete_account(id: [*]const u8, id_len: u32) i32 {
     return 0;
 }
 
+/// "Konten ein- und ausblenden": a hidden account leaves "Alle Konten" lists and sums.
+export fn wimg_set_account_hidden(id: [*]const u8, id_len: u32, hidden: u8) i32 {
+    var database = global_db orelse {
+        setError("wimg_set_account_hidden: database not initialized", .{});
+        return -1;
+    };
+    database.setAccountHidden(id[0..id_len], hidden != 0) catch |err| {
+        setError("wimg_set_account_hidden: failed: {s}", .{@errorName(err)});
+        return -1;
+    };
+    return 0;
+}
+
 /// Get transactions filtered by account. Pass empty string / 0 len for all.
 export fn wimg_get_transactions_filtered(acct: [*]const u8, acct_len: u32) ?[*]const u8 {
     var database = global_db orelse {

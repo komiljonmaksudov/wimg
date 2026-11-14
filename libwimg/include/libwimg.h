@@ -100,6 +100,10 @@ int32_t wimg_add_account(const uint8_t *data, uint32_t len);
 // Update an account. Input is JSON: {"id":"...","name":"...","color":"#..."}
 int32_t wimg_update_account(const uint8_t *data, uint32_t len);
 
+// Hide (1) or show (0) an account: hidden ones leave "Alle Konten" lists and
+// sums (get_transactions_filtered/get_pending/get_summary with empty account).
+int32_t wimg_set_account_hidden(const uint8_t *id, uint32_t id_len, uint8_t hidden);
+
 // Delete an account by ID.
 int32_t wimg_delete_account(const uint8_t *id, uint32_t id_len);
 

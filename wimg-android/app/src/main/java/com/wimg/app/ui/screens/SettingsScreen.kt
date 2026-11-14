@@ -121,7 +121,7 @@ import java.io.File
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun SettingsPage(over: String?, title: String, content: @Composable ColumnScope.() -> Unit) {
+internal fun SettingsPage(over: String?, title: String, content: @Composable ColumnScope.() -> Unit) {
     BandScreen(band = { BandTitle(over, title) }) {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = barClearance()),
@@ -131,7 +131,7 @@ private fun SettingsPage(over: String?, title: String, content: @Composable Colu
 }
 
 @Composable
-private fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier, fill: Boolean = false) {
+internal fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier, fill: Boolean = false) {
     val c = Wimg.colors
     // fill: on its own line in a page, full width with equal segments (not a
     // label-wide pill floating in the middle). Inside a row it stays compact.
@@ -152,7 +152,7 @@ private fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> U
 }
 
 @Composable
-private fun ValueText(text: String, color: Color = Wimg.colors.text2) = Text(text, style = WimgType.body, color = color, maxLines = 1)
+internal fun ValueText(text: String, color: Color = Wimg.colors.text2) = Text(text, style = WimgType.body, color = color, maxLines = 1)
 
 private fun shareFile(context: Context, content: String, filename: String, mime: String) {
     val file = File(context.cacheDir, filename)
@@ -180,7 +180,6 @@ fun SettingsScreen(navController: NavController? = null) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("wimg", 0)
     var theme by remember { mutableIntStateOf(prefs.getInt("wimg_theme", -1)) }
-    var languageOpen by remember { mutableStateOf(false) }
     var deleteOpen by remember { mutableStateOf(false) }
     var bgRefresh by remember { mutableStateOf(BackgroundRefresh.isEnabled(context)) }
     val hasPin = remember { BackgroundRefresh.hasCredentials(context) }
@@ -190,11 +189,10 @@ fun SettingsScreen(navController: NavController? = null) {
     BarContribution(
         chip = null,
         panel = when {
-            languageOpen -> { { LanguagePanel { languageOpen = false } } }
             deleteOpen -> { { DeleteAllPanel(navController) { deleteOpen = false } } }
             else -> null
         },
-        onPanelDismiss = { languageOpen = false; deleteOpen = false },
+        onPanelDismiss = { deleteOpen = false },
     )
 
     SettingsPage(null, L("Einstellungen")) {
@@ -209,8 +207,8 @@ fun SettingsScreen(navController: NavController? = null) {
                 })
             })
             RowDivider()
-            WimgRow(L("Sprache"), chevron = true, onClick = { languageOpen = true }, trailing = {
-                ValueText(if (LocaleState.locale == "en") "English" else "Deutsch")
+            WimgRow(L("Sprache"), chevron = true, onClick = { navController?.navigate("settings/appearance") }, trailing = {
+                ValueText(languageLabel(context))
             })
         }
 
@@ -239,6 +237,13 @@ fun SettingsScreen(navController: NavController? = null) {
                     }, label = L("Schnellabfrage im Hintergrund"))
                 },
             )
+        }
+
+        GroupLabel(L("Konten und Mitteilungen"))
+        WimgGroup {
+            WimgRow(L("Konten"), desc = L("Ein- und ausblenden, umbenennen"), chevron = true, onClick = { navController?.navigate("settings/accounts") })
+            RowDivider()
+            WimgRow(L("Mitteilungen"), desc = L("Monatsabschluss, neue Umsätze, TAN"), chevron = true, onClick = { navController?.navigate("settings/notifications") })
         }
 
         GroupLabel(L("Sicherheit"))
@@ -306,23 +311,122 @@ private fun SyncStatusValue(on: Boolean) {
 }
 
 @Composable
-private fun LanguagePanel(onDone: () -> Unit) {
+private fun languageLabel(context: Context): String = when (context.getSharedPreferences("wimg", 0).getString("wimg_locale", "de")) {
+    "en" -> "English"
+    "system" -> L("Systemsprache")
+    else -> "Deutsch"
+}
+
+// ---------------------------------------------------------------------------
+// Design und Sprache (board 20/03)
+// ---------------------------------------------------------------------------
+
+@Composable
+fun SettingsAppearanceScreen(navController: NavController?) {
     val context = LocalContext.current
+    val prefs = context.getSharedPreferences("wimg", 0)
+    var theme by remember { mutableIntStateOf(prefs.getInt("wimg_theme", -1)) }
+    var choice by remember { mutableStateOf(prefs.getString("wimg_locale", "de") ?: "de") }
+    BarContribution(null, null, {}, DetailBarSpec(onBack = { navController?.popBackStack() }, actionLabel = null, actionIcon = null, onAction = {}, backLabel = L("Einstellungen")))
+
+    SettingsPage(L("Einstellungen"), L("Design und Sprache")) {
+        Spacer(Modifier.height(14.dp))
+        WimgGroup {
+            WimgRow(L("Design"), trailing = {
+                val modes = listOf(1, 2, -1)
+                Segmented(listOf(L("Hell"), L("Dunkel"), L("System")), modes.indexOf(theme).coerceAtLeast(2), { i ->
+                    theme = modes[i]
+                    prefs.edit().putInt("wimg_theme", theme).apply()
+                    ThemeState.mode = theme
+                })
+            })
+        }
+        GroupLabel(L("Sprache"))
+        WimgGroup {
+            val systemName = if (java.util.Locale.getDefault().language == "de") "Deutsch" else "English"
+            listOf(Triple("de", "Deutsch", null), Triple("en", "English", null), Triple("system", L("Systemsprache"), systemName)).forEachIndexed { i, (code, label, sub) ->
+                if (i > 0) RowDivider()
+                RadioRow(label, sub, choice == code) {
+                    choice = code
+                    prefs.edit().putString("wimg_locale", code).apply()
+                    LocaleState.locale = LocaleState.stored(context)
+                }
+            }
+        }
+        GroupLabel(L("Zahlen und Datum"))
+        WimgGroup {
+            WimgRow(L("Beträge"), trailing = { ValueText(com.wimg.app.ui.components.amountText(1234.56, showPlus = false)) })
+            RowDivider()
+            WimgRow(L("Datum"), trailing = { ValueText(com.wimg.app.ui.components.WimgDates.dayMonth(12, 11)) })
+        }
+        QuietLine(L("Buchungstexte der Bank bleiben in ihrer Sprache."))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Mitteilungen (board 20/02)
+// ---------------------------------------------------------------------------
+
+@Composable
+fun SettingsNotificationsScreen(navController: NavController?) {
+    val context = LocalContext.current
+    var version by remember { mutableIntStateOf(0) }
+    var quietOpen by remember { mutableStateOf(false) }
+    val quiet = remember(version) { BackgroundRefresh.quietHours(context) }
+    BarContribution(
+        null,
+        if (quietOpen) { {
+            QuietHoursPanel(quiet) { h -> BackgroundRefresh.setQuietHours(context, h); version++; quietOpen = false }
+        } } else null,
+        { quietOpen = false },
+        DetailBarSpec(onBack = { navController?.popBackStack() }, actionLabel = null, actionIcon = null, onAction = {}, backLabel = L("Einstellungen")),
+    )
+
+    @Composable
+    fun toggle(key: String, title: String, desc: String) {
+        val on = remember(version) { BackgroundRefresh.notifyOn(context, key) }
+        WimgRow(title, desc = desc, trailing = {
+            WimgToggle(on, { BackgroundRefresh.setNotify(context, key, it); version++ }, label = title)
+        })
+    }
+
+    SettingsPage(L("Einstellungen"), L("Mitteilungen")) {
+        Spacer(Modifier.height(14.dp))
+        WimgGroup {
+            toggle(BackgroundRefresh.NOTIFY_MONTH_END, L("Monatsabschluss"), L("Einmal am Monats- bzw. Gehaltsende"))
+            RowDivider()
+            toggle(BackgroundRefresh.NOTIFY_NEW_TX, L("Neue Umsätze"), L("Nach dem Hintergrund-Abruf, gesammelt"))
+            RowDivider()
+            toggle(BackgroundRefresh.NOTIFY_TAN, L("TAN nötig"), L("Wenn die Bank eine TAN will · höchstens 1× am Tag"))
+        }
+        GroupLabel(L("Ruhezeit"))
+        WimgGroup {
+            WimgRow(
+                L("Nicht stören"), desc = L("Keine Mitteilungen in dieser Zeit"), chevron = true, onClick = { quietOpen = true },
+                trailing = { ValueText(quiet?.let { "%d:00 – %d:00".format(it.first, it.second) } ?: L("Aus")) },
+            )
+        }
+        if (!BackgroundRefresh.hasNotificationPermission(context)) {
+            QuietLine(
+                L("Mitteilungen sind für wimg in den Android-Einstellungen aus. Tippe, um sie einzuschalten."), color = Wimg.colors.warn,
+                modifier = Modifier.clickable {
+                    context.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName))
+                },
+            )
+        }
+        QuietLine(L("Mitteilungen zeigen keine Beträge, wenn „Beträge ausblenden“ an ist."))
+    }
+}
+
+@Composable
+private fun QuietHoursPanel(current: Pair<Int, Int>?, onPick: (Pair<Int, Int>?) -> Unit) {
     val c = Wimg.colors
     BarPanel {
-        Text(L("Sprache"), style = WimgType.sheetTitle.copy(fontSize = WimgType.sheetTitle.fontSize * 0.86f), color = c.text, modifier = Modifier.padding(bottom = 8.dp))
-        listOf("de" to "Deutsch", "en" to "English").forEach { (code, label) ->
-            val on = LocaleState.locale == code
-            Row(
-                Modifier.fillMaxWidth().clip(WimgShape.dockAction).clickable {
-                    context.getSharedPreferences("wimg", 0).edit().putString("wimg_locale", code).apply()
-                    LocaleState.locale = code
-                    onDone()
-                }.padding(horizontal = 8.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(label, style = WimgType.rowTitle, color = c.text, modifier = Modifier.weight(1f))
-                if (on) Icon(Icons.Outlined.Check, contentDescription = null, tint = c.accent, modifier = Modifier.size(20.dp))
+        Text(L("Nicht stören"), style = WimgType.sheetTitle, color = c.text, modifier = Modifier.padding(start = 4.dp, bottom = 12.dp))
+        WimgGroup {
+            listOf(null, 22 to 8, 23 to 7, 21 to 7).forEachIndexed { i, h ->
+                if (i > 0) RowDivider()
+                RadioRow(h?.let { "%d:00 – %d:00".format(it.first, it.second) } ?: L("Aus"), null, h == current) { onPick(h) }
             }
         }
     }
@@ -407,9 +511,9 @@ fun SettingsLockScreen(navController: NavController?) {
 }
 
 @Composable
-private fun RadioRow(title: String, desc: String?, on: Boolean, onClick: () -> Unit) {
+internal fun RadioRow(title: String, desc: String?, on: Boolean, trailing: String? = null, onClick: () -> Unit) {
     val c = Wimg.colors
-    WimgRow(title, desc = desc, onClick = onClick, leading = {
+    WimgRow(title, desc = desc, onClick = onClick, trailing = trailing?.let { t -> { ValueText(t) } }, leading = {
         Box(
             Modifier.size(22.dp).clip(CircleShape).background(if (on) c.accent else Color.Transparent)
                 .border(1.5.dp, if (on) c.accent else c.text3, CircleShape),
