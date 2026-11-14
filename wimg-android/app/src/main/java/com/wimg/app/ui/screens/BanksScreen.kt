@@ -70,8 +70,9 @@ fun BanksScreen(navController: NavController?) {
         FinTSScreen(navController)
         return
     }
-    var accounts by remember { mutableStateOf<List<Account>>(emptyList()) }
-    LaunchedEffect(Changes.version) { accounts = LibWimg.getAccounts() }
+    // Read before the first frame, so the cards don't grow when the balance arrives.
+    var accounts by remember { mutableStateOf(LibWimg.ifFree { LibWimg.getAccounts() }.orEmpty()) }
+    LaunchedEffect(Changes.version) { accounts = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { LibWimg.getAccounts() } }
     // Logins from older builds have no bank name: take it from the catalog once.
     LaunchedEffect(connections) {
         if (connections.none { it.name.isBlank() }) return@LaunchedEffect

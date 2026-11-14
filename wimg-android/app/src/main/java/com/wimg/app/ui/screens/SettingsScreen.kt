@@ -405,10 +405,11 @@ fun SettingsPeriodScreen(navController: NavController?) {
         val p = periods ?: return@SettingsPage
         GroupLabel(L("Ein Monat beginnt"))
         val modes = listOf("salary", "calendar", "day")
-        Segmented(listOf(L("mit dem Gehalt"), L("am 1."), L("Fester Tag")), modes.indexOf(p.chosen).coerceAtLeast(0), { i ->
-            scope.launch {
-                withContext(Dispatchers.IO) { LibWimg.setPeriodMode(modes[i], if (modes[i] == "day") (if (p.day > 1) p.day else 15) else 0) }
-                Changes.bump()
+        var picked by remember(p.chosen) { mutableIntStateOf(modes.indexOf(p.chosen).coerceAtLeast(0)) }
+        Segmented(listOf(L("mit dem Gehalt"), L("am 1."), L("Fester Tag")), picked, { i ->
+            if (i != picked) {
+                picked = i
+                scope.launch { com.wimg.app.ui.components.PeriodState.setMode(modes[i], if (modes[i] == "day") (if (p.day > 1) p.day else 15) else 0) }
             }
         }, fill = true)
         Spacer(Modifier.height(12.dp))

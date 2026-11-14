@@ -21,6 +21,16 @@ object PeriodState {
         private set
 
     fun reload() { data = LibWimg.getPeriods(12) }
+
+    /**
+     * Gehalt / Kalender / Fester Tag. Only the periods reload: screens follow
+     * [data]. A global Changes.bump here reloaded every list in the app on each
+     * tap and made the switch feel stuck (sync pushes on resume anyway).
+     */
+    suspend fun setMode(mode: String, day: Int) = withContext(Dispatchers.IO) {
+        LibWimg.setPeriodMode(mode, day)
+        runCatching { reload() }
+    }
 }
 
 /** The current periods, reloaded after every change. */

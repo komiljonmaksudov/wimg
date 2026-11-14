@@ -208,7 +208,7 @@ private object FintsJob {
         lastRange = range
         Dock.show(DockRow(DockKind.Sync, __t("Umsätze laden"), __t("%s · läuft im Hintergrund").format(bankName)))
         scope.launch {
-            val result = runCatching { withFintsThread { decode(com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsFetch(fetchBody(range.first, range.second)) }) } }.getOrNull()
+            val result = runCatching { withFintsThread { decode(com.wimg.app.bridge.LibWimg.fintsFetch(fetchBody(range.first, range.second))) } }.getOrNull()
             running = false
             when {
                 result == null -> Dock.error(__t("Abruf fehlgeschlagen"), bankText(null), __t("Erneut")) { fetch(context, connId, range, bankName, onDone) }
@@ -242,6 +242,7 @@ private enum class Step { Bank, Login, Medium, Tan, Range }
 /** Umsätze, showing only [account] (a bank's statements land in the account named after it). */
 private fun openTransactions(account: String?) {
     TxTarget.account = account
+    com.wimg.app.ui.components.NavRequest.onTop = true
     com.wimg.app.ui.components.NavRequest.route = "transactions"
 }
 
@@ -372,7 +373,8 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
     }
 
     // ↻ on a card in Bankverbindungen: run the Schnellabfrage once the catalog is in.
-    var quickDone by remember { mutableStateOf(false) }
+    // Saveable: coming back to this page (e.g. from "Ansehen") must not fetch again.
+    var quickDone by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(bank) {
         if (quickOnOpen && !quickDone && bank != null && conn != null) { quickDone = true; quickRefresh() }
     }
@@ -753,18 +755,25 @@ private fun TanPage(bankName: String, tan: FintsResult?, input: String, onInput:
     }
 }
 
+/** Last known "Umsätze" count per bank, so the row doesn't flash 0 on the next visit. */
+private object BankTxCount { val last = HashMap<String, Int>() }
+
 @Composable
 private fun BankDetail(b: BankInfo, conn: BankConnection, reload: Int, onOlder: () -> Unit, onRename: () -> Unit) {
     val context = LocalContext.current
     val c = Wimg.colors
-    var accounts by remember { mutableStateOf<List<Account>>(emptyList()) }
-    var count by remember { mutableIntStateOf(0) }
+    // Read before the first frame: loading it a frame later made the band switch
+    // from "Bankverbindung" to the balance and pushed the whole page down.
+    // A bank's statements land in the account named after it.
+    var accounts by remember { mutableStateOf(LibWimg.ifFree { LibWimg.getAccounts() }.orEmpty().filter { it.id == conn.name }) }
+    var count by remember { mutableIntStateOf(BankTxCount.last[conn.name] ?: 0) }
     var bg by remember { mutableStateOf(BackgroundRefresh.isEnabled(context)) }
     val hasPin = PinStore.has(context, conn.id)
     LaunchedEffect(Changes.version, reload) {
-        // A bank's statements land in the account named after it.
-        accounts = LibWimg.getAccounts().filter { it.id == conn.name }
-        count = LibWimg.getTransactionsFiltered(conn.name).size
+        val (a, n) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            LibWimg.getAccounts().filter { it.id == conn.name } to LibWimg.getTransactionsFiltered(conn.name).size
+        }
+        accounts = a; count = n; BankTxCount.last[conn.name] = n
     }
     val withBalance = accounts.filter { it.balance != null }
     val lastAt = conn.lastFetchAt

@@ -118,7 +118,11 @@ fun WimgNavigation() {
 
     val navController = rememberNavController()
     LaunchedEffect(com.wimg.app.ui.components.NavRequest.route) {
-        com.wimg.app.ui.components.NavRequest.route?.let { navController.navigate(it) { popUpTo("dashboard") }; com.wimg.app.ui.components.NavRequest.route = null }
+        val req = com.wimg.app.ui.components.NavRequest
+        req.route?.let { r ->
+            if (req.onTop) navController.navigate(r) else navController.navigate(r) { popUpTo("dashboard") }
+            req.route = null; req.onTop = false
+        }
     }
     LaunchedEffect(afterOnboarding) {
         afterOnboarding?.let { navController.navigate(it); afterOnboarding = null }
@@ -133,6 +137,19 @@ fun WimgNavigation() {
                 val now = java.util.Calendar.getInstance()
                 val y = now.get(java.util.Calendar.YEAR); val m = now.get(java.util.Calendar.MONTH) + 1
                 ScreenCache.put(com.wimg.app.ui.screens.reviewKey(y, m, selectedAccount), com.wimg.app.ui.screens.loadReview(y, m, selectedAccount))
+                // Gehaltsmonat / Fester Tag: Übersicht and Rückblick show the current
+                // period, cached under its own key; fill those too, so neither
+                // page opens empty.
+                com.wimg.app.ui.components.PeriodState.reload()
+                val ps = com.wimg.app.ui.components.PeriodState.data
+                if (ps != null && !ps.isCalendar) {
+                    val cur = ps.periods.firstOrNull()
+                    if (cur != null) {
+                        val prev = ps.periods.getOrNull(1)
+                        ScreenCache.put(com.wimg.app.ui.screens.homePeriodKey(cur.from, selectedAccount), com.wimg.app.ui.screens.loadHomeRange(cur, prev, selectedAccount))
+                        ScreenCache.put(com.wimg.app.ui.screens.reviewPeriodKey(cur.from, selectedAccount), com.wimg.app.ui.screens.loadReviewRange(cur, prev, selectedAccount, ps.isSalary))
+                    }
+                }
             }
         }
     }
@@ -141,6 +158,7 @@ fun WimgNavigation() {
     var addOpen by remember { mutableStateOf(false) }
     val entry = navController.currentBackStackEntryAsState().value
     val route = entry?.destination?.route
+    if (com.wimg.app.FrameWatch.route != route) { com.wimg.app.FrameWatch.route = route; com.wimg.app.FrameWatch.changedAt = System.nanoTime() }
     // Set before the NavHost composes, not a frame later (see BarContribution).
     if (BarState.currentOwner != entry?.id) BarState.currentOwner = entry?.id
     // Named after the page whose bar is shown: page, name and chips change in one frame.
@@ -294,11 +312,14 @@ fun WimgNavigation() {
                 }
             }
             val detailBar = BarState.detail
-            // Search draws its own bar; never a stand-in of the page before it.
-            if (route?.startsWith("search") != true) {
-                // One FloatingBar call site for every kind of bar, so it is never torn
-                // down and rebuilt: the kind only changes its contentKey.
+            val searchBar = BarState.current.search
+            run {
+                // One FloatingBar call site for every kind of bar, search included, so
+                // it is never torn down and rebuilt: the kind only changes its
+                // contentKey, the surface glides to the new width and the content
+                // crossfades (place bar ⇄ search bar morph instead of swapping).
                 val kind = when {
+                    searchBar != null -> "search"
                     detailBar == null -> "place"
                     detailBar.actionLabel != null -> "action"
                     else -> "back"
@@ -307,11 +328,13 @@ fun WimgNavigation() {
                 // detour would break (bank setup mid-TAN, CSV import).
                 val searchHere = detailBar == null || (route?.startsWith("fints") != true && route != "import" && route != "manual")
                 FloatingBar(
-                    divider = detailBar == null || detailBar.onMore != null || searchHere || detailBar.extraIcon != null,
-                    fill = detailBar?.actionLabel != null,
+                    divider = searchBar == null && (detailBar == null || detailBar.onMore != null || searchHere || detailBar.extraIcon != null),
+                    fill = searchBar != null || detailBar?.actionLabel != null,
+                    full = searchBar != null,
                     contentKey = kind,
                     left = {
                         when {
+                            searchBar != null -> searchBar(this)
                             detailBar == null -> {
                                 // Read here, after the NavHost composed, so it names the page shown.
                                 val shown = PLACES.firstOrNull { it.route == (BarState.current.route ?: route) } ?: PLACES.first()
@@ -331,7 +354,8 @@ fun WimgNavigation() {
                         }
                     },
                     right = {
-                        if (detailBar == null) {
+                        if (searchBar != null) Unit
+                        else if (detailBar == null) {
                             BarIcon(BarIcons.Search, L("Suche")) { menuOpen = false; navController.navigate("search") }
                             val add = BarState.current.onAdd
                             if (addOpen) BarIcon(androidx.compose.material.icons.Icons.Outlined.Close, L("Schließen"), accent = true) { addOpen = false }

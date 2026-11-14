@@ -265,3 +265,4 @@ Split into `.claude/rules/` for context efficiency:
 - `testflight.md` — TestFlight setup, upload process, versioning
 - `ci-testflight.md` — GitHub Actions TestFlight upload (Apple secrets, signing, troubleshooting)
 - `fints.md` — FinTS 3.0 technical deep dive (wire format, TAN flow, paging, MT940)
+- `android-performance.md` — judging smoothness (bench build), measuring frames, what was slow

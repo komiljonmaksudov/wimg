@@ -147,10 +147,14 @@ fun Amount(
 
 /**
  * A big band number whose changed digits roll to the new value (odometer):
- * up when it grows, down when it shrinks, staggered right to left. It only
- * rolls right after [rollKey] changed (a real data change, e.g. Changes.version);
- * other changes (the Umsätze balance following the scroll) switch at once.
+ * up when it grows, down when it shrinks, staggered right to left. It rolls
+ * right after [rollKey] changed (a real data change, e.g. Changes.version), or
+ * on every change with [rollAlways] (the Umsätze total following the scroll).
  * With animations off in Android, Compose skips the motion by itself.
+ *
+ * Cheap on purpose: one Text per character, moved by a graphics layer. The
+ * earlier AnimatedContent per character was the most expensive thing on
+ * Übersicht and Umsätze (measured), and lost the text baseline after a roll.
  */
 @Composable
 fun RollingAmount(
@@ -161,6 +165,7 @@ fun RollingAmount(
     rollKey: Any?,
     modifier: Modifier = Modifier,
     showPlus: Boolean = true,
+    rollAlways: Boolean = false,
 ) {
     val (whole, cents) = amountParts(euros, showPlus)
     val text = whole + cents
@@ -175,57 +180,96 @@ fun RollingAmount(
     var dir by remember { mutableStateOf(0) }
     var roll by remember { mutableStateOf(false) }
     if (euros != shown) {
-        roll = System.currentTimeMillis() < armedUntil
+        roll = rollAlways || System.currentTimeMillis() < armedUntil
         dir = if (euros > shown) 1 else -1
         shown = euros
     }
     val centsOnly = style.copy(fontSize = centsStyle.fontSize, letterSpacing = centsStyle.letterSpacing)
     val density = androidx.compose.ui.platform.LocalDensity.current
-    // Each digit is its own Text, so the style's (negative) letter spacing
+    // Each character is its own Text, so the style's (negative) letter spacing
     // between characters is applied here by hand: same look as Amount.
     val trackWhole = with(density) { style.letterSpacing.toPx() }
     val trackCents = with(density) { centsStyle.letterSpacing.toPx() }
+    // Baselines from the font, so every character sits on the same line.
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val baseWhole = remember(style, density) { measurer.measure("0", style, maxLines = 1).firstBaseline.toInt() }
+    val baseCents = remember(centsOnly, density) { measurer.measure("0", centsOnly, maxLines = 1).firstBaseline.toInt() }
     Row(
-        modifier.clearAndSetSemantics { contentDescription = text },
+        modifier
+            .clearAndSetSemantics { contentDescription = text }
+            // Never squeeze single characters: measure at natural width and,
+            // if that is too wide, shrink the whole number to fit.
+            .layout { m, cs ->
+                val p = m.measure(cs.copy(minWidth = 0, maxWidth = androidx.compose.ui.unit.Constraints.Infinity))
+                val s = if (cs.hasBoundedWidth && p.width > cs.maxWidth) cs.maxWidth.toFloat() / p.width else 1f
+                layout((p.width * s).toInt(), (p.height * s).toInt()) {
+                    p.placeWithLayer(0, 0) {
+                        scaleX = s; scaleY = s
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                    }
+                }
+            },
     ) {
         // Positions are counted from the right, so cents stay put when the
         // whole part gains or loses a digit.
         val n = text.length
         for (i in 0 until n) {
             val fromRight = n - 1 - i
-            val ch = text[i]
             val isCents = i >= whole.length
             key(fromRight) {
-                androidx.compose.animation.AnimatedContent(
-                    targetState = ch,
-                    transitionSpec = {
-                        if (!roll || dir == 0) {
-                            androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
-                        } else {
-                            // A digit moving on screen: ease-in-out, so the roll reads
-                            // as a roll; the old digit fades faster than the new one
-                            // arrives, so the two never smear into each other.
-                            val delay = fromRight * 18
-                            val spec = tween<androidx.compose.ui.unit.IntOffset>(260, delay, WimgMotion.EaseInOut)
-                            (androidx.compose.animation.slideInVertically(spec) { h -> dir * h } + androidx.compose.animation.fadeIn(tween(200, delay + 60, WimgMotion.EaseOut))) togetherWith
-                                (androidx.compose.animation.slideOutVertically(spec) { h -> -dir * h } + androidx.compose.animation.fadeOut(tween(120, delay, WimgMotion.EaseOut)))
-                        }
-                    },
-                    modifier = Modifier
-                        .alignByBaseline()
-                        .layout { m, cs ->
-                            val p = m.measure(cs)
-                            val track = if (isCents) trackCents else trackWhole
-                            val w = (p.width + if (fromRight == 0) 0f else track).toInt().coerceAtLeast(0)
-                            layout(w, p.height, mapOf(androidx.compose.ui.layout.FirstBaseline to p[androidx.compose.ui.layout.FirstBaseline])) { p.place(0, 0) }
-                        }
-                        .clipToBounds(),
-                    label = "digit",
-                ) { c ->
-                    Text(c.toString(), style = if (isCents) centsOnly else style, color = color, maxLines = 1)
-                }
+                RollChar(
+                    ch = text[i], style = if (isCents) centsOnly else style, color = color,
+                    track = if (fromRight == 0) 0f else if (isCents) trackCents else trackWhole,
+                    baseline = if (isCents) baseCents else baseWhole,
+                    roll = roll, dir = dir, delayMs = fromRight * 18,
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun RowScope.RollChar(ch: Char, style: TextStyle, color: Color, track: Float, baseline: Int, roll: Boolean, dir: Int, delayMs: Int) {
+    var cur by remember { mutableStateOf(ch) }
+    var old by remember { mutableStateOf<Char?>(null) }
+    var d by remember { mutableStateOf(1) }
+    val p = remember { androidx.compose.animation.core.Animatable(1f) }
+    if (ch != cur) {
+        old = if (roll && dir != 0) cur else null
+        d = dir
+        cur = ch
+    }
+    LaunchedEffect(cur) {
+        if (old == null) { p.snapTo(1f); return@LaunchedEffect }
+        p.snapTo(0f)
+        // A digit moving on screen: ease-in-out, so the roll reads as a roll;
+        // the old digit fades faster than the new one arrives.
+        p.animateTo(1f, tween(260, delayMs, WimgMotion.EaseInOut))
+        old = null
+    }
+    Box(
+        Modifier
+            .alignByBaseline()
+            .layout { m, cs ->
+                val pl = m.measure(cs.copy(minWidth = 0, maxWidth = androidx.compose.ui.unit.Constraints.Infinity))
+                layout((pl.width + track).toInt().coerceAtLeast(0), pl.height, mapOf(androidx.compose.ui.layout.FirstBaseline to baseline)) { pl.place(0, 0) }
+            }
+            .clipToBounds(),
+    ) {
+        old?.let { o ->
+            Text(o.toString(), style = style, color = color, maxLines = 1, modifier = Modifier.graphicsLayer {
+                val v = p.value
+                translationY = -d * size.height * v
+                alpha = (1f - v * 2f).coerceAtLeast(0f)
+            })
+        }
+        Text(cur.toString(), style = style, color = color, maxLines = 1, modifier = Modifier.graphicsLayer {
+            if (old != null) {
+                val v = p.value
+                translationY = d * size.height * (1f - v)
+                alpha = ((v - 0.25f) / 0.75f).coerceIn(0f, 1f)
+            }
+        })
     }
 }
 
@@ -635,6 +679,8 @@ fun FloatingBar(
     divider: Boolean = true,
     /** Full width (358 dp), for detail bars whose main action fills the space. */
     fill: Boolean = false,
+    /** Fill (with [fill]) the whole screen width less the gutters, not 358 dp: the search bar. */
+    full: Boolean = false,
     /** Identity of what the bar shows (place bar, back bar, action bar): a new key crossfades. */
     contentKey: Any = Unit,
     left: @Composable RowScope.() -> Unit,
@@ -645,7 +691,8 @@ fun FloatingBar(
     val wide = docked != null || fill
     val density = androidx.compose.ui.platform.LocalDensity.current
     val maxW = (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp - 32).dp
-    val wideW = minOf(WimgDimens.barDockedWidth, maxW)
+    val dockW = minOf(WimgDimens.barDockedWidth, maxW)
+    val wideW = if (full && fill) maxW else dockW
 
     // One model for every change: only the bar's surface changes width. Content
     // is laid out at its final size straight away, centred, and crossfades over
@@ -699,7 +746,7 @@ fun FloatingBar(
             exit = shrinkVertically(WimgMotion.undock(), shrinkTowards = Alignment.Bottom) + fadeOut(tween(120, easing = WimgMotion.EaseOut)),
             // Always docked width, centred: while the surface narrows on undock the
             // row is clipped at both edges instead of widening the bar.
-            modifier = Modifier.wrapContentWidth(Alignment.CenterHorizontally, unbounded = true).width(wideW),
+            modifier = Modifier.wrapContentWidth(Alignment.CenterHorizontally, unbounded = true).width(dockW),
         ) {
             // One row replacing another ("Anmelden" → "Umsätze laden" → result)
             // crossfades and resizes instead of cutting.
@@ -822,6 +869,10 @@ val BarClearance: Dp = WimgDimens.listBottomClearance
 /** A page to open from places that have no NavController (e.g. a Dock action). */
 object NavRequest {
     var route by mutableStateOf<String?>(null)
+    /** Open [route] on top of the current page, so back returns there (a jump
+     *  from content, e.g. a bank's "Umsätze"). Otherwise it replaces the
+     *  history like a place switch (notifications, widgets). */
+    var onTop = false
 }
 
 /** Space to leave under content: the bar, plus the docked row while one is shown. */
@@ -893,6 +944,8 @@ data class BarSpec(
     /** What the place bar's "+" does on this page (default: CSV import). */
     val onAdd: (() -> Unit)? = null,
     val addLabel: String? = null,
+    /** The page's own full-width bar content (search: back, field, filters); the bar morphs into it. */
+    val search: (@Composable RowScope.() -> Unit)? = null,
 )
 
 /**
@@ -936,12 +989,13 @@ fun BarContribution(
     detail: DetailBarSpec? = null,
     onAdd: (() -> Unit)? = null,
     addLabel: String? = null,
+    search: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val entry = androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner.current as? androidx.navigation.NavBackStackEntry
     val owner = entry?.id ?: "root"
     // Registered while the page composes (the bar composes after the NavHost in the
     // same pass), so a new page and its bar appear in the same frame.
-    val spec = BarSpec(chip, panel, onPanelDismiss, detail, entry?.destination?.route, onAdd, addLabel)
+    val spec = BarSpec(chip, panel, onPanelDismiss, detail, entry?.destination?.route, onAdd, addLabel, search)
     BarState.put(owner, spec)
     androidx.compose.runtime.SideEffect { BarState.put(owner, spec) }
     DisposableEffect(owner) { onDispose { BarState.remove(owner) } }

@@ -37,6 +37,7 @@ class MainActivity : FragmentActivity() {
             }
         }
         BiometricLock.initialize(this)
+        FrameWatch.attach(this)
         applySecureFlag()
         openRequestedRoute(intent)
         setContent {
@@ -127,5 +128,43 @@ class MainActivity : FragmentActivity() {
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
+    }
+}
+
+/**
+ * Measuring aid, off unless files/frames-on exists (see
+ * .claude/rules/android-performance.md): logs every frame ≥ 25 ms with its
+ * phases, the page shown and how long ago it opened (tag "wimg-frame"), and
+ * main-thread libwimg calls ≥ 8 ms (tag "wimg-jank").
+ */
+object FrameWatch {
+    @Volatile var route: String? = null
+    @Volatile var changedAt: Long = 0L
+    @Volatile var enabled = false
+
+    fun attach(activity: android.app.Activity) {
+        enabled = java.io.File(activity.filesDir, "frames-on").exists()
+        // files/trace-on present: record a 20 s sampling trace into files/wimg.trace.
+        val flag = java.io.File(activity.filesDir, "trace-on")
+        if (flag.exists()) {
+            flag.delete()
+            android.os.Debug.startMethodTracingSampling(java.io.File(activity.filesDir, "wimg.trace").path, 64 shl 20, 1000)
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ android.os.Debug.stopMethodTracing(); android.util.Log.w("wimg-frame", "trace written") }, 20_000)
+        }
+        if (!enabled || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) return
+        val thread = android.os.HandlerThread("frame-watch").apply { start() }
+        activity.window.addOnFrameMetricsAvailableListener({ _, m, _ ->
+            val totalMs = m.getMetric(android.view.FrameMetrics.TOTAL_DURATION) / 1_000_000
+            if (totalMs < 25) return@addOnFrameMetricsAvailableListener
+            val draw = m.getMetric(android.view.FrameMetrics.DRAW_DURATION) / 1_000_000
+            val sinceNav = (System.nanoTime() - changedAt) / 1_000_000
+            val wait = m.getMetric(android.view.FrameMetrics.UNKNOWN_DELAY_DURATION) / 1_000_000
+            val input = m.getMetric(android.view.FrameMetrics.INPUT_HANDLING_DURATION) / 1_000_000
+            val anim = m.getMetric(android.view.FrameMetrics.ANIMATION_DURATION) / 1_000_000
+            val layout = m.getMetric(android.view.FrameMetrics.LAYOUT_MEASURE_DURATION) / 1_000_000
+            val sync = m.getMetric(android.view.FrameMetrics.SYNC_DURATION) / 1_000_000
+            val gpu = (m.getMetric(android.view.FrameMetrics.COMMAND_ISSUE_DURATION) + m.getMetric(android.view.FrameMetrics.SWAP_BUFFERS_DURATION)) / 1_000_000
+            android.util.Log.w("wimg-frame", "${totalMs} ms wait=$wait input=$input anim=$anim layout=$layout draw=$draw sync=$sync gpu=$gpu on $route +${sinceNav}ms")
+        }, android.os.Handler(thread.looper))
     }
 }

@@ -52,6 +52,14 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
+        // Release code (R8, not debuggable: Android compiles it) with the debug
+        // key, so it installs over a debug build and keeps the data. For judging
+        // smoothness on a phone: debug builds run Compose uncompiled.
+        create("bench") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+        }
     }
 
     compileOptions {

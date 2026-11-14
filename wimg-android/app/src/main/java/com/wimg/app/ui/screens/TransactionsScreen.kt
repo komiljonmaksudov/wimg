@@ -37,6 +37,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -133,7 +134,18 @@ internal data class TxData(
     val accounts: List<Account>,
     /** Not yet booked: shown apart, never in a total or the running balance. */
     val pending: List<Transaction> = emptyList(),
+    /** The unfiltered list, grouped and summed in the background. */
+    val view: TxView = TxView.of(transactions),
 )
+
+/** A list as Umsätze shows it: by day, plus each row's position and the sum before it. */
+internal class TxView(val list: List<Transaction>) {
+    val grouped: List<Pair<String, List<Transaction>>> = list.groupBy { it.date }.toList()
+    val indexOf: Map<String, Int> = HashMap<String, Int>(list.size * 2).apply { list.forEachIndexed { i, t -> put(t.id, i) } }
+    val before: DoubleArray = DoubleArray(list.size + 1).also { a -> list.forEachIndexed { i, t -> a[i + 1] = a[i] + t.amount } }
+
+    companion object { fun of(list: List<Transaction>) = TxView(list) }
+}
 
 internal fun txKey(account: String?) = "tx:$account"
 
@@ -175,9 +187,17 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
         return type && (categories.isEmpty() || tx.category in categories) &&
             (period == null || tx.date in period!!.from..period!!.to)
     }
-    val pending = remember(data, filter, categories, period) { data?.pending.orEmpty().filter { matches(it) } }
-    val filtered = remember(all, filter, categories, period) { all.filter { matches(it) } }
     val filterActive = filter != TxFilter.ALL || categories.isNotEmpty() || period != null
+    val pending = remember(data, filter, categories, period) { data?.pending.orEmpty().filter { matches(it) } }
+    // Filtering, grouping and the running sums of 3,000+ rows ran on the main
+    // thread every time the page opened (measured: the biggest part of opening
+    // Umsätze). Unfiltered they come ready-made with the data; filtered they're
+    // built in the background.
+    val view by produceState(data?.view?.takeIf { !filterActive }, data, filter, categories, period) {
+        val d = data ?: return@produceState
+        value = if (!filterActive) d.view else withContext(Dispatchers.Default) { TxView.of(d.transactions.filter { matches(it) }) }
+    }
+    val filtered = view?.list ?: emptyList()
 
     // The bank's closing balance, only when every shown account has one (FinTS).
     val allAccounts = data?.accounts ?: emptyList()
@@ -190,12 +210,14 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
     // Running value at the topmost visible row: with a bank balance it is the
     // balance after that row (walking back through history); without one, the
     // sum of that row and everything older. Never called "Kontostand" then.
-    val running by remember(filtered, anchored, balance) {
+    // Computed once per list, not on every scroll frame: position of each id,
+    // and before[i] = sum of rows 0 until i.
+    val running by remember(view, anchored, balance) {
         derivedStateOf {
-            val visible = listState.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }.toSet()
-            val top = filtered.indexOfFirst { it.id in visible }.coerceAtLeast(0)
-            if (anchored) balance!! - filtered.take(top).sumOf { it.amount }
-            else filtered.drop(top).sumOf { it.amount }
+            val v = view ?: return@derivedStateOf 0.0
+            val top = listState.layoutInfo.visibleItemsInfo.firstNotNullOfOrNull { (it.key as? String)?.let(v.indexOf::get) } ?: 0
+            if (anchored) balance!! - v.before[top]
+            else v.before[v.list.size] - v.before[top]
         }
     }
     val compact by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 48 } }
@@ -235,11 +257,12 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
                 if (compact) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(title, style = WimgType.bandOver, color = c.bandSub, modifier = Modifier.weight(1f))
-                        Text(amountText(running, showPlus = !anchored), style = WimgType.amountLarge.copy(fontSize = WimgType.amountLarge.fontSize * 0.9f), color = Color.White)
+                        val small = WimgType.amountLarge.copy(fontSize = WimgType.amountLarge.fontSize * 0.9f)
+                        com.wimg.app.ui.components.RollingAmount(running, small, small, Color.White, Changes.version, showPlus = !anchored, rollAlways = true)
                     }
                 } else {
                     Text(title, style = WimgType.bandOver, color = c.bandSub)
-                    com.wimg.app.ui.components.RollingAmount(running, WimgType.amountHero, WimgType.amountHeroCents, Color.White, Changes.version, Modifier.padding(top = 2.dp), showPlus = !anchored)
+                    com.wimg.app.ui.components.RollingAmount(running, WimgType.amountHero, WimgType.amountHeroCents, Color.White, Changes.version, Modifier.padding(top = 2.dp), showPlus = !anchored, rollAlways = true)
                     val parts = buildList {
                         if (anchored) {
                             accounts.singleOrNull()?.let { add(it.bank.ifBlank { it.name }) }
@@ -252,7 +275,7 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
             }
         },
     ) {
-        if (data != null && filtered.isEmpty()) {
+        if (data != null && view != null && filtered.isEmpty()) {
             Column(Modifier.fillMaxWidth().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(if (all.isEmpty()) L("Noch keine Umsätze") else L("Keine Treffer"), style = WimgType.section, color = c.text)
                 Text(
@@ -262,7 +285,7 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
             }
             return@BandScreen
         }
-        val grouped = remember(filtered) { filtered.groupBy { it.date }.toList() }
+        val grouped = view?.grouped ?: emptyList()
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = barClearance())) {
             if (pending.isNotEmpty()) {
                 item(key = "h_pending") { PendingHeader(pending.size, pending.sumOf { it.amount }) }

@@ -110,9 +110,16 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
     // Gehaltsmonat: salary or "Fester Tag" periods replace calendar months.
     val periods = com.wimg.app.ui.components.rememberPeriods()
     var periodIdx by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
-    val period = periods?.takeIf { !it.isCalendar }?.let { it.periods.getOrNull(periodIdx) ?: it.periods.firstOrNull() }
+    // Another mode (or start day) makes other periods: back to the current one.
+    val periodShape = periods?.let { it.mode + it.day }
+    var lastShape by remember { mutableStateOf(periodShape) }
+    if (periodShape != lastShape) { if (lastShape != null) periodIdx = 0; lastShape = periodShape }
+    val period =periods?.takeIf { !it.isCalendar }?.let { it.periods.getOrNull(periodIdx) ?: it.periods.firstOrNull() }
     val prevPeriod = period?.let { p -> periods.periods.getOrNull(periods.periods.indexOf(p) + 1) }
-    var data by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<HomeData>(homeKey(year, month, selectedAccount, compare))) }
+    // The key the data is cached under, also on the first frame: with the
+    // calendar key in Gehaltsmonat mode the page started empty (white) and
+    // filled a frame later.
+    var data by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<HomeData>(if (period != null) homePeriodKey(period.from, selectedAccount) else homeKey(year, month, selectedAccount, compare))) }
     var pickerOpen by remember { mutableStateOf(false) }
     var pickingAccount by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
@@ -120,7 +127,7 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(year, month, selectedAccount, compare, reload, period, com.wimg.app.ui.components.Changes.version) {
-        val key = if (period != null) "home:${period.from}:$selectedAccount" else homeKey(year, month, selectedAccount, compare)
+        val key = if (period != null) homePeriodKey(period.from, selectedAccount) else homeKey(year, month, selectedAccount, compare)
         com.wimg.app.ui.components.ScreenCache.get<HomeData>(key)?.let { data = it }
         data = withContext(Dispatchers.IO) {
             if (period != null) loadHomeRange(period, prevPeriod, selectedAccount) else loadHome(year, month, selectedAccount, compare)
@@ -152,8 +159,11 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
             val left = com.wimg.app.ui.components.PeriodLabels.daysLeft(period)
             when {
                 !period.current -> BarChipSpec(com.wimg.app.ui.components.PeriodLabels.short(period), pickerOpen, { pickerOpen = !pickerOpen })
-                periods.isSalary -> BarChipSpec(L("Gehalt"), pickerOpen, { pickerOpen = !pickerOpen }, contentDescription = L("Zeitraum: Gehaltsmonat, noch %d Tage", left))
-                else -> BarChipSpec("$left", pickerOpen, { pickerOpen = !pickerOpen }, ring = left.toFloat() / period.days.coerceAtLeast(1), contentDescription = L("Zeitraum: noch %d Tage", left))
+                // Same ring as the calendar month: days left until the salary.
+                else -> BarChipSpec(
+                    "$left", pickerOpen, { pickerOpen = !pickerOpen }, ring = left.toFloat() / period.days.coerceAtLeast(1),
+                    contentDescription = if (periods.isSalary) L("Zeitraum: Gehaltsmonat, noch %d Tage", left) else L("Zeitraum: noch %d Tage", left),
+                )
             }
         } else run {
             val daysInMonth = Calendar.getInstance().apply { set(year, month - 1, 1) }.getActualMaximum(Calendar.DAY_OF_MONTH)
@@ -176,13 +186,15 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
                     }
                 }
                 else MonthPickerPanel(year, month, shortMonths, now, onPick = { y, m -> year = y; month = m; pickerOpen = false }) {
-                    periods?.let { PeriodModeRow(it) }
                     PanelLabel(L("Vergleichen mit"))
                     SegmentRow(HomeCompare.entries.map { L(it.label) }, HomeCompare.entries.indexOf(compare)) { compare = HomeCompare.entries[it] }
                     if (accounts.size > 1) {
                         PanelLabel(L("Konto"))
                         SegmentRow(listOf((accounts.firstOrNull { it.id == selectedAccount }?.name ?: L("Alle Konten")) + "  ›"), 0) { pickingAccount = true }
                     }
+                    // Last, right above the bar: the panel grows upwards, so the
+                    // switch stays under the finger whatever it changes above.
+                    periods?.let { PeriodModeRow(it) }
                 }
             }
         } else null,
@@ -279,7 +291,7 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
                     CategoryRow(cat, total, prevById[cat.id]) {
                         TxTarget.category = cat.id
                         TxTarget.period = period?.let { txPeriodOf(it, periods.isSalary) } ?: monthPeriod(year, month)
-                        navController?.navigate("transactions") { popUpTo("dashboard") }
+                        navController?.navigate("transactions")
                     }
                 }
             } else if (d != null) {
@@ -627,6 +639,8 @@ internal fun SegmentRow(options: List<String>, selected: Int, onSelect: (Int) ->
 // Gehaltsmonat (boards 3 and 26A)
 // ---------------------------------------------------------------------------
 
+internal fun homePeriodKey(from: String, account: String?) = "home:$from:$account"
+
 internal fun loadHomeRange(p: com.wimg.app.models.PeriodInfo, prev: com.wimg.app.models.PeriodInfo?, account: String?): HomeData {
     val summary = LibWimg.getSummaryRange(p.from, p.to, account)
     val previous = prev?.let { LibWimg.getSummaryRange(it.from, it.to, account) }
@@ -735,18 +749,19 @@ private fun PeriodBand(
 internal fun PeriodModeRow(periods: com.wimg.app.models.Periods) {
     val scope = rememberCoroutineScope()
     val modes = listOf("salary", "calendar", "day")
-    PanelLabel(L("Monat beginnt"))
-    SegmentRow(listOf(L("Gehalt"), L("Kalender"), L("Fester Tag")), modes.indexOf(periods.chosen).coerceAtLeast(0)) { i ->
-        scope.launch {
-            withContext(Dispatchers.IO) { LibWimg.setPeriodMode(modes[i], if (modes[i] == "day") (if (periods.day > 1) periods.day else 15) else 0) }
-            com.wimg.app.ui.components.Changes.bump()
-        }
-    }
+    // The segment moves on the tap itself; the periods follow a moment later.
+    var picked by remember(periods.chosen) { mutableIntStateOf(modes.indexOf(periods.chosen).coerceAtLeast(0)) }
     if (periods.chosen == "salary" && !periods.isSalary) {
         Text(
             L("Gehalt noch nicht erkannt: wimg braucht zwei Gehälter vom selben Absender. Bis dahin zählt es nach Kalendermonat."),
-            style = WimgType.desc, color = Wimg.colors.text2, modifier = Modifier.padding(top = 8.dp, start = 4.dp),
+            style = WimgType.desc, color = Wimg.colors.text2, modifier = Modifier.padding(top = 12.dp, start = 4.dp),
         )
+    }
+    PanelLabel(L("Monat beginnt"))
+    SegmentRow(listOf(L("Gehalt"), L("Kalender"), L("Fester Tag")), picked) { i ->
+        if (i == picked) return@SegmentRow
+        picked = i
+        scope.launch { com.wimg.app.ui.components.PeriodState.setMode(modes[i], if (modes[i] == "day") (if (periods.day > 1) periods.day else 15) else 0) }
     }
 }
 
@@ -766,7 +781,6 @@ internal fun PeriodPanel(
     }
     BarPanel {
         Text(L("Zeitraum"), style = WimgType.button.copy(fontSize = WimgType.button.fontSize * 1.07f), color = c.text)
-        PeriodModeRow(periods)
         if (periods.isSalary) periods.salary?.let { sal ->
             SalaryCard(sal, Modifier.padding(top = 12.dp)) { choosingPayer = true }
         }
@@ -787,6 +801,8 @@ internal fun PeriodPanel(
             }
         }
         extra?.invoke(this)
+        // Last, right above the bar (see MonthPickerPanel's extra).
+        PeriodModeRow(periods)
     }
 }
 
@@ -816,10 +832,7 @@ internal fun SalaryCard(sal: com.wimg.app.models.SalaryInfo, modifier: Modifier 
 internal fun DayStepper(periods: com.wimg.app.models.Periods) {
     val c = Wimg.colors
     val scope = rememberCoroutineScope()
-    fun set(d: Int) = scope.launch {
-        withContext(Dispatchers.IO) { LibWimg.setPeriodMode("day", d) }
-        com.wimg.app.ui.components.Changes.bump()
-    }
+    fun set(d: Int) = scope.launch { com.wimg.app.ui.components.PeriodState.setMode("day", d) }
     Row(Modifier.padding(top = 12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(L("Monat beginnt am"), style = WimgType.rowTitle, color = c.text, modifier = Modifier.weight(1f))
         Icon(

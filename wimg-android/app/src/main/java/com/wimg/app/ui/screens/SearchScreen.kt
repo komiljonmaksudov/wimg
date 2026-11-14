@@ -60,6 +60,8 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.wimg.app.bridge.LibWimg
 import com.wimg.app.i18n.L
+import com.wimg.app.ui.components.BarContribution
+import com.wimg.app.ui.components.BarPanel
 import com.wimg.app.models.Account
 import com.wimg.app.models.Transaction
 import com.wimg.app.models.WimgCategory
@@ -131,7 +133,7 @@ fun SearchScreen(selectedAccount: String?, navController: NavController, initial
         }
         all = t; accounts = a
     }
-    LaunchedEffect(Unit) { if (initialQuery.isBlank()) focus.requestFocus() }
+    LaunchedEffect(Unit) { if (initialQuery.isBlank()) runCatching { focus.requestFocus() } }
 
     val q = query.trim()
     val active = q.isNotEmpty() || quick != null
@@ -188,36 +190,19 @@ fun SearchScreen(selectedAccount: String?, navController: NavController, initial
             }
         }
 
-        // Search bar above the keyboard: [←] [field] [filters]
-        Column(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
-        ) {
-            if (filtersOpen) {
-                Column(
-                    Modifier
-                        .padding(bottom = 10.dp)
-                        .fillMaxWidth()
-                        .shadow(18.dp, WimgShape.bottomSheet, ambientColor = Color.Black.copy(alpha = 0.18f), spotColor = Color.Black.copy(alpha = 0.18f))
-                        .clip(WimgShape.bottomSheet)
-                        .background(c.card)
-                        .border(1.dp, c.line, WimgShape.bottomSheet)
-                        .padding(16.dp),
-                ) {
-                    Text(L("Schnell filtern"), style = WimgType.label, color = c.text2, modifier = Modifier.padding(bottom = 8.dp))
-                    QuickChips(quick) { quick = it; filtersOpen = false }
+        // [←] [field] [filters] in the shared floating bar, which morphs into it.
+        BarContribution(
+            chip = null,
+            panel = if (filtersOpen) {
+                {
+                    BarPanel {
+                        Text(L("Schnell filtern"), style = WimgType.label, color = c.text2, modifier = Modifier.padding(bottom = 8.dp))
+                        QuickChips(quick) { quick = it; filtersOpen = false }
+                    }
                 }
-            }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .shadow(14.dp, WimgShape.bar, ambientColor = Color.Black.copy(alpha = 0.18f), spotColor = Color.Black.copy(alpha = 0.18f))
-                    .clip(WimgShape.bar)
-                    .background(c.card)
-                    .border(1.dp, c.line, WimgShape.bar)
-                    .padding(WimgDimens.barPadding),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            } else null,
+            onPanelDismiss = { filtersOpen = false },
+            search = {
                 BarBack { keyboard?.hide(); navController.popBackStack() }
                 Row(
                     Modifier
@@ -266,8 +251,8 @@ fun SearchScreen(selectedAccount: String?, navController: NavController, initial
                         tint = if (filtersOpen || quick != null) c.inkText else c.text, modifier = Modifier.size(21.dp),
                     )
                 }
-            }
-        }
+            },
+        )
     }
 }
 

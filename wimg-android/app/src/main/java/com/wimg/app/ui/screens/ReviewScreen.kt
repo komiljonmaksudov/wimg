@@ -93,6 +93,7 @@ internal class ReviewData(
 private fun prevMonth(y: Int, m: Int) = if (m == 1) y - 1 to 12 else y to m - 1
 
 internal fun reviewKey(year: Int, month: Int, account: String?) = "review:$year-$month:$account"
+internal fun reviewPeriodKey(from: String, account: String?) = "review:$from:$account"
 
 internal fun loadReview(year: Int, month: Int, account: String?): ReviewData {
     val summary = LibWimg.getSummaryFiltered(year, month, account)
@@ -138,9 +139,9 @@ fun ReviewScreen(selectedAccount: String?, navController: NavController? = null)
     var periodFrom by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(ReviewTarget.period) }
     val period = periods?.takeIf { !it.isCalendar }?.let { ps -> ps.periods.firstOrNull { it.from == periodFrom } ?: ps.periods.firstOrNull() }
     val prevPeriod = period?.let { p -> periods.periods.getOrNull(periods.periods.indexOf(p) + 1) }
-    val cacheKey = if (period != null) "review:${period.from}:$selectedAccount" else reviewKey(year, month, selectedAccount)
+    val cacheKey = if (period != null) reviewPeriodKey(period.from, selectedAccount) else reviewKey(year, month, selectedAccount)
     // Last result first (loaded ahead in the background), fresh data replaces it.
-    var data by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<ReviewData>(reviewKey(year, month, selectedAccount))) }
+    var data by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<ReviewData>(cacheKey)) }
     LaunchedEffect(Unit) { ReviewTarget.ym = null; ReviewTarget.period = null }
     LaunchedEffect(year, month, selectedAccount, period, Changes.version) {
         com.wimg.app.ui.components.ScreenCache.get<ReviewData>(cacheKey)?.let { data = it }
@@ -243,7 +244,8 @@ fun ReviewScreen(selectedAccount: String?, navController: NavController? = null)
                         "${L(WimgCategory.UNCATEGORIZED.label)} · $share %", amountText(abs(cat.amount), showPlus = false)) {
                         TxTarget.category = 0
                         TxTarget.period = period?.let { txPeriodOf(it, periods.isSalary) } ?: monthPeriod(year, month)
-                        navController?.navigate("transactions") { popUpTo("dashboard") }
+                        // On top, so back returns here (not to Übersicht).
+                        navController?.navigate("transactions")
                     }
                 }
                 d.otherIncome?.let { t ->

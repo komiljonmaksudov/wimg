@@ -12,7 +12,7 @@ import kotlin.concurrent.withLock
  * Mirrors iOS LibWimg.swift — thread-safe singleton.
  */
 object LibWimg {
-    private val lock = ReentrantLock()
+    private val lock = WatchedLock()
 
     /**
      * libwimg is single-threaded (one SQLite connection, one shared result
@@ -20,6 +20,8 @@ object LibWimg {
      * this lock, or two threads overwrite each other's results.
      */
     fun <T> native(block: () -> T): T = lock.withLock(block)
+
+    fun fintsFetch(body: String): String? = native { WimgJni.nativeFintsFetch(body) }
 
     /** For reads on the main thread: runs [block] only if libwimg is free right
      *  now (a bank fetch can hold it for seconds), else returns null. */
@@ -204,3 +206,35 @@ object LibWimg {
 }
 
 class WimgException(message: String) : Exception(message)
+
+
+/**
+ * libwimg's one lock. With FrameWatch on it reports every main-thread call that
+ * costs more than a frame (waiting for a bank fetch or sync, or running long):
+ * those are the hitches when switching pages. Tag "wimg-jank".
+ */
+internal class WatchedLock {
+    private val inner = ReentrantLock()
+
+    inline fun <T> withLock(block: () -> T): T {
+        if (!com.wimg.app.FrameWatch.enabled || android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) return withLockPlain(block)
+        val t0 = System.nanoTime()
+        lockPlain()
+        val t1 = System.nanoTime()
+        try { return block() } finally {
+            unlockPlain()
+            val waitMs = (t1 - t0) / 1_000_000
+            val runMs = (System.nanoTime() - t1) / 1_000_000
+            if (waitMs + runMs >= 8) {
+                val at = Throwable().stackTrace.firstOrNull { it.className.startsWith("com.wimg.app") && !it.className.startsWith("com.wimg.app.bridge") }
+                android.util.Log.w("wimg-jank", "main thread: waited ${waitMs} ms, ran ${runMs} ms at ${at?.className?.substringAfterLast('.')}.${at?.methodName}:${at?.lineNumber}")
+            }
+        }
+    }
+
+    inline fun <T> withLockPlain(block: () -> T): T { lockPlain(); try { return block() } finally { unlockPlain() } }
+    fun lockPlain() = inner.lock()
+    fun unlockPlain() = inner.unlock()
+    fun tryLock() = inner.tryLock()
+    fun unlock() = inner.unlock()
+}
