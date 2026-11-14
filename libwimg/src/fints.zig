@@ -761,7 +761,7 @@ pub fn buildFetchStatements(session: *const FintsSession, from: []const u8, to: 
     @memcpy(kaz_buf[kaz_pos .. kaz_pos + kaz_header.len], kaz_header);
     kaz_pos += kaz_header.len;
     if (hikaz_ver == 7) {
-        kaz_pos += writeKti1(session, kaz_buf[kaz_pos..]) orelse return null;
+        kaz_pos += writeKti1(session, kaz_buf[kaz_pos..], false) orelse return null;
     } else {
         @memcpy(kaz_buf[kaz_pos .. kaz_pos + acct_pos], acct_buf[0..acct_pos]);
         kaz_pos += acct_pos;
@@ -807,6 +807,16 @@ pub fn buildFetchStatements(session: *const FintsSession, from: []const u8, to: 
 /// Build HKCAZ (fetch bank statements CAMT XML) message.
 /// Uses HNVSK/HNVSD security envelope with PIN in HNSHA.
 pub fn buildFetchStatementsCamt(session: *const FintsSession, from: []const u8, to: []const u8, touchdown: []const u8, buf: []u8) ?usize {
+    return buildCamtRequest(session, from, to, touchdown, buf, false);
+}
+
+/// HKCAZ only to read the bank's not-yet-booked entries (HICAZ DE 4), for
+/// banks whose MT940 answer has no pending part (Comdirect). Short KTI1.
+pub fn buildPendingCamt(session: *const FintsSession, from: []const u8, to: []const u8, buf: []u8) ?usize {
+    return buildCamtRequest(session, from, to, "", buf, true);
+}
+
+fn buildCamtRequest(session: *const FintsSession, from: []const u8, to: []const u8, touchdown: []const u8, buf: []u8, short_kti: bool) ?usize {
     var inner_buf: [4096]u8 = undefined;
     var inner_pos: usize = 0;
 
@@ -818,7 +828,7 @@ pub fn buildFetchStatementsCamt(session: *const FintsSession, from: []const u8, 
 
     // Account as KTI1 (Kontoverbindung international).
     var acct_buf: [160]u8 = undefined;
-    const acct_pos = writeKti1(session, &acct_buf) orelse return null;
+    const acct_pos = writeKti1(session, &acct_buf, short_kti) orelse return null;
 
     var camt_buf: [1024]u8 = undefined;
     var camt_pos: usize = 0;
@@ -2262,7 +2272,7 @@ fn extractCamtFormatFromHicazs(session: *FintsSession, segment: []const u8) void
 /// Write a KTI1 account DEG: IBAN:BIC:Konto:Unterkonto:280:BLZ.
 /// KTI1 is ONE data element, so its parts are separated by ':' (not '+').
 /// HBCI4Java-style full form; IBAN/BIC stay empty when HIUPD gave no IBAN.
-fn writeKti1(session: *const FintsSession, out: []u8) ?usize {
+fn writeKti1(session: *const FintsSession, out: []u8, short: bool) ?usize {
     var account: []const u8 = session.userIdSlice();
     var subaccount: []const u8 = "";
     var blz: []const u8 = &session.blz;
@@ -2277,6 +2287,12 @@ fn writeKti1(session: *const FintsSession, out: []u8) ?usize {
     var bic: []const u8 = "";
     if (!is_wasm and iban.len > 0) {
         if (banks_mod.findByBlz(&session.blz)) |bank| bic = bank.bicSlice();
+    }
+    // IBAN:BIC alone (python-fints form). Comdirect rejects the long form in
+    // HKCAZ ("Kontonummer ist ungültig") because of its named sub-account.
+    if (short and iban.len > 0 and bic.len > 0) {
+        const w = std.fmt.bufPrint(out, "{s}:{s}", .{ iban, bic }) catch return null;
+        return w.len;
     }
     const written = std.fmt.bufPrint(out, "{s}:{s}:{s}:{s}:280:{s}", .{ iban, bic, account, subaccount, blz }) catch return null;
     return written.len;
@@ -3116,4 +3132,16 @@ test "ResponseCode classification" {
 
     c.code = "3920".*;
     try std.testing.expect(c.isTanRequired());
+}
+
+test "the pending-only HKCAZ sends the account as IBAN:BIC" {
+    var s = testSessionWithHiupd();
+    var resp = ParsedResponse.init();
+    parseResponse(&s, "HICAZS:19:1:4+999+1+0+9999:J:N:urn?:iso?:std?:iso?:20022?:tech?:xsd?:camt.052.001.02'", &resp);
+    var buf: [4096]u8 = undefined;
+    const n = buildPendingCamt(&s, "20261015", "20261114", &buf) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..n], "HKCAZ:3:1+DE12100500001234567890:BELADEBEXXX+") != null);
+    // The regular CAMT request keeps the long form.
+    const m = buildFetchStatementsCamt(&s, "20261015", "20261114", "", &buf) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..m], "HKCAZ:3:1+DE12100500001234567890:BELADEBEXXX:1234567890::280:10050000+") != null);
 }

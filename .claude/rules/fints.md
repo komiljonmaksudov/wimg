@@ -106,6 +106,20 @@ Audience: engineers touching `libwimg/src/fints.zig`, `root.zig`, `mt940.zig`, `
   means MT940 is gone. Start with `HKCAZ`; never send `HKKAZ` there.
 - `session.supports_mt940` is set from `HIKAZS` v5–v7. Unknown BPD keeps MT940 first.
 
+## Pending entries from CAMT (Comdirect)
+
+- Comdirect's HIKAZ v5 has no DE 2 (no MT942), so MT940 never shows "Vorgemerkt".
+  It does send them in HICAZ DE 4 (camt.052.001.08, `<Sts><Cd>PDNG</Cd></Sts>`).
+- After an MT940 fetch without a pending part, when the bank has `HICAZS` and an
+  IBAN is known, wimg sends one extra HKCAZ for the last 30 days and keeps only
+  DE 4. Booked entries stay from MT940 (CAMT texts would change ids → duplicates).
+- That HKCAZ sends KTI1 as `IBAN:BIC` (python-fints form). The long form
+  `IBAN:BIC:Konto:Unterkonto:280:BLZ` gets `3010 Kontonummer ist ungültig` from
+  Comdirect (its HIUPD sub-account is a name, "Girokonto").
+- Comdirect's pending entries have no BookgDt/ValDt: they take the report's
+  `CreDtTm` date. CAMT answers can exceed 64 KB: the fetch response buffer is
+  192 KB (static), the base64 buffers 256 KB.
+
 ## CAMT Fallback
 
 - `camt.zig` parser: Ntry extraction, multi-Ustrd concatenation, Amt Ccy parsing.

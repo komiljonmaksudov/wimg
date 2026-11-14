@@ -1639,7 +1639,7 @@ fn wimg_set_http_callback(cb: fints_http_mod.HttpCallback) callconv(.c) void {
 }
 
 /// Send HKEND to close the current dialog. Best-effort, ignores errors.
-fn sendDialogEnd(session: *fints_mod.FintsSession, sec_func: []const u8, msg_buf: *[8192]u8, resp_buf: *[65536]u8) void {
+fn sendDialogEnd(session: *fints_mod.FintsSession, sec_func: []const u8, msg_buf: *[8192]u8, resp_buf: []u8) void {
     const end_len = fints_mod.buildDialogEndWithSecFunc(session, sec_func, msg_buf) orelse return;
     _ = fints_http_mod.sendFintsMessage(
         std.heap.page_allocator,
@@ -2159,6 +2159,34 @@ var fints_pending_store: [300]Transaction = undefined;
 /// Fetch bank statements. Input JSON: {"from":"2026-01-01","to":"2026-03-01"}
 /// Opens a new authenticated dialog, sends HKKAZ, parses MT940, inserts transactions.
 /// Returns length-prefixed JSON: {"imported":N,"duplicates":N} or {"status":"tan_required",...}
+var fints_fetch_resp_store: [196608]u8 = undefined;
+
+/// "YYYYMMDD" minus n days, written into out. Null if `date` isn't a date.
+fn daysBefore(date: []const u8, n: i64, out: *[8]u8) ?[]const u8 {
+    if (date.len != 8) return null;
+    const y0 = std.fmt.parseInt(i64, date[0..4], 10) catch return null;
+    const m0 = std.fmt.parseInt(i64, date[4..6], 10) catch return null;
+    const d0 = std.fmt.parseInt(i64, date[6..8], 10) catch return null;
+    // days from civil (H. Hinnant), then back
+    const y = if (m0 <= 2) y0 - 1 else y0;
+    const era = @divFloor(y, 400);
+    const yoe = y - era * 400;
+    const mp = @mod(m0 + 9, 12);
+    const doy = @divFloor(153 * mp + 2, 5) + d0 - 1;
+    const doe = yoe * 365 + @divFloor(yoe, 4) - @divFloor(yoe, 100) + doy;
+    const z = era * 146097 + doe - n;
+    const era2 = @divFloor(z, 146097);
+    const doe2 = z - era2 * 146097;
+    const yoe2 = @divFloor(doe2 - @divFloor(doe2, 1460) + @divFloor(doe2, 36524) - @divFloor(doe2, 146096), 365);
+    const doy2 = doe2 - (365 * yoe2 + @divFloor(yoe2, 4) - @divFloor(yoe2, 100));
+    const mp2 = @divFloor(5 * doy2 + 2, 153);
+    const d2 = doy2 - @divFloor(153 * mp2 + 2, 5) + 1;
+    const m2 = if (mp2 < 10) mp2 + 3 else mp2 - 9;
+    const y2 = yoe2 + era2 * 400 + (if (m2 <= 2) @as(i64, 1) else 0);
+    const w = std.fmt.bufPrint(out, "{d:0>4}{d:0>2}{d:0>2}", .{ @as(u64, @intCast(y2)), @as(u64, @intCast(m2)), @as(u64, @intCast(d2)) }) catch return null;
+    return w;
+}
+
 fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     if (is_wasm) return null;
 
@@ -2188,7 +2216,8 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     } else to_raw;
 
     var msg_buf: [8192]u8 = undefined;
-    var resp_buf: [65536]u8 = undefined;
+    // Static: CAMT answers (Comdirect) exceed 64 KB; too big for the stack.
+    const resp_buf = &fints_fetch_resp_store;
 
     // If we have an active dialog (post-TAN), skip auth init and go straight to HKKAZ
     if (!fints_session.has_active_dialog) {
@@ -2212,7 +2241,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
             std.heap.page_allocator,
             fints_session.urlSlice(),
             msg_buf[0..auth_len],
-            &resp_buf,
+            resp_buf,
         ) catch {
             setError("wimg_fints_fetch: auth HTTP request failed", .{});
             fints_session.clearPin();
@@ -2288,7 +2317,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                     std.heap.page_allocator,
                     fints_session.urlSlice(),
                     msg_buf[0..retry_auth_len],
-                    &resp_buf,
+                    resp_buf,
                 ) catch {
                     setError("wimg_fints_fetch: retry auth HTTP request failed", .{});
                     fints_session.clearPin();
@@ -2369,6 +2398,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     var saw_mt940 = false;
     var saw_camt = false;
     var pending_count: usize = 0;
+    var saw_pending_part = false;
     // Track the latest closing balance across all statement pages. The page with
     // the newest value date carries the current account balance.
     var balance_cents: i64 = 0;
@@ -2419,7 +2449,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
             std.heap.page_allocator,
             fints_session.urlSlice(),
             msg_buf[0..msg_len],
-            &resp_buf,
+            resp_buf,
         ) catch {
             setError("wimg_fints_fetch: HTTP request failed", .{});
             fints_session.clearPin();
@@ -2556,6 +2586,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         }
 
         // Not yet booked ("vorgemerkt"): parsed apart, never imported as booked.
+        if (resp.pending_mt940_len > 0) saw_pending_part = true;
         if (resp.pending_mt940_len > 0 and pending_count < fints_pending_store.len) {
             const r = mt940_mod.parseMt940(resp.pending_mt940_data[0..resp.pending_mt940_len], account_name, fints_pending_store[pending_count..]);
             pending_count += r.count;
@@ -2585,7 +2616,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     }
 
     if (!saw_mt940 and !saw_camt) {
-        _ = sendDialogEnd(&fints_session, fints_session.tanSecFuncSlice(), &msg_buf, &resp_buf);
+        _ = sendDialogEnd(&fints_session, fints_session.tanSecFuncSlice(), &msg_buf, resp_buf);
         fints_session.clearPin();
         var result_buf: [1024]u8 = undefined;
         var pos: usize = 0;
@@ -2666,6 +2697,29 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         }
     }
 
+    // MT940 without a pending part (Comdirect): the bank still lists its
+    // not-yet-booked entries in CAMT (HICAZ DE 4). One extra request for the
+    // last 30 days; only that part is used, booked entries stay from MT940
+    // (switching them to CAMT would change their texts and ids).
+    if (!is_wasm and fetch_mode == .mt940 and !saw_pending_part and fints_session.supports_camt and fints_session.account_iban_len > 0) {
+        var pfrom_buf: [8]u8 = undefined;
+        const pfrom = daysBefore(to, 30, &pfrom_buf) orelse from;
+        if (fints_mod.buildPendingCamt(&fints_session, pfrom, to, &msg_buf)) |plen| {
+            if (fints_http_mod.sendFintsMessage(std.heap.page_allocator, fints_session.urlSlice(), msg_buf[0..plen], resp_buf)) |rlen| {
+                resp = fints_mod.ParsedResponse.init();
+                fints_mod.parseResponse(&fints_session, resp_buf[0..rlen], &resp);
+                fints_session.msg_num += 1;
+                // A bank that wants a TAN for this just gives no pending list.
+                if (fints_session.has_pending_tan) {
+                    fints_session.has_pending_tan = false;
+                } else if (resp.pending_camt_len > 0 and pending_count < fints_pending_store.len) {
+                    const r = camt_mod.parseCamtPending(resp.pending_camt_data[0..resp.pending_camt_len], account_name, fints_pending_store[pending_count..]);
+                    pending_count += r.count;
+                }
+            } else |_| {}
+        }
+    }
+
     // The bank answered with statements: its pending list replaces ours (an
     // empty one clears it, those have been booked or dropped meanwhile).
     for (fints_pending_store[0..pending_count]) |*t| {
@@ -2674,7 +2728,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     database.replacePending(account_name, fints_pending_store[0..pending_count]) catch {};
 
     // End dialog
-    _ = sendDialogEnd(&fints_session, fints_session.tanSecFuncSlice(), &msg_buf, &resp_buf);
+    _ = sendDialogEnd(&fints_session, fints_session.tanSecFuncSlice(), &msg_buf, resp_buf);
     fints_session.clearPin();
 
     var result_buf: [256]u8 = undefined;
@@ -2980,4 +3034,12 @@ test "selectTanSecFuncFromSync maps photoTAN label to 902" {
 
     selectTanSecFuncFromSync(&resp, &s);
     try std.testing.expectEqualStrings("902", s.tanSecFuncSlice());
+}
+
+test "daysBefore crosses months, years and leap days" {
+    var b: [8]u8 = undefined;
+    try std.testing.expectEqualStrings("20261015", daysBefore("20261114", 30, &b).?);
+    try std.testing.expectEqualStrings("20251202", daysBefore("20260101", 30, &b).?);
+    try std.testing.expectEqualStrings("20240229", daysBefore("20240301", 1, &b).?);
+    try std.testing.expect(daysBefore("2026-11", 1, &b) == null);
 }
