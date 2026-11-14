@@ -228,7 +228,7 @@ private object FintsJob {
                     val n = result.imported ?: 0
                     BankConnections.recordFetch(context, connId, n)
                     Changes.bump()
-                    Dock.info(if (n == 1) __t("1 neuer Umsatz") else __t("%d neue Umsätze").format(n), result.duplicates?.takeIf { it > 0 }?.let { __t("%d schon vorhanden").format(it) })
+                    fetchedDock(n, result.duplicates?.takeIf { it > 0 }?.let { __t("%d schon vorhanden").format(it) }, BankConnections.get(context, connId)?.name)
                 }
                 else -> Dock.error(__t("Abruf fehlgeschlagen"), bankText(result))
             }
@@ -238,6 +238,19 @@ private object FintsJob {
 }
 
 private enum class Step { Bank, Login, Medium, Tan, Range }
+
+/** Umsätze, showing only [account] (a bank's statements land in the account named after it). */
+private fun openTransactions(account: String?) {
+    TxTarget.account = account
+    com.wimg.app.ui.components.NavRequest.route = "transactions"
+}
+
+/** Result of a fetch on the bar; with new transactions, "Ansehen" opens them. */
+private fun fetchedDock(n: Int, sub: String?, account: String?) {
+    val title = if (n == 1) __t("1 neuer Umsatz") else __t("%d neue Umsätze").format(n)
+    if (n <= 0) Dock.info(title, sub)
+    else Dock.show(DockRow(DockKind.Info, title, sub, action = "Ansehen", onAction = { openTransactions(account) }, timeoutMs = 8_000))
+}
 
 @Composable
 fun FinTSScreen(navController: NavController? = null, connectionId: String? = null, quickOnOpen: Boolean = false) {
@@ -438,7 +451,7 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
                     setup = false
                     connId?.let { BankConnections.recordFetch(context, it, r.imported) }
                     Changes.bump()
-                    Dock.info(__t("%d neue Umsätze").format(r.imported))
+                    fetchedDock(r.imported, null, connId?.let { BankConnections.get(context, it)?.name })
                     armBackgroundRefresh()
                 }
                 r.status == "ok" -> when (tanFor) {
@@ -784,7 +797,7 @@ private fun BankDetail(b: BankInfo, conn: BankConnection, reload: Int, onOlder: 
                     )
                 })
                 RowDivider()
-                WimgRow(L("Umsätze"), trailing = { Text("$count", style = WimgType.body, color = c.text) })
+                WimgRow(L("Umsätze"), chevron = true, onClick = { openTransactions(conn.name) }, trailing = { Text("$count", style = WimgType.body, color = c.text) })
             }
             if (accounts.isNotEmpty()) {
                 GroupLabel(L("Konten bei dieser Anmeldung"))
