@@ -1318,6 +1318,23 @@ pub const Db = struct {
         return c.sqlite3_column_int(st.?, 0) != 0;
     }
 
+    /// Pattern ids changed (Nov 2026: the old ones had only 256 values and
+    /// collided). A decision stored under the old id moves to the new one,
+    /// unless there is one already; fresh updated_at so other devices get it.
+    pub fn moveRecurringOverride(self: *Db, old_id: []const u8, new_id: []const u8) void {
+        var st: ?*c.sqlite3_stmt = null;
+        const sql =
+            \\INSERT OR IGNORE INTO recurring_overrides (id, name, category, interval, fixed_amount, hidden, hidden_at, accepted_amount, updated_at)
+            \\SELECT ?2, name, category, interval, fixed_amount, hidden, hidden_at, accepted_amount, ?3 FROM recurring_overrides WHERE id = ?1;
+        ;
+        if (c.sqlite3_prepare_v2(self.handle, sql, -1, &st, null) != c.SQLITE_OK or st == null) return;
+        defer _ = c.sqlite3_finalize(st.?);
+        _ = c.sqlite3_bind_text(st.?, 1, old_id.ptr, @intCast(old_id.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_text(st.?, 2, new_id.ptr, @intCast(new_id.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_int64(st.?, 3, nowMs());
+        _ = c.sqlite3_step(st.?);
+    }
+
     pub fn clearRecurring(self: *Db) DbError!void {
         self.exec("DELETE FROM recurring_patterns;") catch return DbError.ExecFailed;
     }

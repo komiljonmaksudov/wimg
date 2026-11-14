@@ -2790,10 +2790,11 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                 resp = fints_mod.ParsedResponse.init();
                 fints_mod.parseResponse(&fints_session, resp_buf[0..rlen], &resp);
                 fints_session.msg_num += 1;
-                // A bank that wants a TAN for this just gives no pending list.
-                if (fints_session.has_pending_tan) {
-                    fints_session.has_pending_tan = false;
-                } else if (resp.pending_camt_len > 0 and pending_count < fints_pending_store.len) {
+                // A bank that wants a TAN for this just gives no pending list. The
+                // TAN flag can be left over from the dialog (Comdirect: HITAN with
+                // 3076, no TAN needed), so a pending part in the answer always wins.
+                fints_session.has_pending_tan = false;
+                if (resp.pending_camt_len > 0 and pending_count < fints_pending_store.len) {
                     const r = camt_mod.parseCamtPending(resp.pending_camt_data[0..resp.pending_camt_len], account_name, fints_pending_store[pending_count..]);
                     pending_count += r.count;
                 }
