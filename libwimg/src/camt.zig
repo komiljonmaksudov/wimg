@@ -34,6 +34,9 @@ fn parseCamtMode(data: []const u8, account: []const u8, out: []Transaction, pend
     var result = CamtResult{ .count = 0, .errors = 0 };
     if (data.len == 0 or out.len == 0) return result;
 
+    // <CreDtTm>2026-11-14T12:13:00</CreDtTm> of the message or report.
+    const report_date: ?[]const u8 = if (extractTagText(data, "CreDtTm")) |t| (if (t.len >= 10) t[0..10] else null) else null;
+
     var pos: usize = 0;
     while (result.count < out.len) {
         const start = findEntryStart(data, pos) orelse break;
@@ -46,7 +49,7 @@ fn parseCamtMode(data: []const u8, account: []const u8, out: []Transaction, pend
         if (!pending and isPendingEntry(entry)) continue;
 
         var txn: Transaction = undefined;
-        if (!parseEntry(entry, account, &txn, pending)) {
+        if (!parseEntry(entry, account, &txn, pending, report_date)) {
             result.errors += 1;
             continue;
         }
@@ -113,7 +116,7 @@ fn findBalStart(data: []const u8, from: usize) ?usize {
     };
 }
 
-fn parseEntry(entry: []const u8, account: []const u8, out_txn: *Transaction, pending: bool) bool {
+fn parseEntry(entry: []const u8, account: []const u8, out_txn: *Transaction, pending: bool, report_date: ?[]const u8) bool {
     const amount = extractAmountField(entry) orelse return false;
     const amount_abs = parseIsoAmount(amount.text) orelse return false;
 
@@ -121,9 +124,13 @@ fn parseEntry(entry: []const u8, account: []const u8, out_txn: *Transaction, pen
     const is_debit = std.mem.eql(u8, cdt_dbt, "DBIT");
     out_txn.amount_cents = if (is_debit) -amount_abs else amount_abs;
 
+    // Pending entries may carry no date at all (Comdirect camt.052.001.08):
+    // then they count as of the report's creation date, i.e. the fetch day.
     const date_block = extractTagText(entry, "BookgDt") orelse
-        (if (pending) extractTagText(entry, "ValDt") else null) orelse return false;
-    const dt = extractTagText(date_block, "Dt") orelse extractTagText(date_block, "DtTm") orelse return false;
+        (if (pending) extractTagText(entry, "ValDt") else null);
+    const dt = if (date_block) |blk|
+        (extractTagText(blk, "Dt") orelse extractTagText(blk, "DtTm") orelse return false)
+    else if (pending) (report_date orelse return false) else return false;
     out_txn.date = parseIsoDate(dt) orelse return false;
 
     var ustrd_buf: [512]u8 = undefined;
@@ -418,4 +425,21 @@ test "pending parse reads entries without booking date via value date" {
     try std.testing.expectEqual(@as(u32, 1), r.count);
     try std.testing.expectEqual(@as(i64, -500), out[0].amount_cents);
     try std.testing.expectEqual(@as(u16, 12), @as(u16, out[0].date.day));
+}
+
+test "pending entries without any date take the report's creation date (Comdirect)" {
+    const xml =
+        "<Document><BkToCstmrAcctRpt><GrpHdr><MsgId>1</MsgId><CreDtTm>2026-11-14T12:13:00.0+01:00</CreDtTm></GrpHdr><Rpt>" ++
+        "<Ntry><Amt Ccy=\"EUR\">89.90</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts><Cd>PDNG</Cd></Sts>" ++
+        "<NtryDtls><TxDtls><RmtInf><Ustrd>KARTENZAHLUNG MUSTERLADEN</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry>" ++
+        "</Rpt></BkToCstmrAcctRpt></Document>";
+    var out: [4]Transaction = undefined;
+    const r = parseCamtPending(xml, "acc", &out);
+    try std.testing.expectEqual(@as(usize, 1), r.count);
+    try std.testing.expectEqual(@as(i64, -8990), out[0].amount_cents);
+    try std.testing.expectEqual(@as(u16, 2026), out[0].date.year);
+    try std.testing.expectEqual(@as(u8, 14), out[0].date.day);
+    // A booked entry still needs its own date.
+    const booked = parseCamt(xml, "acc", &out);
+    try std.testing.expectEqual(@as(usize, 0), booked.count);
 }
