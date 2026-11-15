@@ -77,10 +77,7 @@ import com.wimg.app.ui.screens.*
 import com.wimg.app.ui.theme.WimgDimens
 import com.wimg.app.ui.theme.WimgMotion
 
-private val PLACE_ROUTES by lazy { PLACES.map { it.route }.toSet() }
 
-private fun isPlaceSwitch(from: androidx.navigation.NavBackStackEntry, to: androidx.navigation.NavBackStackEntry) =
-    from.destination.route in PLACE_ROUTES && to.destination.route in PLACE_ROUTES
 
 private const val ONBOARDING_KEY = "wimg_onboarding_done"
 
@@ -161,8 +158,6 @@ fun WimgNavigation() {
     val entry = navController.currentBackStackEntryAsState().value
     val route = entry?.destination?.route
     if (com.wimg.app.FrameWatch.route != route) { com.wimg.app.FrameWatch.route = route; com.wimg.app.FrameWatch.changedAt = System.nanoTime() }
-    // Set before the NavHost composes, not a frame later (see BarContribution).
-    if (BarState.currentOwner != entry?.id) BarState.currentOwner = entry?.id
     // Named after the page whose bar is shown: page, name and chips change in one frame.
     val shownRoute = BarState.current.route ?: route
     val place = PLACES.firstOrNull { it.route == shownRoute } ?: PLACES.first()
@@ -185,14 +180,16 @@ fun WimgNavigation() {
     Box(Modifier.fillMaxSize().imePadding()) {
         Column(Modifier.fillMaxSize()) {
             Box(Modifier.weight(1f).padding(bottom = if (route?.startsWith("search") == true || underBar) 0.dp else BarClearance - 24.dp)) {
-                // Switching places happens dozens of times a day: instant, like tabs.
-                // Only going into or out of a detail page gets a short fade.
+                // Every page change is instant, places and detail pages alike: no
+                // fade can show a half-drawn or see-through page (the "white flash"
+                // on back came from two pages fading at once). The floating bar
+                // still glides between its kinds.
                 NavHost(
                     navController = navController, startDestination = "dashboard",
-                    enterTransition = { if (isPlaceSwitch(initialState, targetState)) EnterTransition.None else fadeIn(tween(150, easing = WimgMotion.EaseOut)) },
-                    exitTransition = { if (isPlaceSwitch(initialState, targetState)) ExitTransition.None else fadeOut(tween(100, easing = WimgMotion.EaseOut)) },
-                    popEnterTransition = { if (isPlaceSwitch(initialState, targetState)) EnterTransition.None else fadeIn(tween(150, easing = WimgMotion.EaseOut)) },
-                    popExitTransition = { if (isPlaceSwitch(initialState, targetState)) ExitTransition.None else fadeOut(tween(100, easing = WimgMotion.EaseOut)) },
+                    enterTransition = { EnterTransition.None },
+                    exitTransition = { ExitTransition.None },
+                    popEnterTransition = { EnterTransition.None },
+                    popExitTransition = { ExitTransition.None },
                 ) {
                     composable(
                         "search?q={q}",

@@ -101,7 +101,11 @@ fun TransactionDetailScreen(id: String, navController: NavController?) {
     val clipboard = LocalClipboardManager.current
 
     // Not yet booked: shown read-only (the bank may still change or drop it).
-    var isPending by remember { mutableStateOf(false) }
+    // Known from the cached list too, or the first frame showed the booked
+    // layout (switch, "Kategorie wählen") and flipped a frame later.
+    var isPending by remember {
+        mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<TxData>(txKey(null))?.pending?.any { it.id == id } == true)
+    }
     LaunchedEffect(id, Changes.version) {
         val (t, a, p) = withContext(Dispatchers.IO) {
             val booked = LibWimg.getTransactions().firstOrNull { it.id == id }

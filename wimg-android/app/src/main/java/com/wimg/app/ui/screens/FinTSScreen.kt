@@ -200,6 +200,58 @@ private object FintsJob {
     /** Last fetch needed a TAN: the challenge for that connection's page to pick up. */
     var pendingTan by mutableStateOf<FintsResult?>(null)
     var pendingTanFor: String? = null
+    /** What the TAN is for: "fetch" (statements) or "connect-quick" (the login of a Schnellabfrage). */
+    var pendingTanKind: String = "fetch"
+
+    /**
+     * Schnellabfrage from the list (↻ on a card): signs in with the saved PIN and
+     * fetches the last 90 days without leaving the page. The bank's page opens
+     * only when the bank wants something from the user (TAN, TAN device, login).
+     */
+    fun quick(context: Context, conn: com.wimg.app.services.BankConnection) {
+        if (running) return
+        val saved = PinStore.get(context, conn.id) ?: run { openPage(conn.id, quick = true); return }
+        Dock.show(DockRow(DockKind.Sync, __t("Anmelden"), conn.name))
+        scope.launch {
+            val r = runCatching {
+                withFintsThread {
+                    com.wimg.app.bridge.LibWimg.native {
+                        WimgJni.nativeSetHttpCallback(FintsHttpCallback())
+                        decode(WimgJni.nativeFintsConnect(connectBody(conn.blz, conn.kennung, saved)))
+                    }
+                }
+            }.getOrNull()
+            when {
+                r == null -> Dock.error(__t("Schnellabfrage fehlgeschlagen"), bankText(null), __t("Erneut")) { quick(context, conn) }
+                r.status == "ok" -> {
+                    if (r.tan_medium_required == true) {
+                        // No saved TAN device: the page asks for one.
+                        val medium = conn.tanMedium ?: run { Dock.dismiss(); openPage(conn.id, quick = true); return@launch }
+                        withFintsThread { com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsSetTanMedium(mediumBody(medium)) } }
+                    }
+                    BackgroundRefresh.enqueue(context)
+                    fetch(context, conn.id, rangeDays(90), conn.name)
+                }
+                r.status == "tan_required" -> {
+                    Dock.dismiss()
+                    pendingTanKind = "connect-quick"; pendingTanFor = conn.id; pendingTan = r
+                    openPage(conn.id)
+                }
+                isAuthRejected(r) -> {
+                    forgetPin(context, conn.id)
+                    Dock.error(__t("Anmeldung abgelehnt"), bankText(r))
+                    loginRequested = conn.id
+                    openPage(conn.id)
+                }
+                else -> Dock.error(__t("Schnellabfrage fehlgeschlagen"), bankText(r))
+            }
+        }
+    }
+
+    private fun openPage(id: String, quick: Boolean = false) {
+        com.wimg.app.ui.components.NavRequest.onTop = true
+        com.wimg.app.ui.components.NavRequest.route = bankRoute(id, quick)
+    }
     var lastRange: Pair<String, String>? = null
 
     fun fetch(context: Context, connId: String, range: Pair<String, String>, bankName: String, onDone: (FintsResult?) -> Unit = {}) {
@@ -306,7 +358,7 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
     // A fetch that ended in a TAN request continues on that bank's page.
     LaunchedEffect(FintsJob.pendingTan) {
         if (FintsJob.pendingTanFor != connId) return@LaunchedEffect
-        FintsJob.pendingTan?.let { tan = it; tanFor = "fetch"; tanInput = ""; setup = true; step = Step.Tan; FintsJob.pendingTan = null; Dock.dismiss() }
+        FintsJob.pendingTan?.let { tan = it; tanFor = FintsJob.pendingTanKind; tanInput = ""; setup = true; step = Step.Tan; FintsJob.pendingTan = null; FintsJob.pendingTanKind = "fetch"; Dock.dismiss() }
     }
 
     fun goTan(r: FintsResult, forWhat: String) { tan = r; tanFor = forWhat; tanInput = ""; step = Step.Tan; Dock.dismiss() }
@@ -875,3 +927,6 @@ private object BankCatalog {
 
 /** Load the bank catalog ahead (WimgNavigation's background preload). */
 internal suspend fun preloadBankCatalog() { BankCatalog.load() }
+
+/** ↻ on a bank card: Schnellabfrage without leaving Bankverbindungen. */
+internal fun quickRefreshFromList(context: Context, conn: com.wimg.app.services.BankConnection) = FintsJob.quick(context, conn)

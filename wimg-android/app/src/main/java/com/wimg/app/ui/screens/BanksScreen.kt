@@ -100,7 +100,8 @@ fun BanksScreen(navController: NavController?) {
                     accounts.firstOrNull { it.id == conn.name },
                     hasPin = PinStore.has(context, conn.id),
                     onOpen = { navController?.navigate(bankRoute(conn.id)) },
-                    onRefresh = { navController?.navigate(bankRoute(conn.id, quick = true)) },
+                    // Fetches right here; the bank's page opens only if the bank wants a TAN or login.
+                    onRefresh = { quickRefreshFromList(context, conn) },
                 )
             }
             QuietLine(L("Schnellabfrage (↻) holt die letzten 90 Tage und geht direkt zur TAN, falls die Bank eine verlangt. Nur mit gespeicherter PIN."))

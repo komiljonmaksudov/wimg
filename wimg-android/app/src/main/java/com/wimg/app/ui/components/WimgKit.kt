@@ -1004,20 +1004,24 @@ data class BarSpec(
  */
 object BarState {
     private val specs = androidx.compose.runtime.mutableStateMapOf<String, BarSpec>()
-    var currentOwner by mutableStateOf<String?>(null)
 
     /**
-     * A screen registers its bar one frame after it first appears. Until then the
-     * bar keeps what it showed before, so a screen change animates the bar once
-     * (old → new) instead of twice (old → empty → new).
+     * The page whose bar is shown: the one that most recently came on screen,
+     * not the back stack's current entry. On back the back stack moves one
+     * frame before the page below is drawn; following it showed a stand-in
+     * (Übersicht's bar) for that frame. A page sets this when it registers,
+     * so page and bar change in the same frame.
      */
+    var currentOwner by mutableStateOf<String?>(null)
+        private set
+
     private var lastShown: BarSpec = BarSpec()
     val current: BarSpec
         get() {
             val spec = currentOwner?.let { specs[it] }
             if (spec != null) lastShown = spec
-            // The stand-in for a page that hasn't registered (or has no bar of its
-            // own, like search) never carries the previous page's open menu or panel.
+            // The page that owned the bar just left and the next one hasn't
+            // registered yet: keep the last bar, never its open panel.
             return spec ?: lastShown.copy(panel = null)
         }
     val detail: DetailBarSpec? get() = current.detail
@@ -1025,7 +1029,10 @@ object BarState {
     val panel: (@Composable () -> Unit)? get() = current.panel
     fun onPanelDismiss() = current.onPanelDismiss()
 
-    internal fun put(owner: String, spec: BarSpec) { specs[owner] = spec }
+    internal fun put(owner: String, spec: BarSpec) {
+        if (owner !in specs) currentOwner = owner // came on screen
+        specs[owner] = spec
+    }
     internal fun remove(owner: String) { specs.remove(owner) }
 }
 
