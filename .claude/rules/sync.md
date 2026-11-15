@@ -53,6 +53,14 @@ All data encrypted client-side. Key derived from sync key via HKDF-SHA256
   back there so the others learn they are out, and everything is pushed again
   under a fresh key.
 
+## Deletions
+
+Only manual entries can be deleted. The row is removed locally and
+`deleted_transactions` keeps a marker that syncs as the row's newest version
+(`"data":{"deleted":1}`); a device that applies it deletes the row and keeps the
+marker, so an older copy arriving later is ignored. A newer edit of the row
+wins over the marker (LWW as everywhere).
+
 ## Storage
 
 One SQLite file for all keys: `sync_rows (sync_key, tbl, row_id, data, updated_at)`,

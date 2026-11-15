@@ -17,6 +17,13 @@ CREATE TABLE transactions (
   category INTEGER NOT NULL DEFAULT 0,
   account TEXT NOT NULL DEFAULT '',
   excluded INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  source TEXT NOT NULL DEFAULT ''            -- v22: 'manual' = Umsatz von Hand (editable, deletable)
+);
+-- v22: a deleted manual entry. The row is gone; this marker syncs as the row's
+-- newest version ({"deleted":1}) so other devices delete it too.
+CREATE TABLE deleted_transactions (
+  id TEXT PRIMARY KEY,
   updated_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX idx_transactions_date ON transactions(date_year, date_month, date_day);

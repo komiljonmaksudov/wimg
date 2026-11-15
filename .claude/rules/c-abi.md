@@ -30,6 +30,8 @@ export fn wimg_set_excluded(id: [*]const u8, id_len: u32, excluded: u8) i32
 export fn wimg_auto_categorize() i32
 export fn wimg_get_categories() ?[*]const u8
 export fn wimg_add_manual_transaction(date_ptr: [*]const u8, date_len: u32, desc_ptr: [*]const u8, desc_len: u32, amount_cents: i64, category: u8, acct_ptr: [*]const u8, acct_len: u32) i32
+export fn wimg_delete_transaction(id: [*]const u8, id_len: u32) i32                 // manual entries only; 0 ok, 1 not manual, -1 error; syncs as a deletion
+export fn wimg_update_manual_transaction(id: [*]const u8, id_len: u32, date_ptr: [*]const u8, date_len: u32, desc_ptr: [*]const u8, desc_len: u32, amount_cents: i64, category: u8, acct_ptr: [*]const u8, acct_len: u32) i32
 
 // Rules (Einstellungen › Gelernte Regeln)
 export fn wimg_get_rules() ?[*]const u8                  // [{id, pattern, category, priority}]

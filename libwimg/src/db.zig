@@ -34,7 +34,7 @@ pub const DbError = error{
     StepFailed,
 };
 
-const CURRENT_SCHEMA_VERSION = 21;
+const CURRENT_SCHEMA_VERSION = 23;
 
 /// SQL condition: the row's account is not hidden ("Konten ein- und ausblenden").
 pub const visible_accounts = "account NOT IN (SELECT id FROM accounts WHERE hidden = 1)";
@@ -54,6 +54,11 @@ pub const Db = struct {
         \\  category INTEGER NOT NULL DEFAULT 0,
         \\  account TEXT NOT NULL DEFAULT '',
         \\  excluded INTEGER NOT NULL DEFAULT 0,
+        \\  updated_at INTEGER NOT NULL DEFAULT 0,
+        \\  source TEXT NOT NULL DEFAULT ''
+        \\);
+        \\CREATE TABLE IF NOT EXISTS deleted_transactions (
+        \\  id TEXT PRIMARY KEY,
         \\  updated_at INTEGER NOT NULL DEFAULT 0
         \\);
         \\CREATE INDEX IF NOT EXISTS idx_transactions_date
@@ -392,9 +397,30 @@ pub const Db = struct {
             ) catch {};
         }
 
+        if (version < 22) {
+            // v22: manual entries are marked (source = 'manual'; before, only the
+            // "Bargeld" account told them apart) and can be deleted. A deleted
+            // transaction leaves a marker in deleted_transactions, synced as the
+            // row's newest version, so other devices delete it too.
+            self.exec("ALTER TABLE transactions ADD COLUMN source TEXT NOT NULL DEFAULT '';") catch {};
+            self.exec("UPDATE transactions SET source = 'manual' WHERE account = 'Bargeld' AND source = '';") catch {};
+            self.exec(
+                \\CREATE TABLE IF NOT EXISTS deleted_transactions (
+                \\  id TEXT PRIMARY KEY,
+                \\  updated_at INTEGER NOT NULL DEFAULT 0
+                \\);
+            ) catch {};
+        }
+
+        if (version < 23) {
+            // v23: manual entries from before v22 on a bank account (v22 only
+            // caught "Bargeld"). See markEarlyManualEntries.
+            self.markEarlyManualEntries();
+        }
+
         // Store current version
         if (version < CURRENT_SCHEMA_VERSION) {
-            self.setMeta("schema_version", "21") catch {};
+            self.setMeta("schema_version", "23") catch {};
         }
     }
 
@@ -1335,6 +1361,110 @@ pub const Db = struct {
         _ = c.sqlite3_step(st.?);
     }
 
+    // --- Manual entries (v22) ---
+
+    /// Manual entries exist since 2026-11-13 16:40 UTC and had no marker until
+    /// v22. One counts as manual when all three hold: written after that time,
+    /// no booking type in its text (bank bookings carry one), and an id that
+    /// is not the import hash of its own date, text, amount and account (CSV
+    /// and bank rows are; manual ids hash an extra "manual:<time>").
+    fn markEarlyManualEntries(self: *Db) void {
+        const since: i64 = 1794588000000;
+        var st: ?*c.sqlite3_stmt = null;
+        const sql = "SELECT id, date_year, date_month, date_day, description, amount_cents, account FROM transactions WHERE source = '' AND updated_at >= ?1;";
+        if (c.sqlite3_prepare_v2(self.handle, sql, -1, &st, null) != c.SQLITE_OK or st == null) return;
+        defer _ = c.sqlite3_finalize(st.?);
+        const s = st.?;
+        _ = c.sqlite3_bind_int64(s, 1, since);
+        var ids: [64][32]u8 = undefined;
+        var n: usize = 0;
+        while (c.sqlite3_step(s) == c.SQLITE_ROW and n < ids.len) {
+            const id_ptr = c.sqlite3_column_text(s, 0) orelse continue;
+            const id_len: usize = @intCast(c.sqlite3_column_bytes(s, 0));
+            const desc_ptr = c.sqlite3_column_text(s, 4) orelse continue;
+            const desc = desc_ptr[0..@intCast(c.sqlite3_column_bytes(s, 4))];
+            if (id_len != 32) continue;
+            if (booking.kind(desc).len != 0) continue;
+            const acct_ptr = c.sqlite3_column_text(s, 6);
+            const acct = if (acct_ptr) |a| a[0..@intCast(c.sqlite3_column_bytes(s, 6))] else "";
+            const date = types.Date{
+                .year = @intCast(c.sqlite3_column_int(s, 1)),
+                .month = @intCast(c.sqlite3_column_int(s, 2)),
+                .day = @intCast(c.sqlite3_column_int(s, 3)),
+            };
+            const import_id = parser_mod.computeHash(date, desc, c.sqlite3_column_int64(s, 5), acct);
+            if (std.mem.eql(u8, &import_id, id_ptr[0..32])) continue;
+            @memcpy(&ids[n], id_ptr[0..32]);
+            n += 1;
+        }
+        for (ids[0..n]) |*id| self.markManual(id) catch {};
+    }
+
+    pub fn markManual(self: *Db, id: []const u8) DbError!void {
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, "UPDATE transactions SET source = 'manual' WHERE id = ?1;", -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(st.?);
+        _ = c.sqlite3_bind_text(st.?, 1, id.ptr, @intCast(id.len), c.SQLITE_STATIC);
+        if (c.sqlite3_step(st.?) != c.SQLITE_DONE) return DbError.StepFailed;
+    }
+
+    /// Deletes a manual entry for good: the row goes, a marker stays so the
+    /// deletion syncs (bank bookings can't be deleted: the next fetch would
+    /// bring them back). Returns false when there was no such manual entry.
+    pub fn deleteManualTransaction(self: *Db, id: []const u8) DbError!bool {
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, "DELETE FROM transactions WHERE id = ?1 AND source = 'manual';", -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(st.?);
+        _ = c.sqlite3_bind_text(st.?, 1, id.ptr, @intCast(id.len), c.SQLITE_STATIC);
+        if (c.sqlite3_step(st.?) != c.SQLITE_DONE) return DbError.StepFailed;
+        if (c.sqlite3_changes(self.handle) == 0) return false;
+        try self.putTombstone(id, nowMs());
+        return true;
+    }
+
+    fn putTombstone(self: *Db, id: []const u8, updated_at: i64) DbError!void {
+        var st: ?*c.sqlite3_stmt = null;
+        const sql = "INSERT INTO deleted_transactions (id, updated_at) VALUES (?1, ?2) ON CONFLICT (id) DO UPDATE SET updated_at = MAX(updated_at, excluded.updated_at);";
+        if (c.sqlite3_prepare_v2(self.handle, sql, -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(st.?);
+        _ = c.sqlite3_bind_text(st.?, 1, id.ptr, @intCast(id.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_int64(st.?, 2, updated_at);
+        if (c.sqlite3_step(st.?) != c.SQLITE_DONE) return DbError.StepFailed;
+    }
+
+    fn tombstoneAt(self: *Db, id: []const u8) i64 {
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, "SELECT updated_at FROM deleted_transactions WHERE id = ?1;", -1, &st, null) != c.SQLITE_OK or st == null) return 0;
+        defer _ = c.sqlite3_finalize(st.?);
+        _ = c.sqlite3_bind_text(st.?, 1, id.ptr, @intCast(id.len), c.SQLITE_STATIC);
+        if (c.sqlite3_step(st.?) != c.SQLITE_ROW) return 0;
+        return c.sqlite3_column_int64(st.?, 0);
+    }
+
+    /// Edits a manual entry (bank bookings stay as the bank sent them).
+    pub fn updateManualTransaction(self: *Db, id: []const u8, year: u16, month: u8, day: u8, description: []const u8, amount_cents: i64, category: u8, account: []const u8) DbError!bool {
+        const sql =
+            \\UPDATE transactions SET date_year = ?2, date_month = ?3, date_day = ?4, description = ?5,
+            \\  amount_cents = ?6, category = ?7, account = ?8, updated_at = ?9
+            \\WHERE id = ?1 AND source = 'manual';
+        ;
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, sql, -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(st.?);
+        const s = st.?;
+        _ = c.sqlite3_bind_text(s, 1, id.ptr, @intCast(id.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_int(s, 2, year);
+        _ = c.sqlite3_bind_int(s, 3, month);
+        _ = c.sqlite3_bind_int(s, 4, day);
+        _ = c.sqlite3_bind_text(s, 5, description.ptr, @intCast(description.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_int64(s, 6, amount_cents);
+        _ = c.sqlite3_bind_int(s, 7, category);
+        _ = c.sqlite3_bind_text(s, 8, account.ptr, @intCast(account.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_int64(s, 9, nowMs());
+        if (c.sqlite3_step(s) != c.SQLITE_DONE) return DbError.StepFailed;
+        return c.sqlite3_changes(self.handle) > 0;
+    }
+
     pub fn clearRecurring(self: *Db) DbError!void {
         self.exec("DELETE FROM recurring_patterns;") catch return DbError.ExecFailed;
     }
@@ -2059,7 +2189,7 @@ pub const Db = struct {
     /// Every transaction, hidden accounts included (search, export, backup).
     pub fn getTransactionsJson(self: *Db, buf: [*]u8, buf_len: usize) DbError!?usize {
         const sql =
-            \\SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, excluded
+            \\SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, excluded, source
             \\FROM transactions
             \\ORDER BY date_year DESC, date_month DESC, date_day DESC, rowid DESC;
         ;
@@ -2070,10 +2200,10 @@ pub const Db = struct {
     pub fn getTransactionsJsonFiltered(self: *Db, buf: [*]u8, buf_len: usize, acct_ptr: ?[*]const u8, acct_len: u32) DbError!?usize {
         const has_filter = acct_ptr != null and acct_len > 0;
         // "Alle Konten" leaves out hidden accounts; one account asked for by id is shown.
-        const sql_all = "SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, excluded " ++
+        const sql_all = "SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, excluded, source " ++
             "FROM transactions WHERE " ++ visible_accounts ++ " ORDER BY date_year DESC, date_month DESC, date_day DESC, rowid DESC;";
         const sql_filtered =
-            \\SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, excluded
+            \\SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, excluded, source
             \\FROM transactions
             \\WHERE account = ?1
             \\ORDER BY date_year DESC, date_month DESC, date_day DESC, rowid DESC;
@@ -2087,10 +2217,10 @@ pub const Db = struct {
     /// Same JSON shape as getTransactionsJsonFiltered.
     pub fn getPendingJsonFiltered(self: *Db, buf: [*]u8, buf_len: usize, acct_ptr: ?[*]const u8, acct_len: u32) DbError!?usize {
         const has_filter = acct_ptr != null and acct_len > 0;
-        const sql_all = "SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, 0 " ++
+        const sql_all = "SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, 0, '' " ++
             "FROM pending_transactions WHERE " ++ visible_accounts ++ " ORDER BY date_year DESC, date_month DESC, date_day DESC, rowid DESC;";
         const sql_filtered =
-            \\SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, 0
+            \\SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, 0, ''
             \\FROM pending_transactions
             \\WHERE account = ?1
             \\ORDER BY date_year DESC, date_month DESC, date_day DESC, rowid DESC;
@@ -2166,6 +2296,8 @@ pub const Db = struct {
             const a_ptr = c.sqlite3_column_text(s, 8);
             const a_len: usize = @intCast(c.sqlite3_column_bytes(s, 8));
             const excluded: u8 = @intCast(c.sqlite3_column_int(s, 9));
+            const src_ptr = c.sqlite3_column_text(s, 10);
+            const manual = src_ptr != null and std.mem.eql(u8, src_ptr.?[0..@intCast(c.sqlite3_column_bytes(s, 10))], "manual");
 
             if (id_ptr == null or desc_ptr == null or curr_ptr == null) continue;
 
@@ -2190,6 +2322,13 @@ pub const Db = struct {
             ) orelse return null;
 
             pos += written;
+            // Manual entries say so: the apps let you edit and delete them.
+            if (manual and pos > 0 and buf[pos - 1] == '}') {
+                const tag = ",\"manual\":true}";
+                if (pos - 1 + tag.len > buf_len) return null;
+                @memcpy(buf[pos - 1 .. pos - 1 + tag.len], tag);
+                pos += tag.len - 1;
+            }
             first = false;
         }
 
@@ -2239,7 +2378,30 @@ pub const Db = struct {
     }
 
     pub fn getAccountsJson(self: *Db, buf: [*]u8, buf_len: usize) DbError!?usize {
-        const sql = "SELECT id, name, bank, color, balance_cents, balance_date, hidden FROM accounts WHERE deleted = 0 ORDER BY name;";
+        // An account without a bank balance whose bookings are all manual, or
+        // the empty cash account ("Bargeld", the one manual entries create),
+        // has the sum of its manual entries as its balance, dated by the latest
+        // one. An empty bank account (bookings not synced yet) is not cash. Without it, one cash entry turned Umsätze's Kontostand into
+        // the sum of all bookings since the first import.
+        const sql =
+            \\WITH tx AS (
+            \\  SELECT account AS id, SUM(CASE WHEN excluded = 0 THEN amount_cents ELSE 0 END) AS cents,
+            \\         MAX(date_year * 10000 + date_month * 100 + date_day) AS d, SUM(source <> 'manual') AS bank
+            \\  FROM transactions GROUP BY account
+            \\), acc AS (
+            \\  SELECT a.*, COALESCE(tx.cents, 0) AS cents, tx.d AS d,
+            \\    (a.balance_date = '' AND COALESCE(tx.bank, 0) = 0 AND (tx.id IS NOT NULL OR a.id = 'Bargeld')) AS is_cash
+            \\  FROM accounts a LEFT JOIN tx ON tx.id = a.id
+            \\  WHERE a.deleted = 0
+            \\)
+            \\SELECT id, name, bank, color,
+            \\  CASE WHEN is_cash THEN cents ELSE balance_cents END,
+            \\  CASE WHEN NOT is_cash THEN balance_date
+            \\    WHEN d IS NULL THEN date('now', 'localtime')
+            \\    ELSE printf('%04d-%02d-%02d', d / 10000, d / 100 % 100, d % 100) END,
+            \\  hidden
+            \\FROM acc ORDER BY name;
+        ;
         var stmt: ?*c.sqlite3_stmt = null;
         if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) != c.SQLITE_OK or stmt == null) return DbError.PrepareFailed;
         defer _ = c.sqlite3_finalize(stmt.?);
@@ -2300,7 +2462,10 @@ pub const Db = struct {
             if (pos + p5.len > buf_len) return null;
             @memcpy(buf[pos .. pos + p5.len], p5);
             pos += p5.len;
-            pos += formatInt(buf[pos..buf_len], balance_cents) orelse return null;
+            // Signed: an overdrawn account or a cash account with more spent
+            // than received is negative (formatInt wrote nothing for those, and
+            // the apps crashed on `"balance_cents":,`).
+            pos += formatSignedInt(buf[pos..buf_len], balance_cents) orelse return null;
 
             const p6 = ",\"balance_date\":\"";
             if (pos + p6.len > buf_len) return null;
@@ -2841,7 +3006,7 @@ pub const Db = struct {
         // --- transactions ---
         {
             const sql =
-                \\SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, excluded, updated_at
+                \\SELECT id, date_year, date_month, date_day, description, amount_cents, currency, category, account, excluded, updated_at, source
                 \\FROM transactions WHERE updated_at >= ?1;
             ;
             var stmt: ?*c.sqlite3_stmt = null;
@@ -2872,6 +3037,8 @@ pub const Db = struct {
                 const acct_len: usize = @intCast(c.sqlite3_column_bytes(s, 8));
                 const excl = c.sqlite3_column_int(s, 9);
                 const updated = c.sqlite3_column_int64(s, 10);
+                const src_ptr = c.sqlite3_column_text(s, 11);
+                const src_len: usize = @intCast(c.sqlite3_column_bytes(s, 11));
 
                 // {"table":"transactions","id":"...","data":{...},"updated_at":N}
                 const p1 = "{\"table\":\"transactions\",\"id\":\"";
@@ -2940,6 +3107,17 @@ pub const Db = struct {
                 pos += p_excl.len;
                 pos += formatSignedInt(buf[pos..buf_len], @as(i64, excl)) orelse return null;
 
+                if (src_ptr) |sp| if (src_len > 0) {
+                    const p_src = ",\"source\":\"";
+                    if (pos + p_src.len > buf_len) return null;
+                    @memcpy(buf[pos .. pos + p_src.len], p_src);
+                    pos += p_src.len;
+                    pos += jsonEscapeString(buf[pos..buf_len], sp[0..src_len]) orelse return null;
+                    if (pos >= buf_len) return null;
+                    buf[pos] = '"';
+                    pos += 1;
+                };
+
                 const p_close = "},\"updated_at\":";
                 if (pos + p_close.len > buf_len) return null;
                 @memcpy(buf[pos .. pos + p_close.len], p_close);
@@ -2950,6 +3128,40 @@ pub const Db = struct {
                 buf[pos] = '}';
                 pos += 1;
 
+                first = false;
+            }
+        }
+
+        // --- deleted transactions: the row's newest version is "deleted" ---
+        {
+            const sql = "SELECT id, updated_at FROM deleted_transactions WHERE updated_at >= ?1;";
+            var stmt: ?*c.sqlite3_stmt = null;
+            if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) != c.SQLITE_OK or stmt == null) return DbError.PrepareFailed;
+            defer _ = c.sqlite3_finalize(stmt.?);
+            const s = stmt.?;
+            if (c.sqlite3_bind_int64(s, 1, since_ts) != c.SQLITE_OK) return DbError.BindFailed;
+            while (c.sqlite3_step(s) == c.SQLITE_ROW) {
+                const id_ptr = c.sqlite3_column_text(s, 0) orelse continue;
+                const id_len: usize = @intCast(c.sqlite3_column_bytes(s, 0));
+                const updated = c.sqlite3_column_int64(s, 1);
+                if (!first) {
+                    if (pos >= buf_len) return null;
+                    buf[pos] = ',';
+                    pos += 1;
+                }
+                const p1 = "{\"table\":\"transactions\",\"id\":\"";
+                if (pos + p1.len > buf_len) return null;
+                @memcpy(buf[pos .. pos + p1.len], p1);
+                pos += p1.len;
+                pos += jsonEscapeString(buf[pos..buf_len], id_ptr[0..id_len]) orelse return null;
+                const p2 = "\",\"data\":{\"deleted\":1},\"updated_at\":";
+                if (pos + p2.len > buf_len) return null;
+                @memcpy(buf[pos .. pos + p2.len], p2);
+                pos += p2.len;
+                pos += formatSignedInt(buf[pos..buf_len], updated) orelse return null;
+                if (pos >= buf_len) return null;
+                buf[pos] = '}';
+                pos += 1;
                 first = false;
             }
         }
@@ -3537,11 +3749,16 @@ pub const Db = struct {
 
             // Check local updated_at
             if (std.mem.eql(u8, table, "transactions")) {
-                const local_ts = self.getRowUpdatedAt("transactions", row_id);
+                // A deletion marker counts as the row's newest version too.
+                const local_ts = @max(self.getRowUpdatedAt("transactions", row_id), self.tombstoneAt(row_id));
                 if (updated_at <= local_ts) continue;
-                // Extract data fields and INSERT OR REPLACE
                 const data_str = self.extractDataObject(obj) orelse continue;
-                self.applyTransactionChange(row_id, data_str, updated_at) catch continue;
+                if (jsonExtractI64FromSlice(data_str, "\"deleted\"") != 0) {
+                    self.applyTransactionDelete(row_id, updated_at) catch continue;
+                } else {
+                    // Extract data fields and INSERT OR REPLACE
+                    self.applyTransactionChange(row_id, data_str, updated_at) catch continue;
+                }
                 applied += 1;
             } else if (std.mem.eql(u8, table, "debts")) {
                 const local_ts = self.getRowUpdatedAt("debts", row_id);
@@ -3808,6 +4025,15 @@ pub const Db = struct {
         return null;
     }
 
+    fn applyTransactionDelete(self: *Db, row_id: []const u8, updated_at: i64) DbError!void {
+        var st: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, "DELETE FROM transactions WHERE id = ?1;", -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(st.?);
+        _ = c.sqlite3_bind_text(st.?, 1, row_id.ptr, @intCast(row_id.len), c.SQLITE_STATIC);
+        if (c.sqlite3_step(st.?) != c.SQLITE_DONE) return DbError.StepFailed;
+        try self.putTombstone(row_id, updated_at);
+    }
+
     fn applyTransactionChange(self: *Db, row_id: []const u8, data: []const u8, updated_at: i64) DbError!void {
         const date_year = jsonExtractI64FromSlice(data, "\"date_year\"");
         const date_month = jsonExtractI64FromSlice(data, "\"date_month\"");
@@ -3832,10 +4058,14 @@ pub const Db = struct {
         const acct_len = jsonUnescapeString(&acct_buf, acct_escaped) orelse return DbError.ExecFailed;
         const account = acct_buf[0..acct_len];
 
+        // source: from the row, or what this device already knew (rows from
+        // builds before v22 don't carry it).
+        const src = jsonExtractStringFromSlice(data, "\"source\"") orelse "";
         const sql =
             \\INSERT OR REPLACE INTO transactions
-            \\  (id, date_year, date_month, date_day, description, amount_cents, currency, category, account, excluded, updated_at)
-            \\VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11);
+            \\  (id, date_year, date_month, date_day, description, amount_cents, currency, category, account, excluded, updated_at, source)
+            \\VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+            \\  CASE WHEN ?12 <> '' THEN ?12 ELSE COALESCE((SELECT source FROM transactions WHERE id = ?1), '') END);
         ;
         var stmt: ?*c.sqlite3_stmt = null;
         if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) != c.SQLITE_OK or stmt == null) return DbError.PrepareFailed;
@@ -3852,7 +4082,18 @@ pub const Db = struct {
         if (c.sqlite3_bind_text(s, 9, @ptrCast(account.ptr), @intCast(account.len), c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
         if (c.sqlite3_bind_int64(s, 10, excluded) != c.SQLITE_OK) return DbError.BindFailed;
         if (c.sqlite3_bind_int64(s, 11, updated_at) != c.SQLITE_OK) return DbError.BindFailed;
+        if (c.sqlite3_bind_text(s, 12, @ptrCast(src.ptr), @intCast(src.len), c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
         if (c.sqlite3_step(s) != c.SQLITE_DONE) return DbError.StepFailed;
+        // A newer row than the deletion: it's back (edited on a device that
+        // hadn't seen the deletion yet).
+        if (self.tombstoneAt(row_id) != 0) {
+            var st: ?*c.sqlite3_stmt = null;
+            if (c.sqlite3_prepare_v2(self.handle, "DELETE FROM deleted_transactions WHERE id = ?1;", -1, &st, null) == c.SQLITE_OK and st != null) {
+                defer _ = c.sqlite3_finalize(st.?);
+                _ = c.sqlite3_bind_text(st.?, 1, row_id.ptr, @intCast(row_id.len), c.SQLITE_STATIC);
+                _ = c.sqlite3_step(st.?);
+            }
+        }
     }
 
     fn applyDebtChange(self: *Db, row_id: []const u8, data: []const u8, updated_at: i64) DbError!void {
@@ -5290,4 +5531,107 @@ test "settings sync: last write per key wins" {
         \\{"rows":[{"table":"settings","id":"period_mode","data":{"value":"calendar"},"updated_at":1}]}
     );
     try std.testing.expectEqualStrings("salary", b.getSetting("period_mode", &vb).?);
+}
+
+test "manual entries: delete syncs as a marker, an older version can't bring it back" {
+    var a = try Db.init(":memory:");
+    defer a.close();
+    var b = try Db.init(":memory:");
+    defer b.close();
+    const rows =
+        \\INSERT INTO transactions (id, date_year, date_month, date_day, description, amount_cents, account, updated_at, source) VALUES
+        \\ ('m1', 2026, 11, 14, 'Wochenmarkt', -1200, 'Bargeld', 100, 'manual'),
+        \\ ('b1', 2026, 11, 13, 'NETTO', -1863, 'comdirect', 100, '');
+    ;
+    try a.exec(rows);
+    try b.exec(rows);
+
+    // A bank booking can't be deleted; a manual one can.
+    try std.testing.expect(!(try a.deleteManualTransaction("b1")));
+    try std.testing.expect(try a.deleteManualTransaction("m1"));
+
+    // The deletion travels as the row's newest version and deletes it on b.
+    var buf: [8192]u8 = undefined;
+    const n = (try a.getChangesJson(0, &buf, buf.len)).?;
+    const changes = buf[0..n];
+    try std.testing.expect(std.mem.indexOf(u8, changes, "\"id\":\"m1\",\"data\":{\"deleted\":1}") != null);
+    _ = try b.applyChanges(changes);
+    try std.testing.expectEqual(@as(i64, 0), b.getRowUpdatedAt("transactions", "m1"));
+    try std.testing.expect(b.tombstoneAt("m1") > 0);
+
+    // The old version of the row arriving later is ignored.
+    const old_row = "{\"rows\":[{\"table\":\"transactions\",\"id\":\"m1\",\"data\":{\"date_year\":2026,\"date_month\":11,\"date_day\":14,\"description\":\"Wochenmarkt\",\"amount_cents\":-1200,\"currency\":\"EUR\",\"category\":0,\"account\":\"Bargeld\",\"excluded\":0},\"updated_at\":100}]}";
+    _ = try b.applyChanges(old_row);
+    try std.testing.expectEqual(@as(i64, 0), b.getRowUpdatedAt("transactions", "m1"));
+}
+
+test "manual entries: edit, source survives a row without it, cash balance" {
+    var db = try Db.init(":memory:");
+    defer db.close();
+    try db.exec(
+        \\INSERT INTO accounts (id, name) VALUES ('Bargeld', 'Bargeld');
+        \\INSERT INTO transactions (id, date_year, date_month, date_day, description, amount_cents, account, updated_at, source) VALUES
+        \\ ('m1', 2026, 11, 14, 'Wochenmarkt', -1200, 'Bargeld', 100, 'manual'),
+        \\ ('m2', 2026, 11, 10, 'Geschenk', 5000, 'Bargeld', 100, 'manual');
+    );
+    try std.testing.expect(try db.updateManualTransaction("m1", 2026, 11, 12, "Markt", -1500, 2, "Bargeld"));
+
+    // A row from a build before v22 (no "source") keeps it manual.
+    const row = "{\"rows\":[{\"table\":\"transactions\",\"id\":\"m2\",\"data\":{\"date_year\":2026,\"date_month\":11,\"date_day\":10,\"description\":\"Geschenk\",\"amount_cents\":5000,\"currency\":\"EUR\",\"category\":0,\"account\":\"Bargeld\",\"excluded\":0},\"updated_at\":99999999999999}]}";
+    _ = try db.applyChanges(row);
+
+    var buf: [4096]u8 = undefined;
+    const n = (try db.getAccountsJson(&buf, buf.len)).?;
+    const json = buf[0..n];
+    // 50,00 − 15,00 = 35,00, dated by the newest entry.
+    try std.testing.expect(std.mem.indexOf(u8, json, "3500") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "2026-11-12") != null);
+
+    const t = (try db.getTransactionsJsonFiltered(&buf, buf.len, "Bargeld", 7)).?;
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, buf[0..t], "\"manual\":true"));
+}
+
+test "accounts JSON: a negative balance is written (cash, overdraft)" {
+    var db = try Db.init(":memory:");
+    defer db.close();
+    try db.exec(
+        \\INSERT INTO accounts (id, name) VALUES ('Bargeld', 'Bargeld');
+        \\INSERT INTO transactions (id, date_year, date_month, date_day, description, amount_cents, account, source) VALUES
+        \\ ('m1', 2026, 11, 14, 'Markt', -900, 'Bargeld', 'manual');
+    );
+    var buf: [2048]u8 = undefined;
+    const n = (try db.getAccountsJson(&buf, buf.len)).?;
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..n], "\"balance_cents\":-900,") != null);
+}
+
+test "v23: early manual entries are found, imports and bank bookings are not" {
+    var db = try Db.init(":memory:");
+    defer db.close();
+    const d = types.Date{ .year = 2026, .month = 11, .day = 14 };
+    const csv_id = parser_mod.computeHash(d, "REWE Markt", -1200, "comdirect");
+    var sql_buf: [1024]u8 = undefined;
+    const sql = try std.fmt.bufPrintSentinel(&sql_buf,
+        \\INSERT INTO transactions (id, date_year, date_month, date_day, description, amount_cents, account, updated_at) VALUES
+        \\ ('{s}', 2026, 11, 14, 'REWE Markt', -1200, 'comdirect', 1794600000000),
+        \\ ('11111111111111111111111111111111', 2026, 11, 14, 'LASTSCHRIFT / BELASTUNG NETTO', -1863, 'comdirect', 1794600000000),
+        \\ ('22222222222222222222222222222222', 2026, 11, 14, 'Geschenk Oma', 2200, 'comdirect', 1794600000000),
+        \\ ('33333333333333333333333333333333', 2026, 11, 1, 'Alter Eintrag', 500, 'comdirect', 1700000000000);
+    , .{&csv_id}, 0);
+    try db.exec(sql);
+    db.markEarlyManualEntries();
+    var st: ?*c.sqlite3_stmt = null;
+    try std.testing.expect(c.sqlite3_prepare_v2(db.handle, "SELECT group_concat(substr(id, 1, 1)) FROM transactions WHERE source = 'manual';", -1, &st, null) == c.SQLITE_OK);
+    defer _ = c.sqlite3_finalize(st.?);
+    try std.testing.expect(c.sqlite3_step(st.?) == c.SQLITE_ROW);
+    const got = c.sqlite3_column_text(st.?, 0).?;
+    try std.testing.expectEqualStrings("2", got[0..@intCast(c.sqlite3_column_bytes(st.?, 0))]);
+}
+
+test "accounts JSON: an empty cash account has balance 0, so the Kontostand stays" {
+    var db = try Db.init(":memory:");
+    defer db.close();
+    try db.exec("INSERT INTO accounts (id, name) VALUES ('Bargeld', 'Bargeld');");
+    var buf: [2048]u8 = undefined;
+    const n = (try db.getAccountsJson(&buf, buf.len)).?;
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..n], "\"balance_cents\":0,\"balance_date\":\"20") != null);
 }

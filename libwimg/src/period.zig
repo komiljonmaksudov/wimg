@@ -120,10 +120,11 @@ fn lineIn(list: []const u8, key: []const u8) bool {
     return false;
 }
 
-/// Loads incomes (newest last) from visible accounts.
+/// Loads incomes (newest last) from visible accounts. Manual entries (cash
+/// someone handed you) are never a salary and never start a period.
 fn loadIncomes(database: *Db) usize {
     const sql = "SELECT date_year, date_month, date_day, amount_cents, id, description FROM transactions " ++
-        "WHERE amount_cents > 0 AND excluded = 0 AND " ++ db_mod.visible_accounts ++
+        "WHERE amount_cents > 0 AND excluded = 0 AND source <> 'manual' AND " ++ db_mod.visible_accounts ++
         " ORDER BY date_year DESC, date_month DESC, date_day DESC, rowid DESC LIMIT 1024;";
     var st: ?*c.sqlite3_stmt = null;
     if (c.sqlite3_prepare_v2(database.handle, sql, -1, &st, null) != c.SQLITE_OK or st == null) return 0;

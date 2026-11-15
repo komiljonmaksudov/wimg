@@ -184,6 +184,11 @@ int32_t wimg_delete_rule(int64_t id, uint8_t reset);
 // A transaction entered by hand (e.g. cash). date "YYYY-MM-DD", amount signed cents.
 int32_t wimg_add_manual_transaction(const uint8_t *date, uint32_t date_len, const uint8_t *desc, uint32_t desc_len,
                                     int64_t amount_cents, uint8_t category, const uint8_t *acct, uint32_t acct_len);
+// Manual entries only. 0 ok, 1 not a manual entry, -1 error.
+int32_t wimg_delete_transaction(const uint8_t *id, uint32_t id_len);
+int32_t wimg_update_manual_transaction(const uint8_t *id, uint32_t id_len, const uint8_t *date, uint32_t date_len,
+                                       const uint8_t *desc, uint32_t desc_len, int64_t amount_cents, uint8_t category,
+                                       const uint8_t *acct, uint32_t acct_len);
 
 const uint8_t *wimg_undo(void);
 

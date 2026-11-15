@@ -956,7 +956,32 @@ export fn wimg_add_manual_transaction(date_ptr: [*]const u8, date_len: u32, desc
         setError("wimg_add_manual_transaction: failed: {s}", .{@errorName(err)});
         return -1;
     };
+    database.markManual(&txn.id) catch {};
     return 0;
+}
+
+/// Deletes a manual entry for good, on every device (sync carries a deletion
+/// marker). Bank bookings can't be deleted. 0 ok, 1 not a manual entry, -1 error.
+export fn wimg_delete_transaction(id: [*]const u8, id_len: u32) i32 {
+    var database = global_db orelse return -1;
+    const ok = database.deleteManualTransaction(id[0..id_len]) catch return -1;
+    return if (ok) 0 else 1;
+}
+
+/// Edits a manual entry. Date "YYYY-MM-DD". 0 ok, 1 not a manual entry, -1 error.
+export fn wimg_update_manual_transaction(id: [*]const u8, id_len: u32, date_ptr: [*]const u8, date_len: u32, desc_ptr: [*]const u8, desc_len: u32, amount_cents: i64, category: u8, acct_ptr: [*]const u8, acct_len: u32) i32 {
+    var database = global_db orelse return -1;
+    const d = date_ptr[0..date_len];
+    if (d.len != 10) return -1;
+    const year = std.fmt.parseInt(u16, d[0..4], 10) catch return -1;
+    const month = std.fmt.parseInt(u8, d[5..7], 10) catch return -1;
+    const day = std.fmt.parseInt(u8, d[8..10], 10) catch return -1;
+    var desc_buf: [256]u8 = undefined;
+    const n = parser.toUtf8(&desc_buf, desc_ptr[0..desc_len]);
+    const account = acct_ptr[0..acct_len];
+    database.ensureAccount(account, account, "#8A857C") catch {};
+    const ok = database.updateManualTransaction(id[0..id_len], year, month, day, desc_buf[0..n], amount_cents, category, account) catch return -1;
+    return if (ok) 0 else 1;
 }
 
 export fn wimg_undo() ?[*]const u8 {
