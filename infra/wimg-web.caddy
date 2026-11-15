@@ -14,8 +14,9 @@ wimg.komiljonmaksudov.com {
 	encode zstd gzip
 
 	header {
-		# Scripts only from files (site.js); inline styles come from the design export.
-		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+		# app.js renders the page from templates with `new Function`, hence
+		# 'unsafe-eval'. Inline styles come from the design export.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
@@ -27,7 +28,7 @@ wimg.komiljonmaksudov.com {
 	# Pages and the app bundle revalidate so a deploy shows up immediately.
 	header /fonts/* Cache-Control "public, max-age=2592000"
 	header /img/* Cache-Control "public, max-age=86400"
-	@revalidate path / /index.html /site.js /datenschutz.html
+	@revalidate path / /index.html /app.js /datenschutz.html
 	header @revalidate Cache-Control "no-cache"
 	# Kill switch for the old web app's service worker; must never be cached.
 	header /service-worker.js Cache-Control "no-store"

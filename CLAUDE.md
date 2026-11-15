@@ -101,10 +101,9 @@ until they're updated.
 Landing page (Nov 2026): the web app is gone (`wimg-web/` deleted).
 `wimg.komiljonmaksudov.com` is a static landing page built from `wimg-site/`
 (`python3 wimg-site/build.py` → `wimg-site/public/`, deployed by
-`./scripts/deploy-server.sh web`). `src/index.html` + `src/site.js` are the
-page from Brief 18 (direction "Schreibtisch": a desk of demo papers, app
-windows, the squirrel that follows the cursor and changes mood on tap); the
-script is a file because the CSP allows no inline scripts.
+`./scripts/deploy-server.sh web`). `src/components/*` are the design-canvas
+export (template + code per screen, rendered by `src/runtime.js`); the
+clickable demo phone and the pocket easter egg (`EggHero`) live there.
 **Demo data only**: every amount, merchant and bank in those screens is
 invented (Musterbank, Grünstrom AG, Muster GmbH). Re-exports from the canvas
 carry the owner's real data and must be replaced before they land in the
