@@ -68,7 +68,11 @@ import com.wimg.app.ui.theme.Wimg
 import com.wimg.app.ui.theme.WimgShape
 import com.wimg.app.ui.theme.WimgType
 import com.wimg.app.ui.theme.categoryBar
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Close
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Category picker order from the design; 0 is "Unkategorisiert", 255 "Andere". */
@@ -80,7 +84,7 @@ private val PICKER_ORDER = listOf(
     WimgCategory.UNCATEGORIZED,
 )
 
-private enum class DetailPanel { None, Category, More }
+private enum class DetailPanel { None, Category, More, Delete }
 
 @Composable
 fun TransactionDetailScreen(id: String, navController: NavController?) {
@@ -93,6 +97,7 @@ fun TransactionDetailScreen(id: String, navController: NavController?) {
     var tx by remember { mutableStateOf(cached?.first) }
     var account by remember { mutableStateOf(cached?.second) }
     var panel by remember { mutableStateOf(DetailPanel.None) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
 
     // Not yet booked: shown read-only (the bank may still change or drop it).
@@ -120,8 +125,25 @@ fun TransactionDetailScreen(id: String, navController: NavController?) {
                             panel = DetailPanel.None
                             Dock.info(__t("Text kopiert"))
                         },
-                        onSearch = { panel = DetailPanel.None; navController?.navigate("search?q=" + android.net.Uri.encode(t.displayTitle.take(40))) },
+                        onSearch = { panel = DetailPanel.None; navController?.navigate("search?q=" + android.net.Uri.encode(searchTerm(t.displayTitle))) },
+                        onEdit = if (t.manual) ({ panel = DetailPanel.None; navController?.navigate("manual?id=" + android.net.Uri.encode(t.id)) }) else null,
+                        onDelete = if (t.manual) ({ panel = DetailPanel.Delete }) else null,
                     )
+                }
+            }
+            panel == DetailPanel.Delete -> {
+                {
+                    DeletePanel(t.displayTitle, onCancel = { panel = DetailPanel.None }) {
+                        panel = DetailPanel.None
+                        scope.launch {
+                            val ok = withContext(Dispatchers.IO) { LibWimg.deleteTransaction(t.id) }
+                            if (ok) {
+                                Changes.bump()
+                                Dock.info(__t("Umsatz gelöscht"), t.displayTitle)
+                                navController?.popBackStack()
+                            } else Dock.error(__t("Nicht gelöscht"), __t("Bitte versuch es noch einmal."))
+                        }
+                    }
                 }
             }
             else -> null
@@ -286,21 +308,30 @@ fun CategoryPanel(current: Int, onApply: (Int) -> Unit) {
 }
 
 @Composable
-private fun MorePanel(onCopy: () -> Unit, onSearch: () -> Unit) {
-    val c = Wimg.colors
-    BarPanel {
-        listOf(
-            Triple(Icons.Outlined.ContentCopy, L("Text kopieren"), onCopy),
-            Triple(Icons.Outlined.Search, L("In Suche öffnen"), onSearch),
-        ).forEach { (icon, label, action) ->
-            Row(
-                Modifier.fillMaxWidth().clip(WimgShape.dockAction).clickable(onClick = action).padding(horizontal = 8.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(icon, contentDescription = null, tint = c.text, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(14.dp))
-                Text(label, style = WimgType.button, color = c.text)
-            }
-        }
+private fun MorePanel(onCopy: () -> Unit, onSearch: () -> Unit, onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null) {
+    com.wimg.app.ui.components.BarMenu {
+        onEdit?.let { com.wimg.app.ui.components.MenuRow(Icons.Outlined.Edit, L("Bearbeiten"), onClick = it) }
+        com.wimg.app.ui.components.MenuRow(Icons.Outlined.ContentCopy, L("Text kopieren"), onClick = onCopy)
+        com.wimg.app.ui.components.MenuRow(Icons.Outlined.Search, L("In Suche öffnen"), onClick = onSearch)
+        onDelete?.let { com.wimg.app.ui.components.MenuRow(Icons.Outlined.Delete, L("Löschen"), danger = true, onClick = it) }
     }
 }
+
+/** Deleting a manual entry: it's gone on every device, so ask once. */
+@Composable
+private fun DeletePanel(title: String, onCancel: () -> Unit, onDelete: () -> Unit) {
+    val c = Wimg.colors
+    com.wimg.app.ui.components.BarMenu {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Text(L("„%s“ löschen?", title), style = WimgType.button, color = c.text, maxLines = 2)
+            Text(L("Auch auf deinen anderen Geräten. Das lässt sich nicht rückgängig machen."), style = WimgType.desc, color = c.text2, modifier = Modifier.padding(top = 4.dp))
+        }
+        com.wimg.app.ui.components.MenuRow(Icons.Outlined.Delete, L("Löschen"), danger = true, onClick = onDelete)
+        com.wimg.app.ui.components.MenuRow(Icons.Outlined.Close, L("Abbrechen"), onClick = onCancel)
+    }
+}
+
+/** What to search for a booking: its first words, without dates and numbers
+ *  (the raw text of a pending card payment ends in "2026-11-14T13:00:26"). */
+internal fun searchTerm(title: String): String =
+    title.split(' ', '/', ',', '*').filter { w -> w.length >= 3 && w.none { it.isDigit() } }.take(2).joinToString(" ").ifBlank { title.take(30) }

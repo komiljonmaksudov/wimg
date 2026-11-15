@@ -38,6 +38,8 @@ extern int32_t wimg_accept_recurring_price(const uint8_t *id, uint32_t id_len);
 extern int32_t wimg_set_recurring_oneoff(const uint8_t *pid, uint32_t pid_len, const uint8_t *tid, uint32_t tid_len, uint8_t oneoff);
 extern int32_t wimg_delete_rule(int64_t id, uint8_t reset);
 extern int32_t wimg_add_manual_transaction(const uint8_t *date, uint32_t date_len, const uint8_t *desc, uint32_t desc_len, int64_t amount_cents, uint8_t category, const uint8_t *acct, uint32_t acct_len);
+extern int32_t wimg_delete_transaction(const uint8_t *id, uint32_t id_len);
+extern int32_t wimg_update_manual_transaction(const uint8_t *id, uint32_t id_len, const uint8_t *date, uint32_t date_len, const uint8_t *desc, uint32_t desc_len, int64_t amount_cents, uint8_t category, const uint8_t *acct, uint32_t acct_len);
 extern const uint8_t *wimg_export_csv(void);
 
 // Sync
@@ -266,6 +268,29 @@ JNIEXPORT jstring JNICALL JNI_FN(nativeGetRules)(JNIEnv *env, jobject obj) {
 
 JNIEXPORT jint JNICALL JNI_FN(nativeDeleteRule)(JNIEnv *env, jobject obj, jlong id, jint reset) {
     return wimg_delete_rule((int64_t)id, (uint8_t)reset);
+}
+
+JNIEXPORT jint JNICALL JNI_FN(nativeDeleteTransaction)(JNIEnv *env, jobject obj, jstring id) {
+    const char *ci = (*env)->GetStringUTFChars(env, id, NULL);
+    int32_t rc = wimg_delete_transaction((const uint8_t *)ci, (*env)->GetStringUTFLength(env, id));
+    (*env)->ReleaseStringUTFChars(env, id, ci);
+    return rc;
+}
+
+JNIEXPORT jint JNICALL JNI_FN(nativeUpdateManualTransaction)(JNIEnv *env, jobject obj, jstring id, jstring date, jstring desc, jlong amount, jint category, jstring acct) {
+    const char *ci = (*env)->GetStringUTFChars(env, id, NULL);
+    const char *cd = (*env)->GetStringUTFChars(env, date, NULL);
+    const char *cs = (*env)->GetStringUTFChars(env, desc, NULL);
+    const char *ca = (*env)->GetStringUTFChars(env, acct, NULL);
+    int32_t rc = wimg_update_manual_transaction((const uint8_t *)ci, (*env)->GetStringUTFLength(env, id),
+        (const uint8_t *)cd, (*env)->GetStringUTFLength(env, date),
+        (const uint8_t *)cs, (*env)->GetStringUTFLength(env, desc), (int64_t)amount, (uint8_t)category,
+        (const uint8_t *)ca, (*env)->GetStringUTFLength(env, acct));
+    (*env)->ReleaseStringUTFChars(env, id, ci);
+    (*env)->ReleaseStringUTFChars(env, date, cd);
+    (*env)->ReleaseStringUTFChars(env, desc, cs);
+    (*env)->ReleaseStringUTFChars(env, acct, ca);
+    return rc;
 }
 
 JNIEXPORT jint JNICALL JNI_FN(nativeAddManualTransaction)(JNIEnv *env, jobject obj, jstring date, jstring desc, jlong amount, jint category, jstring acct) {

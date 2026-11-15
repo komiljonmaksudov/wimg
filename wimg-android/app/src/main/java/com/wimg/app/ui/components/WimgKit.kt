@@ -724,6 +724,7 @@ fun FloatingBar(
         }
     }
 
+    if (placed) androidx.compose.runtime.SideEffect { BarMetrics.width = width.value.dp }
     Column(
         modifier
             .then(if (placed) Modifier.width(width.value.dp) else Modifier.wrapContentWidth())
@@ -827,7 +828,7 @@ fun PlaceMenu(places: List<Place>, current: String?, onPick: (Place) -> Unit, mo
     val c = Wimg.colors
     Column(
         modifier
-            .width(300.dp)
+            .width(barMenuWidth())
             .shadow(18.dp, WimgShape.bar, ambientColor = Color.Black.copy(alpha = 0.2f), spotColor = Color.Black.copy(alpha = 0.2f))
             .clip(WimgShape.bar)
             .background(c.card)
@@ -853,6 +854,53 @@ fun PlaceMenu(places: List<Place>, current: String?, onPick: (Place) -> Unit, mo
                 Text(L(p.label), style = WimgType.button.copy(fontWeight = if (selected) WimgType.button.fontWeight else androidx.compose.ui.text.font.FontWeight.SemiBold), color = c.text, modifier = Modifier.weight(1f))
                 if (selected) Icon(Icons.Outlined.Check, contentDescription = null, tint = c.accent, modifier = Modifier.size(18.dp))
             }
+        }
+    }
+}
+
+/** The floating bar's current width, so menus above it can match it. */
+object BarMetrics {
+    var width by mutableStateOf(300.dp)
+}
+
+/** Menus above the bar are as wide as the bar (within reason). */
+@Composable
+fun barMenuWidth(): Dp = BarMetrics.width.coerceIn(260.dp, 420.dp)
+
+/**
+ * A short list of actions that opens from the bar (⋯, +): same width as the
+ * bar under it and the same look as the place menu, so it reads as part of
+ * the bar rather than a sheet. Pickers and filters use [BarPanel] instead.
+ */
+@Composable
+fun BarMenu(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    val c = Wimg.colors
+    Column(
+        modifier
+            .width(barMenuWidth())
+            .shadow(18.dp, WimgShape.bar, ambientColor = Color.Black.copy(alpha = 0.2f), spotColor = Color.Black.copy(alpha = 0.2f))
+            .clip(WimgShape.bar)
+            .background(c.card)
+            .border(1.dp, c.line, WimgShape.bar)
+            .padding(8.dp),
+        content = content,
+    )
+}
+
+/** One action in a [BarMenu]: icon, label, optional second line. */
+@Composable
+fun MenuRow(icon: ImageVector, label: String, desc: String? = null, danger: Boolean = false, onClick: () -> Unit) {
+    val c = Wimg.colors
+    val tint = if (danger) c.danger else c.text
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = if (desc != null) 10.dp else 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(label, style = WimgType.button.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), color = tint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (desc != null) Text(desc, style = WimgType.desc, color = c.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

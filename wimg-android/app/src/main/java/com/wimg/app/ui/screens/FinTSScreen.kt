@@ -262,8 +262,10 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
     var connId by remember { mutableStateOf(connectionId?.takeIf { BankConnections.get(context, it) != null }) }
     var reload by remember { mutableIntStateOf(0) }
     val conn = remember(connId, reload, FintsJob.running) { connId?.let { BankConnections.get(context, it) } }
-    var banks by remember { mutableStateOf<List<BankInfo>>(emptyList()) }
-    var bank by remember { mutableStateOf<BankInfo?>(null) }
+    // The catalog is loaded once per app run: with it in memory the bank's page
+    // is there on the first frame (it used to open empty and fill in).
+    var banks by remember { mutableStateOf(BankCatalog.banks.orEmpty()) }
+    var bank by remember { mutableStateOf(BankCatalog.banks?.let { all -> connId?.let { id -> BankConnections.get(context, id) }?.let { c -> all.find { it.blz == c.blz } } }) }
     var setup by remember { mutableStateOf(connId == null) }
     var step by remember { mutableStateOf(Step.Bank) }
     var kennung by remember { mutableStateOf(conn?.kennung ?: "") }
@@ -295,8 +297,8 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
 
     LaunchedEffect(Unit) {
         com.wimg.app.bridge.LibWimg.native { WimgJni.nativeSetHttpCallback(FintsHttpCallback()) }
-        banks = withFintsThread { com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsGetBanks() }?.let { runCatching { json.decodeFromString<List<BankInfo>>(it) }.getOrNull() } ?: emptyList() }
-        conn?.let { c -> bank = banks.find { it.blz == c.blz } }
+        banks = BankCatalog.load()
+        if (bank == null) conn?.let { c -> bank = banks.find { it.blz == c.blz } }
     }
     LaunchedEffect(FintsJob.loginRequested) {
         if (FintsJob.loginRequested != null && FintsJob.loginRequested == connId) { FintsJob.loginRequested = null; setup = true; step = Step.Login; pin = ""; error = null }
@@ -494,23 +496,9 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
         panel = when {
             removeOpen -> { { RemovePanel(bank?.name ?: "", onCancel = { removeOpen = false }) { connId?.let { removeConnection(context, it) }; removeOpen = false; navController?.popBackStack() } } }
             moreOpen -> { {
-                BarPanel {
-                    Row(
-                        Modifier.fillMaxWidth().clip(WimgShape.dockAction).clickable { moreOpen = false; removeOpen = true }.padding(horizontal = 8.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Outlined.LinkOff, contentDescription = null, tint = Wimg.colors.danger, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(14.dp))
-                        Text(L("Verbindung entfernen"), style = WimgType.button, color = Wimg.colors.danger)
-                    }
-                    Row(
-                        Modifier.fillMaxWidth().clip(WimgShape.dockAction).clickable { moreOpen = false; setup = true; step = Step.Login; pin = "" }.padding(horizontal = 8.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(Icons.Outlined.Lock, contentDescription = null, tint = Wimg.colors.text, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(14.dp))
-                        Text(L("Neu anmelden"), style = WimgType.button, color = Wimg.colors.text)
-                    }
+                com.wimg.app.ui.components.BarMenu {
+                    com.wimg.app.ui.components.MenuRow(Icons.Outlined.Lock, L("Neu anmelden")) { moreOpen = false; setup = true; step = Step.Login; pin = "" }
+                    com.wimg.app.ui.components.MenuRow(Icons.Outlined.LinkOff, L("Verbindung entfernen"), danger = true) { moreOpen = false; removeOpen = true }
                 }
             } }
             else -> null
@@ -874,3 +862,16 @@ private fun removeConnection(context: Context, id: String) {
         Changes.bump()
     }
 }
+
+/** The FinTS bank catalog (~1,750 banks), read from libwimg once per app run. */
+private object BankCatalog {
+    @Volatile var banks: List<BankInfo>? = null
+        private set
+
+    suspend fun load(): List<BankInfo> = banks ?: withFintsThread {
+        com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsGetBanks() }?.let { runCatching { json.decodeFromString<List<BankInfo>>(it) }.getOrNull() } ?: emptyList()
+    }.also { if (it.isNotEmpty()) banks = it }
+}
+
+/** Load the bank catalog ahead (WimgNavigation's background preload). */
+internal suspend fun preloadBankCatalog() { BankCatalog.load() }

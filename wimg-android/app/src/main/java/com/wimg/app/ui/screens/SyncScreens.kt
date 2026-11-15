@@ -146,7 +146,7 @@ fun SettingsSyncScreen(navController: NavController?) {
     var on by remember { mutableStateOf(SyncService.isEnabled(context)) }
     var syncing by remember { mutableStateOf(false) }
     var lastAt by remember { mutableStateOf(SyncService.lastSyncAt(context)) }
-    var devices by remember { mutableStateOf<List<SyncDevice>>(emptyList()) }
+    var devices by remember { mutableStateOf(LibWimg.ifFree { LibWimg.getDevices() }.orEmpty()) }
     var removing by remember { mutableStateOf<SyncDevice?>(null) }
     var newKeyOpen by remember { mutableStateOf(false) }
     val me = remember(on) { SyncService.deviceId(context) }

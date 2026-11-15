@@ -807,10 +807,10 @@ private fun loadRules(): List<RuleRow> {
 fun SettingsRulesScreen(navController: NavController?) {
     val c = Wimg.colors
     val scope = rememberCoroutineScope()
-    var rows by remember { mutableStateOf<List<RuleRow>?>(null) }
+    var rows by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<List<RuleRow>>("rules")) }
     var query by remember { mutableStateOf("") }
     var open by remember { mutableStateOf<RuleRow?>(null) }
-    LaunchedEffect(Changes.version) { rows = withContext(Dispatchers.IO) { loadRules() } }
+    LaunchedEffect(Changes.version) { rows = withContext(Dispatchers.IO) { loadRules() }.also { com.wimg.app.ui.components.ScreenCache.put("rules", it) } }
 
     BarContribution(
         null,

@@ -105,7 +105,7 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
     var year by remember { mutableIntStateOf(now.get(Calendar.YEAR)) }
     var month by remember { mutableIntStateOf(now.get(Calendar.MONTH) + 1) }
     var compare by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(HomeCompare.PREV) }
-    var accounts by remember { mutableStateOf<List<com.wimg.app.models.Account>>(emptyList()) }
+    var accounts by remember { mutableStateOf(LibWimg.ifFree { LibWimg.getAccounts() }.orEmpty()) }
     LaunchedEffect(com.wimg.app.ui.components.Changes.version) { accounts = withContext(Dispatchers.IO) { LibWimg.getAccounts() } }
     // Gehaltsmonat: salary or "Fester Tag" periods replace calendar months.
     val periods = com.wimg.app.ui.components.rememberPeriods()

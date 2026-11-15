@@ -85,7 +85,7 @@ private fun isPlaceSwitch(from: androidx.navigation.NavBackStackEntry, to: andro
 private const val ONBOARDING_KEY = "wimg_onboarding_done"
 
 /** Routes already rebuilt in the redesign (band + sheet, content under the bar). */
-private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}", "recurring", "rec/{id}", "settings", "settings/lock", "settings/data", "settings/rules", "settings/accounts", "settings/notifications", "settings/period", "settings/appearance", "manual", "settings/sync", "settings/sync/key", "settings/sync/link", "settings/sync/linked", "fints", "fints/add", "fints/{id}?quick={quick}", "import", "dev/bar", "about", "about/news", "about/faq", "about/privacy", "about/licenses", "review")
+private val REDESIGNED = setOf("dashboard", "transactions", "tx/{id}", "recurring", "rec/{id}", "settings", "settings/lock", "settings/data", "settings/rules", "settings/accounts", "settings/notifications", "settings/period", "settings/appearance", "manual?id={id}", "settings/sync", "settings/sync/key", "settings/sync/link", "settings/sync/linked", "fints", "fints/add", "fints/{id}?quick={quick}", "import", "dev/bar", "about", "about/news", "about/faq", "about/privacy", "about/licenses", "review")
 
 /** Everything the place chip can switch to, in menu order. */
 val PLACES = listOf(
@@ -137,6 +137,8 @@ fun WimgNavigation() {
                 val now = java.util.Calendar.getInstance()
                 val y = now.get(java.util.Calendar.YEAR); val m = now.get(java.util.Calendar.MONTH) + 1
                 ScreenCache.put(com.wimg.app.ui.screens.reviewKey(y, m, selectedAccount), com.wimg.app.ui.screens.loadReview(y, m, selectedAccount))
+                // Bank pages need the catalog; with it in memory they open complete.
+                if (com.wimg.app.services.BankConnections.all(context).isNotEmpty()) com.wimg.app.ui.screens.preloadBankCatalog()
                 // Gehaltsmonat / Fester Tag: Übersicht and Rückblick show the current
                 // period, cached under its own key; fill those too, so neither
                 // page opens empty.
@@ -168,6 +170,12 @@ fun WimgNavigation() {
     var menuInstant by remember { mutableStateOf(false) }
 
     val panel = BarState.panel
+    // A panel or menu above the bar closes the keyboard first: with it open the
+    // panel was pushed up under the status bar (manual entry › Kategorie).
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val somethingOpen = panel != null || menuOpen || addOpen
+    LaunchedEffect(somethingOpen) { if (somethingOpen) { focusManager.clearFocus(); keyboard?.hide() } }
     // Redesigned screens run their content under the bar (with a fade); the
     // others still stop above it until they're redesigned.
     val underBar = route in REDESIGNED
@@ -222,7 +230,10 @@ fun WimgNavigation() {
                     composable("settings/notifications") { SettingsNotificationsScreen(navController) }
                     composable("settings/period") { SettingsPeriodScreen(navController) }
                     composable("settings/appearance") { SettingsAppearanceScreen(navController) }
-                    composable("manual") { ManualEntryScreen(navController) }
+                    composable(
+                        "manual?id={id}",
+                        arguments = listOf(androidx.navigation.navArgument("id") { type = androidx.navigation.NavType.StringType; nullable = true; defaultValue = null }),
+                    ) { entry -> ManualEntryScreen(navController, entry.arguments?.getString("id")) }
                     composable("settings/sync") { SettingsSyncScreen(navController) }
                     composable("settings/sync/key") { SettingsSyncKeyScreen(navController) }
                     composable("settings/sync/link") { SettingsSyncLinkScreen(navController) }
@@ -326,7 +337,7 @@ fun WimgNavigation() {
                 }
                 // Search is reachable from every page, except inside a flow that a
                 // detour would break (bank setup mid-TAN, CSV import).
-                val searchHere = detailBar == null || (route?.startsWith("fints") != true && route != "import" && route != "manual")
+                val searchHere = detailBar == null || (route?.startsWith("fints") != true && route != "import" && route?.startsWith("manual") != true)
                 FloatingBar(
                     divider = searchBar == null && (detailBar == null || detailBar.onMore != null || searchHere || detailBar.extraIcon != null),
                     fill = searchBar != null || detailBar?.actionLabel != null,
@@ -388,20 +399,9 @@ private fun NavHostController.goTo(route: String) {
 /** "Hinzufügen" above the bar (board 12/07): the three ways data gets into wimg. */
 @Composable
 private fun AddMenu(modifier: Modifier = Modifier, onPick: (String) -> Unit) {
-    val c = Wimg.colors
-    com.wimg.app.ui.components.BarPanel(modifier) {
-        Text(L("Hinzufügen"), style = com.wimg.app.ui.theme.WimgType.sheetTitle, color = c.text, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
-        listOf(
-            Triple("fints", Icons.Outlined.AccountBalance, L("Bank verbinden") to L("Umsätze per FinTS abrufen")),
-            Triple("import", Icons.Outlined.FileUpload, L("CSV importieren") to L("Comdirect, Trade Republic, Scalable")),
-            Triple("manual", androidx.compose.material.icons.Icons.Outlined.Edit, L("Umsatz von Hand") to L("Z. B. Bargeld")),
-        ).forEach { (route, icon, text) ->
-            com.wimg.app.ui.components.WimgRow(text.first, desc = text.second, onClick = { onPick(route) }, leading = {
-                androidx.compose.foundation.layout.Box(
-                    Modifier.size(44.dp).clip(com.wimg.app.ui.theme.WimgShape.iconTile).background(c.neutralTint),
-                    contentAlignment = Alignment.Center,
-                ) { androidx.compose.material3.Icon(icon, contentDescription = null, tint = c.text, modifier = Modifier.size(22.dp)) }
-            })
-        }
+    com.wimg.app.ui.components.BarMenu(modifier) {
+        com.wimg.app.ui.components.MenuRow(Icons.Outlined.AccountBalance, L("Bank verbinden"), L("Umsätze per FinTS abrufen")) { onPick("fints") }
+        com.wimg.app.ui.components.MenuRow(Icons.Outlined.FileUpload, L("CSV importieren"), L("Comdirect, Trade Republic, Scalable")) { onPick("import") }
+        com.wimg.app.ui.components.MenuRow(androidx.compose.material.icons.Icons.Outlined.Edit, L("Umsatz von Hand"), L("Z. B. Bargeld")) { onPick("manual") }
     }
 }

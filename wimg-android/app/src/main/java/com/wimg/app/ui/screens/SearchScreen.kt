@@ -117,7 +117,8 @@ private fun saveRecent(ctx: Context, q: String) {
 @Composable
 fun SearchScreen(selectedAccount: String?, navController: NavController, initialQuery: String = "") {
     val ctx = LocalContext.current
-    var all by remember { mutableStateOf<List<Transaction>>(emptyList()) }
+    // The preloaded Umsätze list first (no empty frame), the full list right after.
+    var all by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<TxData>(txKey(selectedAccount))?.transactions.orEmpty()) }
     var accounts by remember { mutableStateOf<Map<String, Account>>(emptyMap()) }
     var query by remember { mutableStateOf(initialQuery) }
     var quick by remember { mutableStateOf<Quick?>(null) }

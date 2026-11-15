@@ -161,6 +161,12 @@ object LibWimg {
     fun addManualTransaction(date: String, description: String, amountCents: Long, category: Int, account: String): Boolean =
         lock.withLock { WimgJni.nativeAddManualTransaction(date, description, amountCents, category, account) == 0 }
 
+    /** Manual entries only; the deletion reaches every synced device. */
+    fun deleteTransaction(id: String): Boolean = lock.withLock { WimgJni.nativeDeleteTransaction(id) == 0 }
+
+    fun updateManualTransaction(id: String, date: String, description: String, amountCents: Long, category: Int, account: String): Boolean =
+        lock.withLock { WimgJni.nativeUpdateManualTransaction(id, date, description, amountCents, category, account) == 0 }
+
     /** "Nicht wiederkehrend" / "Wieder anzeigen". */
     fun setRecurringHidden(id: String, hidden: Boolean) = lock.withLock { WimgJni.nativeSetRecurringHidden(id, if (hidden) 1 else 0) == 0 }
 

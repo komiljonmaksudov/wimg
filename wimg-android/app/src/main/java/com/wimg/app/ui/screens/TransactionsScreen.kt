@@ -120,6 +120,8 @@ enum class TxFilter(val label: String) {
     ALL("Alle"),
     EXPENSES("Ausgaben"),
     INCOME("Einnahmen"),
+    /** Entered by hand ("Umsatz von Hand"). */
+    MANUAL("Von Hand"),
 }
 
 /** Categories offered as filter chips, in the design's order. */
@@ -183,6 +185,7 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
             TxFilter.ALL -> true
             TxFilter.EXPENSES -> tx.isExpense
             TxFilter.INCOME -> tx.isIncome
+            TxFilter.MANUAL -> tx.manual
         }
         return type && (categories.isEmpty() || tx.category in categories) &&
             (period == null || tx.date in period!!.from..period!!.to)

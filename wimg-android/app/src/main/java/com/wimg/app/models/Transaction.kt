@@ -17,6 +17,8 @@ data class Transaction(
     val title: String? = null,
     /** Booking type ("Lastschrift", "Karte", …) or "" when the bank sent none. */
     val kind: String? = null,
+    /** Entered by hand (Umsatz von Hand): can be edited and deleted. */
+    val manual: Boolean = false,
 ) {
     val displayTitle: String get() = title?.takeIf { it.isNotBlank() } ?: description
     val isExpense: Boolean get() = amount < 0

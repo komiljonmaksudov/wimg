@@ -64,7 +64,8 @@ internal fun balanceOf(accounts: List<Account>): Double? =
 @Composable
 internal fun AccountsPanel(selected: String?, onPick: (String?) -> Unit, onDone: () -> Unit) {
     val c = Wimg.colors
-    var accounts by remember { mutableStateOf<List<Account>>(emptyList()) }
+    // Read before the first frame (small, skipped while a bank fetch holds libwimg).
+    var accounts by remember { mutableStateOf(LibWimg.ifFree { LibWimg.getAccounts() }.orEmpty()) }
     LaunchedEffect(Changes.version) { accounts = withContext(Dispatchers.IO) { LibWimg.getAccounts() } }
     val visible = accounts.filter { !it.isHidden }
     BarPanel {
@@ -123,7 +124,7 @@ internal fun AccountToggles(accounts: List<Account>, fetched: Boolean = false) {
 @Composable
 fun SettingsAccountsScreen(navController: NavController?) {
     val scope = rememberCoroutineScope()
-    var accounts by remember { mutableStateOf<List<Account>?>(null) }
+    var accounts by remember { mutableStateOf(LibWimg.ifFree { LibWimg.getAccounts() }) }
     var renaming by remember { mutableStateOf<Account?>(null) }
     LaunchedEffect(Changes.version) { accounts = withContext(Dispatchers.IO) { LibWimg.getAccounts() } }
 

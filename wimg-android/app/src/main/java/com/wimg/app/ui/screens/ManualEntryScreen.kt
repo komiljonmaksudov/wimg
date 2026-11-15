@@ -1,6 +1,10 @@
 package com.wimg.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,7 +19,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Backspace
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -69,17 +72,29 @@ const val CASH_ACCOUNT = "Bargeld"
  * and never matched by a bank import.
  */
 @Composable
-fun ManualEntryScreen(navController: NavController?) {
+fun ManualEntryScreen(navController: NavController?, editId: String? = null) {
     val c = Wimg.colors
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var expense by remember { mutableStateOf(true) }
-    var digits by remember { mutableStateOf("") } // amount as typed, e.g. "18,4"
-    var amountStep by remember { mutableStateOf(true) }
-    var description by remember { mutableStateOf("") }
-    var category by remember { mutableIntStateOf(-1) }
-    var account by remember { mutableStateOf(CASH_ACCOUNT) }
-    var dayOffset by remember { mutableIntStateOf(0) } // 0 = heute, 1 = gestern, …
+    // Editing a manual entry: the same form, filled in.
+    val editing = remember(editId) {
+        editId?.let { id ->
+            (com.wimg.app.ui.components.ScreenCache.get<TxData>(txKey(null))?.transactions?.firstOrNull { it.id == id }
+                ?: LibWimg.ifFree { LibWimg.getTransactions().firstOrNull { it.id == id } })
+        }
+    }
+    var expense by remember { mutableStateOf(editing?.let { it.amount < 0 } ?: true) }
+    var digits by remember { mutableStateOf(editing?.let { typedOf(kotlin.math.abs(it.amount)) } ?: "") } // amount as typed, e.g. "18,4"
+    // The system keyboard (number layout), not a keypad of our own.
+    val amountFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val descFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) { if (editing == null) runCatching { amountFocus.requestFocus() } }
+    // Set after a tap on Speichern with something missing: the row turns red.
+    var showMissing by remember { mutableStateOf(false) }
+    var description by remember { mutableStateOf(editing?.description ?: "") }
+    var category by remember { mutableIntStateOf(editing?.category ?: -1) }
+    var account by remember { mutableStateOf(editing?.account?.takeIf { it.isNotBlank() } ?: CASH_ACCOUNT) }
+    var dayOffset by remember { mutableIntStateOf(editing?.let { daysAgo(it.date) } ?: 0) } // days back: 0 = heute, 1 = gestern, any day in the past
     var panel by remember { mutableStateOf<String?>(null) }
     var accounts by remember { mutableStateOf(listOf(CASH_ACCOUNT)) }
     LaunchedEffect(Unit) {
@@ -96,7 +111,9 @@ fun ManualEntryScreen(navController: NavController?) {
         if (!canSave) return
         scope.launch {
             val ok = withContext(Dispatchers.IO) {
-                LibWimg.addManualTransaction(iso, description.trim(), if (expense) -cents else cents, if (category < 0) 0 else category, account)
+                val signed = if (expense) -cents else cents
+                if (editing != null) LibWimg.updateManualTransaction(editing.id, iso, description.trim(), signed, if (category < 0) 0 else category, account)
+                else LibWimg.addManualTransaction(iso, description.trim(), signed, if (category < 0) 0 else category, account)
             }
             if (ok) {
                 Changes.bump()
@@ -111,15 +128,29 @@ fun ManualEntryScreen(navController: NavController?) {
         panel = when (panel) {
             "category" -> { { CategoryPanel(if (category < 0) 0 else category) { category = it; panel = null } } }
             "account" -> { { ChoicePanel(L("Konto"), accounts, accounts.indexOf(account)) { account = accounts[it]; panel = null } } }
-            "date" -> { { ChoicePanel(L("Datum"), (0..6).map { dayLabel(it) }, dayOffset) { dayOffset = it; panel = null } } }
+            "date" -> { { DatePanel(dayOffset) { dayOffset = it; panel = null } } }
             else -> null
         },
         onPanelDismiss = { panel = null },
         detail = DetailBarSpec(
             onBack = { navController?.popBackStack() },
-            actionLabel = if (amountStep) L("Weiter") else L("Speichern"),
+            actionLabel = L("Speichern"),
             actionIcon = null,
-            onAction = { if (amountStep) { if (cents > 0) amountStep = false } else save() },
+            onAction = {
+                when {
+                    cents == 0L -> {
+                        showMissing = true
+                        Dock.error(__t("Betrag fehlt"), __t("Tipp oben den Betrag ein."))
+                        runCatching { amountFocus.requestFocus() }
+                    }
+                    description.isBlank() -> {
+                        showMissing = true
+                        Dock.error(__t("Beschreibung fehlt"), __t("Wofür war das? Zum Beispiel „Wochenmarkt“."))
+                        runCatching { descFocus.requestFocus() }
+                    }
+                    else -> save()
+                }
+            },
         ),
     )
 
@@ -132,22 +163,52 @@ fun ManualEntryScreen(navController: NavController?) {
                 ) { Text(label, style = WimgType.button, color = if (on) c.ink else c.bandSub) }
             }
         }
-        Text(
-            (if (expense) "−" else "+") + formatTyped(digits) + " €",
-            style = WimgType.amountHero, color = if (cents == 0L) c.bandSub else Color.White,
-            modifier = Modifier.padding(top = 14.dp).pressable(label = L("Betrag ändern")) { amountStep = true },
-        )
+        // The cents not typed yet are shown greyed ("54.543,00"), so the
+        // thousands dot can't be mistaken for the comma.
+        val typed = formatTyped(digits)
+        val pending = when {
+            digits.isEmpty() -> ""
+            !digits.contains(',') -> ",00"
+            else -> "0".repeat(2 - digits.substringAfter(',').length)
+        }
+        Box(Modifier.padding(top = 14.dp)) {
+            Text(
+                androidx.compose.ui.text.buildAnnotatedString {
+                    append((if (expense) "−" else "+") + typed)
+                    pushStyle(androidx.compose.ui.text.SpanStyle(color = c.bandSub)); append(pending); pop()
+                    append(" €")
+                },
+                style = WimgType.amountHero, color = if (cents == 0L) (if (showMissing) c.danger else c.bandSub) else Color.White,
+            )
+            // Invisible field on top: it takes the typing (Gboard's number
+            // layout), the formatted amount above is what you see.
+            BasicTextField(
+                value = digits,
+                onValueChange = { digits = cleanAmount(it) },
+                singleLine = true,
+                textStyle = WimgType.amountHero.copy(color = Color.Transparent),
+                cursorBrush = SolidColor(Color.Transparent),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal,
+                    imeAction = androidx.compose.ui.text.input.ImeAction.Next,
+                ),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onNext = { runCatching { descFocus.requestFocus() } }),
+                modifier = Modifier.matchParentSize().focusRequester(amountFocus),
+            )
+        }
     }) {
-        Column(Modifier.padding(16.dp)) {
+        // Scrolls when the keyboard takes the room.
+        Box(Modifier.weight(1f).fillMaxWidth()) { Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
             WimgGroup {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(L("Beschreibung"), style = WimgType.body, color = c.text2)
+                    Text(L("Beschreibung"), style = WimgType.body, color = if (showMissing && description.isBlank()) c.danger else c.text2)
                     Spacer(Modifier.width(16.dp))
                     BasicTextField(
                         value = description, onValueChange = { description = it.take(120) }, singleLine = true,
                         textStyle = WimgType.rowTitle.copy(color = c.text, textAlign = TextAlign.End),
                         cursorBrush = SolidColor(c.accent),
-                        modifier = Modifier.weight(1f).pressable { amountStep = false },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                        modifier = Modifier.weight(1f).focusRequester(descFocus),
                         decorationBox = { inner ->
                             Box(contentAlignment = Alignment.CenterEnd) {
                                 if (description.isEmpty()) Text(L("z. B. Wochenmarkt"), style = WimgType.rowTitle, color = c.text3)
@@ -157,7 +218,7 @@ fun ManualEntryScreen(navController: NavController?) {
                     )
                 }
                 RowDivider()
-                WimgRow(L("Kategorie"), chevron = true, onClick = { amountStep = false; panel = "category" }, trailing = {
+                WimgRow(L("Kategorie"), chevron = true, onClick = { panel = "category" }, trailing = {
                     if (category < 0) Text(L("Wählen"), style = WimgType.body, color = c.text2)
                     else {
                         Box(Modifier.size(9.dp).clip(CircleShape).background(c.categoryBar(category)))
@@ -166,28 +227,41 @@ fun ManualEntryScreen(navController: NavController?) {
                     }
                 })
                 RowDivider()
-                WimgRow(L("Konto"), chevron = true, onClick = { amountStep = false; panel = "account" }, trailing = { Text(account, style = WimgType.rowTitle, color = c.text, maxLines = 1) })
+                WimgRow(L("Konto"), chevron = true, onClick = { panel = "account" }, trailing = { Text(account, style = WimgType.rowTitle, color = c.text, maxLines = 1) })
                 RowDivider()
-                WimgRow(L("Datum"), chevron = true, onClick = { amountStep = false; panel = "date" }, trailing = { Text(dayLabel(dayOffset), style = WimgType.rowTitle, color = c.text) })
+                WimgRow(L("Datum"), chevron = true, onClick = { panel = "date" }, trailing = { Text(dayLabel(dayOffset), style = WimgType.rowTitle, color = c.text) })
             }
             QuietLine(L("Von Hand angelegte Umsätze werden nie mit Bankdaten überschrieben. „Bargeld“ ist ein eigenes Konto ohne Bank."))
-        }
-        if (amountStep) {
-            Spacer(Modifier.weight(1f))
-            Keypad { key ->
-                digits = when (key) {
-                    "⌫" -> digits.dropLast(1)
-                    "," -> if (digits.contains(',')) digits else (if (digits.isEmpty()) "0," else "$digits,")
-                    else -> {
-                        val dec = digits.substringAfter(',', "")
-                        if (digits.contains(',') && dec.length >= 2) digits
-                        else if (!digits.contains(',') && digits.length >= 7) digits
-                        else if (digits == "0") key else digits + key
-                    }
-                }
-            }
+        } }
+    }
+}
+
+/** Typed amount kept to "12345,67": one comma (a dot counts as one), at most
+ *  5 digits before it and 2 after, no leading zeros. */
+private fun cleanAmount(input: String): String {
+    var whole = ""; var dec = ""; var comma = false
+    for (ch in input.replace('.', ',')) {
+        when {
+            ch == ',' && !comma -> comma = true
+            ch.isDigit() && !comma && whole.length < 5 -> whole += ch
+            ch.isDigit() && comma && dec.length < 2 -> dec += ch
         }
     }
+    whole = whole.trimStart('0').ifEmpty { if (comma || input.startsWith("0")) "0" else "" }
+    return if (comma) "$whole,$dec" else whole
+}
+
+/** 18.4 → "18,4", 20.0 → "20" (as if typed). */
+private fun typedOf(euros: Double): String {
+    val cents = Math.round(euros * 100)
+    return if (cents % 100 == 0L) "${cents / 100}" else "%d,%02d".format(cents / 100, cents % 100).trimEnd('0')
+}
+
+/** Whole days from "YYYY-MM-DD" to today (0 = today). */
+private fun daysAgo(iso: String): Int {
+    val d = com.wimg.app.ui.components.WimgDates.parse(iso) ?: return 0
+    val today = com.wimg.app.ui.components.WimgDates.parse(com.wimg.app.ui.components.WimgDates.todayIso()) ?: return 0
+    return ((today.timeInMillis - d.timeInMillis) / 86_400_000L).toInt().coerceAtLeast(0)
 }
 
 /** "18,4" → 1840 cents. */
@@ -233,26 +307,64 @@ private fun ChoicePanel(title: String, options: List<String>, selected: Int, onP
     }
 }
 
-/** Number pad for the amount (board 22/01). */
+/** Midnight UTC of the local day [daysBack] days ago (what DatePicker works in). */
+private fun utcDay(daysBack: Int): Long {
+    val local = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -daysBack) }
+    return Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).apply {
+        clear(); set(local.get(Calendar.YEAR), local.get(Calendar.MONTH), local.get(Calendar.DAY_OF_MONTH))
+    }.timeInMillis
+}
+
+/** Datum: Heute / Gestern at hand, any earlier day in the calendar below. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-private fun Keypad(onKey: (String) -> Unit) {
+private fun DatePanel(daysBack: Int, onPick: (Int) -> Unit) {
     val c = Wimg.colors
-    Column(
-        Modifier.fillMaxWidth().background(c.neutralTint).padding(horizontal = 10.dp, vertical = 10.dp).padding(bottom = 96.dp).navigationBarsPadding(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf(",", "0", "⌫")).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { k ->
-                    Box(
-                        Modifier.weight(1f).height(54.dp).clip(WimgShape.button).background(c.card).pressable(label = if (k == "⌫") L("Löschen") else k) { onKey(k) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (k == "⌫") Icon(Icons.AutoMirrored.Outlined.Backspace, contentDescription = null, tint = c.text, modifier = Modifier.size(22.dp))
-                        else Text(k, style = WimgType.amountLarge, color = c.text)
-                    }
-                }
-            }
-        }
+    val today = remember { utcDay(0) }
+    val thisYear = remember { Calendar.getInstance().get(Calendar.YEAR) }
+    val state = androidx.compose.material3.rememberDatePickerState(
+        initialSelectedDateMillis = utcDay(daysBack),
+        selectableDates = object : androidx.compose.material3.SelectableDates {
+            override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis <= today
+            override fun isSelectableYear(year: Int) = year <= thisYear
+        },
+    )
+    LaunchedEffect(state.selectedDateMillis) {
+        val sel = state.selectedDateMillis ?: return@LaunchedEffect
+        val back = ((today - sel) / 86_400_000L).toInt()
+        if (back != daysBack) onPick(back)
+    }
+    BarPanel {
+        Text(L("Datum"), style = WimgType.sheetTitle, color = c.text, modifier = Modifier.padding(bottom = 10.dp))
+        androidx.compose.material3.DatePicker(
+            // The calendar needs ~360 dp: it takes the panel's side padding too,
+            // or its last column (Sunday) gets squeezed.
+            modifier = Modifier.layout { m, cs ->
+                val extra = 16.dp.roundToPx()
+                val p = m.measure(cs.copy(minWidth = 0, maxWidth = cs.maxWidth + 2 * extra))
+                layout(cs.maxWidth, p.height) { p.place((cs.maxWidth - p.width) / 2, 0) }
+            },
+            state = state,
+            title = null,
+            headline = null,
+            showModeToggle = false,
+            colors = androidx.compose.material3.DatePickerDefaults.colors(
+                containerColor = c.card,
+                weekdayContentColor = c.text2,
+                subheadContentColor = c.text2,
+                navigationContentColor = c.text,
+                yearContentColor = c.text,
+                currentYearContentColor = c.text,
+                selectedYearContentColor = c.inkText,
+                selectedYearContainerColor = c.ink,
+                dayContentColor = c.text,
+                disabledDayContentColor = c.text3,
+                selectedDayContentColor = c.inkText,
+                selectedDayContainerColor = c.ink,
+                todayContentColor = c.text,
+                todayDateBorderColor = c.accent,
+            ),
+        )
+        SegmentRow(listOf(L("Heute"), L("Gestern")), daysBack) { onPick(it) }
     }
 }
