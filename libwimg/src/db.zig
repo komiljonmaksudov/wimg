@@ -34,7 +34,7 @@ pub const DbError = error{
     StepFailed,
 };
 
-const CURRENT_SCHEMA_VERSION = 23;
+const SCHEMA_VERSION = 1;
 
 /// SQL condition: the row's account is not hidden ("Konten ein- und ausblenden").
 pub const visible_accounts = "account NOT IN (SELECT id FROM accounts WHERE hidden = 1)";
@@ -147,6 +147,37 @@ pub const Db = struct {
         \\  deleted INTEGER NOT NULL DEFAULT 0,
         \\  updated_at INTEGER NOT NULL DEFAULT 0
         \\);
+        \\CREATE TABLE IF NOT EXISTS recurring_overrides (
+        \\  id TEXT PRIMARY KEY,
+        \\  name TEXT,
+        \\  category INTEGER,
+        \\  interval TEXT,
+        \\  fixed_amount INTEGER,
+        \\  hidden INTEGER NOT NULL DEFAULT 0,
+        \\  hidden_at INTEGER,
+        \\  accepted_amount INTEGER,
+        \\  updated_at INTEGER NOT NULL DEFAULT 0
+        \\);
+        \\CREATE TABLE IF NOT EXISTS recurring_oneoffs (
+        \\  pattern_id TEXT NOT NULL,
+        \\  tx_id TEXT NOT NULL,
+        \\  oneoff INTEGER NOT NULL DEFAULT 1,
+        \\  updated_at INTEGER NOT NULL DEFAULT 0,
+        \\  PRIMARY KEY (pattern_id, tx_id)
+        \\);
+        \\CREATE TABLE IF NOT EXISTS sync_devices (
+        \\  id TEXT PRIMARY KEY,
+        \\  name TEXT NOT NULL DEFAULT '',
+        \\  kind TEXT NOT NULL DEFAULT '',
+        \\  last_seen INTEGER NOT NULL DEFAULT 0,
+        \\  deleted INTEGER NOT NULL DEFAULT 0,
+        \\  updated_at INTEGER NOT NULL DEFAULT 0
+        \\);
+        \\CREATE TABLE IF NOT EXISTS settings (
+        \\  key TEXT PRIMARY KEY,
+        \\  value TEXT NOT NULL DEFAULT '',
+        \\  updated_at INTEGER NOT NULL DEFAULT 0
+        \\);
     ;
 
     pub fn init(path: [*:0]const u8) DbError!Db {
@@ -169,288 +200,49 @@ pub const Db = struct {
         return self;
     }
 
+    /// One schema (schema_sql), version 1 since 2026-11-15: the 23 migration
+    /// steps before it were folded in. Meta key "schema" (the old steps
+    /// counted in "schema_version", so old numbers can't be mistaken for new):
+    /// - no key, no old key: a new database, seeded with the standard rules;
+    /// - old "schema_version" 23: exactly this shape, relabelled;
+    /// - older ones (only a forgotten test install could have one): rebuilt
+    ///   empty; sync brings the data back.
     fn migrate(self: *Db) DbError!void {
-        const version = self.getMetaInt("schema_version") orelse 0;
-
-        if (version < 1) {
-            // v1: add updated_at to transactions (may already exist from fresh schema)
-            self.exec("ALTER TABLE transactions ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0;") catch {};
-        }
-
-        if (version < 2) {
-            // v2: seed default categorization rules
+        if (self.getMetaInt("schema")) |v| if (v == SCHEMA_VERSION) return;
+        const legacy = self.getMetaInt("schema_version");
+        if (legacy) |v| {
+            if (v != 23) try self.rebuild();
+            self.exec("DELETE FROM meta WHERE key = 'schema_version';") catch {};
+        } else {
             self.seedDefaultRules() catch {};
         }
-
-        if (version < 3) {
-            // v3: undo_history table
-            self.exec(
-                \\CREATE TABLE IF NOT EXISTS undo_history (
-                \\  seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                \\  op INTEGER NOT NULL,
-                \\  tbl TEXT NOT NULL,
-                \\  row_id TEXT NOT NULL,
-                \\  col TEXT,
-                \\  old_val TEXT,
-                \\  new_val TEXT,
-                \\  undone INTEGER NOT NULL DEFAULT 0
-                \\);
-            ) catch {};
-        }
-
-        if (version < 4) {
-            // v4: multi-account support
-            self.exec("ALTER TABLE transactions ADD COLUMN account TEXT NOT NULL DEFAULT '';") catch {};
-            self.exec(
-                \\CREATE TABLE IF NOT EXISTS accounts (
-                \\  id TEXT PRIMARY KEY,
-                \\  name TEXT NOT NULL,
-                \\  bank TEXT NOT NULL DEFAULT '',
-                \\  color TEXT NOT NULL DEFAULT '#4361ee',
-                \\  updated_at INTEGER NOT NULL DEFAULT 0
-                \\);
-            ) catch {};
-        }
-
-        if (version < 5) {
-            // v5: exclude/hide transactions from summaries
-            self.exec("ALTER TABLE transactions ADD COLUMN excluded INTEGER NOT NULL DEFAULT 0;") catch {};
-        }
-
-        if (version < 6) {
-            // v6: stamp real timestamps on rows that still have updated_at=0
-            // (pre-sync era data). Required for sync to work (Worker filters updated_at > 0).
-            const now = nowMs();
-            const tables = [_][*:0]const u8{
-                "UPDATE transactions SET updated_at = ?1 WHERE updated_at = 0;",
-                "UPDATE debts SET updated_at = ?1 WHERE updated_at = 0;",
-                "UPDATE accounts SET updated_at = ?1 WHERE updated_at = 0;",
-                "UPDATE rules SET updated_at = ?1 WHERE updated_at = 0;",
-            };
-            for (tables) |sql| {
-                var stmt: ?*c.sqlite3_stmt = null;
-                if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) == c.SQLITE_OK) {
-                    if (stmt) |s| {
-                        _ = c.sqlite3_bind_int64(s, 1, now);
-                        _ = c.sqlite3_step(s);
-                        _ = c.sqlite3_finalize(s);
-                    }
-                }
-            }
-        }
-
-        if (version < 7) {
-            // v7: soft-delete for debts and accounts (needed for sync)
-            self.exec("ALTER TABLE debts ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;") catch {};
-            self.exec("ALTER TABLE accounts ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;") catch {};
-        }
-
-        if (version < 8) {
-            // v8: recurring payment detection
-            self.exec(
-                \\CREATE TABLE IF NOT EXISTS recurring_patterns (
-                \\  id TEXT PRIMARY KEY,
-                \\  merchant TEXT NOT NULL,
-                \\  amount INTEGER NOT NULL,
-                \\  interval TEXT NOT NULL,
-                \\  category INTEGER NOT NULL DEFAULT 0,
-                \\  last_seen TEXT NOT NULL,
-                \\  next_due TEXT,
-                \\  active INTEGER NOT NULL DEFAULT 1,
-                \\  prev_amount INTEGER,
-                \\  updated_at INTEGER NOT NULL DEFAULT 0
-                \\);
-            ) catch {};
-        }
-
-        if (version < 9) {
-            // v9: monthly snapshots for historical data
-            self.exec(
-                \\CREATE TABLE IF NOT EXISTS snapshots (
-                \\  id TEXT PRIMARY KEY,
-                \\  date TEXT NOT NULL,
-                \\  net_worth INTEGER NOT NULL DEFAULT 0,
-                \\  income INTEGER NOT NULL DEFAULT 0,
-                \\  expenses INTEGER NOT NULL DEFAULT 0,
-                \\  tx_count INTEGER NOT NULL DEFAULT 0,
-                \\  breakdown TEXT NOT NULL DEFAULT '[]',
-                \\  updated_at INTEGER NOT NULL DEFAULT 0
-                \\);
-            ) catch {};
-        }
-
-        if (version < 13) {
-            // v13: remove embeddings table (Phase 5.9 — embeddings removed)
-            self.exec("DROP TABLE IF EXISTS embeddings;") catch {};
-        }
-
-        if (version < 14) {
-            // v14: savings goals (Phase 6.4)
-            self.exec(
-                \\CREATE TABLE IF NOT EXISTS savings_goals (
-                \\  id TEXT PRIMARY KEY,
-                \\  name TEXT NOT NULL,
-                \\  icon TEXT NOT NULL DEFAULT '🎯',
-                \\  target INTEGER NOT NULL,
-                \\  current INTEGER NOT NULL DEFAULT 0,
-                \\  deadline TEXT,
-                \\  deleted INTEGER NOT NULL DEFAULT 0,
-                \\  updated_at INTEGER NOT NULL DEFAULT 0
-                \\);
-            ) catch {};
-        }
-
-        if (version < 15) {
-            // v15: per-account balance from FinTS statement closing balance
-            self.exec("ALTER TABLE accounts ADD COLUMN balance_cents INTEGER NOT NULL DEFAULT 0;") catch {};
-            self.exec("ALTER TABLE accounts ADD COLUMN balance_date TEXT NOT NULL DEFAULT '';") catch {};
-        }
-
-        if (version < 16) {
-            // v16: texts from FinTS and the Comdirect CSV were stored as
-            // ISO-8859-1. Convert them to UTF-8 in place; ids stay (they hash the
-            // raw bytes), updated_at moves so sync carries the fix.
-            self.repairLatin1("transactions", "description", true);
-            self.repairLatin1("pending_transactions", "description", false);
-            self.repairLatin1("rules", "pattern", true);
-            self.repairLatin1("recurring_patterns", "merchant", true);
-        }
-
-        if (version < 17) {
-            // v17: generic German words as rules (not only brand names), so
-            // bookings like "PIZZERIA …" or "… SUPERMARKT" sort without a brand.
-            const generic = [_]struct { p: []const u8, cat: u8 }{
-                .{ .p = "SUPERMARKT", .cat = 1 },
-                .{ .p = "PIZZERIA", .cat = 2 },
-                .{ .p = "VERKEHRSBETRIEBE", .cat = 3 },
-                .{ .p = "MOBILFUNK", .cat = 5 },
-                .{ .p = "DROGERIE", .cat = 7 },
-                .{ .p = "KAUFHAUS", .cat = 7 },
-                .{ .p = "STREAMING", .cat = 13 },
-            };
-            inline for (generic) |g| {
-                self.exec("INSERT INTO rules (pattern, category, priority) SELECT '" ++ g.p ++ "', " ++ std.fmt.comptimePrint("{d}", .{g.cat}) ++ ", 5 WHERE NOT EXISTS (SELECT 1 FROM rules WHERE pattern = '" ++ g.p ++ "');") catch {};
-            }
-        }
-
-        if (version < 18) {
-            // v18: what the user decided about recurring patterns. Detection
-            // rewrites recurring_patterns on every run, so these live apart:
-            // overrides (name, category, rhythm, fixed amount, hidden, accepted
-            // price) and one-off payments (oneoff=1) or payments the user says
-            // do belong (oneoff=0, so detection won't mark them again).
-            self.exec(
-                \\CREATE TABLE IF NOT EXISTS recurring_overrides (
-                \\  id TEXT PRIMARY KEY,
-                \\  name TEXT,
-                \\  category INTEGER,
-                \\  interval TEXT,
-                \\  fixed_amount INTEGER,
-                \\  hidden INTEGER NOT NULL DEFAULT 0,
-                \\  hidden_at INTEGER,
-                \\  accepted_amount INTEGER,
-                \\  updated_at INTEGER NOT NULL DEFAULT 0
-                \\);
-            ) catch {};
-            self.exec(
-                \\CREATE TABLE IF NOT EXISTS recurring_oneoffs (
-                \\  pattern_id TEXT NOT NULL,
-                \\  tx_id TEXT NOT NULL,
-                \\  oneoff INTEGER NOT NULL DEFAULT 1,
-                \\  updated_at INTEGER NOT NULL DEFAULT 0,
-                \\  PRIMARY KEY (pattern_id, tx_id)
-                \\);
-            ) catch {};
-        }
-
-        if (version < 19) {
-            // v19: "Konten ein- und ausblenden". A hidden account still gets its
-            // bookings, but they leave "Alle Konten" lists and sums (search keeps them).
-            self.exec("ALTER TABLE accounts ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;") catch {};
-        }
-
-        if (version < 20) {
-            // v20: devices linked through wimg Sync. Each device keeps its own row
-            // fresh; removing one marks it deleted, and that device stops syncing
-            // when it pulls the mark. Synced like everything else (E2E encrypted).
-            self.exec(
-                \\CREATE TABLE IF NOT EXISTS sync_devices (
-                \\  id TEXT PRIMARY KEY,
-                \\  name TEXT NOT NULL DEFAULT '',
-                \\  kind TEXT NOT NULL DEFAULT '',
-                \\  last_seen INTEGER NOT NULL DEFAULT 0,
-                \\  deleted INTEGER NOT NULL DEFAULT 0,
-                \\  updated_at INTEGER NOT NULL DEFAULT 0
-                \\);
-            ) catch {};
-        }
-
-        if (version < 21) {
-            // v21: settings that follow the user to every device (Gehaltsmonat:
-            // period_mode, period_day, salary_payers, salary_rejected). LWW per key.
-            self.exec(
-                \\CREATE TABLE IF NOT EXISTS settings (
-                \\  key TEXT PRIMARY KEY,
-                \\  value TEXT NOT NULL DEFAULT '',
-                \\  updated_at INTEGER NOT NULL DEFAULT 0
-                \\);
-            ) catch {};
-        }
-
-        if (version < 22) {
-            // v22: manual entries are marked (source = 'manual'; before, only the
-            // "Bargeld" account told them apart) and can be deleted. A deleted
-            // transaction leaves a marker in deleted_transactions, synced as the
-            // row's newest version, so other devices delete it too.
-            self.exec("ALTER TABLE transactions ADD COLUMN source TEXT NOT NULL DEFAULT '';") catch {};
-            self.exec("UPDATE transactions SET source = 'manual' WHERE account = 'Bargeld' AND source = '';") catch {};
-            self.exec(
-                \\CREATE TABLE IF NOT EXISTS deleted_transactions (
-                \\  id TEXT PRIMARY KEY,
-                \\  updated_at INTEGER NOT NULL DEFAULT 0
-                \\);
-            ) catch {};
-        }
-
-        if (version < 23) {
-            // v23: manual entries from before v22 on a bank account (v22 only
-            // caught "Bargeld"). See markEarlyManualEntries.
-            self.markEarlyManualEntries();
-        }
-
-        // Store current version
-        if (version < CURRENT_SCHEMA_VERSION) {
-            self.setMeta("schema_version", "23") catch {};
-        }
+        self.setMeta("schema", std.fmt.comptimePrint("{d}", .{SCHEMA_VERSION})) catch {};
     }
 
-    /// Rewrites every value of [col] that is not valid UTF-8 as UTF-8
-    /// (read as ISO-8859-1). Best effort: a failure leaves the row as it was.
-    fn repairLatin1(self: *Db, comptime table: []const u8, comptime col: []const u8, comptime bump: bool) void {
-        const sel = "SELECT rowid, " ++ col ++ " FROM " ++ table ++ ";";
-        const upd = "UPDATE " ++ table ++ " SET " ++ col ++ " = ?1" ++ (if (bump) ", updated_at = ?3" else "") ++ " WHERE rowid = ?2;";
-        var s: ?*c.sqlite3_stmt = null;
-        if (c.sqlite3_prepare_v2(self.handle, sel, -1, &s, null) != c.SQLITE_OK or s == null) return;
-        defer _ = c.sqlite3_finalize(s.?);
-        var u: ?*c.sqlite3_stmt = null;
-        if (c.sqlite3_prepare_v2(self.handle, upd, -1, &u, null) != c.SQLITE_OK or u == null) return;
-        defer _ = c.sqlite3_finalize(u.?);
-        const now = nowMs();
-        self.exec("BEGIN;") catch return;
-        while (c.sqlite3_step(s.?) == c.SQLITE_ROW) {
-            const vp = c.sqlite3_column_blob(s.?, 1) orelse continue;
-            const vlen: usize = @intCast(c.sqlite3_column_bytes(s.?, 1));
-            const val = @as([*]const u8, @ptrCast(vp))[0..vlen];
-            if (std.unicode.utf8ValidateSlice(val)) continue;
-            var buf: [1024]u8 = undefined;
-            const n = parser_mod.toUtf8(&buf, val);
-            _ = c.sqlite3_reset(u.?);
-            _ = c.sqlite3_bind_text(u.?, 1, @ptrCast(&buf), @intCast(n), c.SQLITE_STATIC);
-            _ = c.sqlite3_bind_int64(u.?, 2, c.sqlite3_column_int64(s.?, 0));
-            if (bump) _ = c.sqlite3_bind_int64(u.?, 3, now);
-            _ = c.sqlite3_step(u.?);
+    /// Drops every table and creates the schema again (an install older than v1).
+    fn rebuild(self: *Db) DbError!void {
+        var names: [64][64]u8 = undefined;
+        var lens: [64]usize = undefined;
+        var n: usize = 0;
+        {
+            var st: ?*c.sqlite3_stmt = null;
+            if (c.sqlite3_prepare_v2(self.handle, "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%';", -1, &st, null) != c.SQLITE_OK or st == null) return DbError.PrepareFailed;
+            defer _ = c.sqlite3_finalize(st.?);
+            while (c.sqlite3_step(st.?) == c.SQLITE_ROW and n < names.len) {
+                const p = c.sqlite3_column_text(st.?, 0) orelse continue;
+                const l: usize = @min(@as(usize, @intCast(c.sqlite3_column_bytes(st.?, 0))), 63);
+                @memcpy(names[n][0..l], p[0..l]);
+                lens[n] = l;
+                n += 1;
+            }
         }
-        self.exec("COMMIT;") catch {};
+        for (0..n) |i| {
+            var buf: [96]u8 = undefined;
+            const sql = std.fmt.bufPrintSentinel(&buf, "DROP TABLE IF EXISTS \"{s}\";", .{names[i][0..lens[i]]}, 0) catch continue;
+            self.exec(sql) catch {};
+        }
+        try self.exec(schema_sql);
+        self.seedDefaultRules() catch {};
     }
 
     pub fn getMetaInt(self: *Db, key: [*:0]const u8) ?i32 {
@@ -547,6 +339,15 @@ pub const Db = struct {
             .{ .pattern = "GOOGLE STORAGE", .category = 13, .priority = 10 },
             // Education (15)
             .{ .pattern = "FOM", .category = 15, .priority = 15 },
+            // Generic German words, so bookings like "PIZZERIA …" or
+            // "… SUPERMARKT" sort without a known brand (lower priority).
+            .{ .pattern = "SUPERMARKT", .category = 1, .priority = 5 },
+            .{ .pattern = "PIZZERIA", .category = 2, .priority = 5 },
+            .{ .pattern = "VERKEHRSBETRIEBE", .category = 3, .priority = 5 },
+            .{ .pattern = "MOBILFUNK", .category = 5, .priority = 5 },
+            .{ .pattern = "DROGERIE", .category = 7, .priority = 5 },
+            .{ .pattern = "KAUFHAUS", .category = 7, .priority = 5 },
+            .{ .pattern = "STREAMING", .category = 13, .priority = 5 },
         };
 
         const sql = "INSERT OR IGNORE INTO rules (pattern, category, priority) VALUES (?1, ?2, ?3);";
@@ -1344,61 +1145,7 @@ pub const Db = struct {
         return c.sqlite3_column_int(st.?, 0) != 0;
     }
 
-    /// Pattern ids changed (Nov 2026: the old ones had only 256 values and
-    /// collided). A decision stored under the old id moves to the new one,
-    /// unless there is one already; fresh updated_at so other devices get it.
-    pub fn moveRecurringOverride(self: *Db, old_id: []const u8, new_id: []const u8) void {
-        var st: ?*c.sqlite3_stmt = null;
-        const sql =
-            \\INSERT OR IGNORE INTO recurring_overrides (id, name, category, interval, fixed_amount, hidden, hidden_at, accepted_amount, updated_at)
-            \\SELECT ?2, name, category, interval, fixed_amount, hidden, hidden_at, accepted_amount, ?3 FROM recurring_overrides WHERE id = ?1;
-        ;
-        if (c.sqlite3_prepare_v2(self.handle, sql, -1, &st, null) != c.SQLITE_OK or st == null) return;
-        defer _ = c.sqlite3_finalize(st.?);
-        _ = c.sqlite3_bind_text(st.?, 1, old_id.ptr, @intCast(old_id.len), c.SQLITE_STATIC);
-        _ = c.sqlite3_bind_text(st.?, 2, new_id.ptr, @intCast(new_id.len), c.SQLITE_STATIC);
-        _ = c.sqlite3_bind_int64(st.?, 3, nowMs());
-        _ = c.sqlite3_step(st.?);
-    }
-
     // --- Manual entries (v22) ---
-
-    /// Manual entries exist since 2026-11-13 16:40 UTC and had no marker until
-    /// v22. One counts as manual when all three hold: written after that time,
-    /// no booking type in its text (bank bookings carry one), and an id that
-    /// is not the import hash of its own date, text, amount and account (CSV
-    /// and bank rows are; manual ids hash an extra "manual:<time>").
-    fn markEarlyManualEntries(self: *Db) void {
-        const since: i64 = 1794588000000;
-        var st: ?*c.sqlite3_stmt = null;
-        const sql = "SELECT id, date_year, date_month, date_day, description, amount_cents, account FROM transactions WHERE source = '' AND updated_at >= ?1;";
-        if (c.sqlite3_prepare_v2(self.handle, sql, -1, &st, null) != c.SQLITE_OK or st == null) return;
-        defer _ = c.sqlite3_finalize(st.?);
-        const s = st.?;
-        _ = c.sqlite3_bind_int64(s, 1, since);
-        var ids: [64][32]u8 = undefined;
-        var n: usize = 0;
-        while (c.sqlite3_step(s) == c.SQLITE_ROW and n < ids.len) {
-            const id_ptr = c.sqlite3_column_text(s, 0) orelse continue;
-            const id_len: usize = @intCast(c.sqlite3_column_bytes(s, 0));
-            const desc_ptr = c.sqlite3_column_text(s, 4) orelse continue;
-            const desc = desc_ptr[0..@intCast(c.sqlite3_column_bytes(s, 4))];
-            if (id_len != 32) continue;
-            if (booking.kind(desc).len != 0) continue;
-            const acct_ptr = c.sqlite3_column_text(s, 6);
-            const acct = if (acct_ptr) |a| a[0..@intCast(c.sqlite3_column_bytes(s, 6))] else "";
-            const date = types.Date{
-                .year = @intCast(c.sqlite3_column_int(s, 1)),
-                .month = @intCast(c.sqlite3_column_int(s, 2)),
-                .day = @intCast(c.sqlite3_column_int(s, 3)),
-            };
-            const import_id = parser_mod.computeHash(date, desc, c.sqlite3_column_int64(s, 5), acct);
-            if (std.mem.eql(u8, &import_id, id_ptr[0..32])) continue;
-            @memcpy(&ids[n], id_ptr[0..32]);
-            n += 1;
-        }
-        for (ids[0..n]) |*id| self.markManual(id) catch {};
-    }
 
     pub fn markManual(self: *Db, id: []const u8) DbError!void {
         var st: ?*c.sqlite3_stmt = null;
@@ -5378,22 +5125,6 @@ test "pending: each fetch replaces the list, booked transactions stay untouched"
     try std.testing.expectEqualStrings("[]", buf[0..n]);
 }
 
-test "migration v16 converts ISO-8859-1 texts and keeps ids" {
-    var db = try Db.init(":memory:");
-    defer db.close();
-    try db.exec("INSERT INTO transactions (id, date_year, date_month, date_day, description, amount_cents) VALUES ('a', 2026, 1, 2, CAST(X'4DDC4E4348454E' AS TEXT), -100), ('b', 2026, 1, 2, 'MÜNCHEN', -100);");
-    try db.exec("UPDATE meta SET value = '15' WHERE key = 'schema_version';");
-    try db.migrate();
-    var s: ?*c.sqlite3_stmt = null;
-    _ = c.sqlite3_prepare_v2(db.handle, "SELECT id, description, updated_at > 0 FROM transactions ORDER BY id;", -1, &s, null);
-    defer _ = c.sqlite3_finalize(s.?);
-    try std.testing.expectEqual(c.SQLITE_ROW, c.sqlite3_step(s.?));
-    try std.testing.expectEqualStrings("MÜNCHEN", std.mem.span(@as([*:0]const u8, @ptrCast(c.sqlite3_column_text(s.?, 1)))));
-    try std.testing.expectEqual(@as(c_int, 1), c.sqlite3_column_int(s.?, 2)); // bumped for sync
-    try std.testing.expectEqual(c.SQLITE_ROW, c.sqlite3_step(s.?));
-    try std.testing.expectEqual(@as(c_int, 0), c.sqlite3_column_int(s.?, 2)); // valid row untouched
-}
-
 test "deleteRule: keep or reset the transactions it sorted" {
     var db = try Db.init(":memory:");
     defer db.close();
@@ -5604,29 +5335,6 @@ test "accounts JSON: a negative balance is written (cash, overdraft)" {
     try std.testing.expect(std.mem.indexOf(u8, buf[0..n], "\"balance_cents\":-900,") != null);
 }
 
-test "v23: early manual entries are found, imports and bank bookings are not" {
-    var db = try Db.init(":memory:");
-    defer db.close();
-    const d = types.Date{ .year = 2026, .month = 11, .day = 14 };
-    const csv_id = parser_mod.computeHash(d, "REWE Markt", -1200, "comdirect");
-    var sql_buf: [1024]u8 = undefined;
-    const sql = try std.fmt.bufPrintSentinel(&sql_buf,
-        \\INSERT INTO transactions (id, date_year, date_month, date_day, description, amount_cents, account, updated_at) VALUES
-        \\ ('{s}', 2026, 11, 14, 'REWE Markt', -1200, 'comdirect', 1794600000000),
-        \\ ('11111111111111111111111111111111', 2026, 11, 14, 'LASTSCHRIFT / BELASTUNG NETTO', -1863, 'comdirect', 1794600000000),
-        \\ ('22222222222222222222222222222222', 2026, 11, 14, 'Geschenk Oma', 2200, 'comdirect', 1794600000000),
-        \\ ('33333333333333333333333333333333', 2026, 11, 1, 'Alter Eintrag', 500, 'comdirect', 1700000000000);
-    , .{&csv_id}, 0);
-    try db.exec(sql);
-    db.markEarlyManualEntries();
-    var st: ?*c.sqlite3_stmt = null;
-    try std.testing.expect(c.sqlite3_prepare_v2(db.handle, "SELECT group_concat(substr(id, 1, 1)) FROM transactions WHERE source = 'manual';", -1, &st, null) == c.SQLITE_OK);
-    defer _ = c.sqlite3_finalize(st.?);
-    try std.testing.expect(c.sqlite3_step(st.?) == c.SQLITE_ROW);
-    const got = c.sqlite3_column_text(st.?, 0).?;
-    try std.testing.expectEqualStrings("2", got[0..@intCast(c.sqlite3_column_bytes(st.?, 0))]);
-}
-
 test "accounts JSON: an empty cash account has balance 0, so the Kontostand stays" {
     var db = try Db.init(":memory:");
     defer db.close();
@@ -5634,4 +5342,35 @@ test "accounts JSON: an empty cash account has balance 0, so the Kontostand stay
     var buf: [2048]u8 = undefined;
     const n = (try db.getAccountsJson(&buf, buf.len)).?;
     try std.testing.expect(std.mem.indexOf(u8, buf[0..n], "\"balance_cents\":0,\"balance_date\":\"20") != null);
+}
+
+fn testCount(db: *Db, comptime sql: [*:0]const u8) i64 {
+    var st: ?*c.sqlite3_stmt = null;
+    if (c.sqlite3_prepare_v2(db.handle, sql, -1, &st, null) != c.SQLITE_OK) return -1;
+    defer _ = c.sqlite3_finalize(st.?);
+    if (c.sqlite3_step(st.?) != c.SQLITE_ROW) return -1;
+    return c.sqlite3_column_int64(st.?, 0);
+}
+
+test "schema v1: new, relabelled from the last old version, rebuilt from older" {
+    // New database: version 1, the standard rules (brands and generic words).
+    var db = try Db.init(":memory:");
+    defer db.close();
+    try std.testing.expectEqual(@as(?i32, 1), db.getMetaInt("schema"));
+    try std.testing.expectEqual(@as(?i32, null), db.getMetaInt("schema_version"));
+    try std.testing.expectEqual(@as(i64, 2), testCount(&db, "SELECT COUNT(*) FROM rules WHERE pattern IN ('REWE', 'SUPERMARKT');"));
+
+    // Old numbering, last version (23): same shape, data stays.
+    try db.exec("DELETE FROM meta WHERE key = 'schema'; INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '23');");
+    try db.exec("INSERT INTO transactions (id, date_year, date_month, date_day, description, amount_cents) VALUES ('t1', 2026, 11, 1, 'X', -100);");
+    try db.migrate();
+    try std.testing.expectEqual(@as(?i32, 1), db.getMetaInt("schema"));
+    try std.testing.expectEqual(@as(i64, 1), testCount(&db, "SELECT COUNT(*) FROM transactions;"));
+
+    // Older (15): rebuilt empty, rules seeded again.
+    try db.exec("DELETE FROM meta WHERE key = 'schema'; INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '15');");
+    try db.migrate();
+    try std.testing.expectEqual(@as(?i32, 1), db.getMetaInt("schema"));
+    try std.testing.expectEqual(@as(i64, 0), testCount(&db, "SELECT COUNT(*) FROM transactions;"));
+    try std.testing.expect(testCount(&db, "SELECT COUNT(*) FROM rules;") > 0);
 }

@@ -357,19 +357,7 @@ pub fn detectRecurring(database: *Db) DbError!i32 {
         }
         var pid: [32]u8 = undefined;
         hashMerchantId(norm, &pid);
-        var state = database.recurringOneoffState(&pid, tx_id[0..tx_id_len]);
-        if (state == null) {
-            // Marked under the old id: this booking belongs to this merchant, so
-            // the mark moves to the new id (per booking, so a shared old id
-            // can't hand it to the wrong merchant).
-            var legacy: [32]u8 = undefined;
-            legacyMerchantId(norm, &legacy);
-            if (database.recurringOneoffState(&legacy, tx_id[0..tx_id_len])) |old| {
-                database.setRecurringOneoff(&pid, tx_id[0..tx_id_len], old) catch {};
-                state = old;
-            }
-        }
-        const oneoff = state == true;
+        const oneoff = database.recurringOneoffState(&pid, tx_id[0..tx_id_len]) == true;
 
         const slot = findOrCreateBucket(buckets, &bucket_count, norm) orelse continue;
         const b = &buckets[slot];
@@ -672,9 +660,6 @@ fn processGroup(database: *Db, merchant: []const u8, all_entries: []const TxEntr
     // Generate deterministic ID from merchant hash
     var id_buf: [32]u8 = undefined;
     hashMerchantId(merchant, &id_buf);
-    var legacy_id: [32]u8 = undefined;
-    legacyMerchantId(merchant, &legacy_id);
-    database.moveRecurringOverride(&legacy_id, &id_buf);
 
     // Format last_seen date
     var ls_buf: [10]u8 = undefined;
@@ -815,24 +800,6 @@ fn hashMerchantId(merchant: []const u8, out: *[32]u8) void {
     const a = std.hash.Wyhash.hash(0x77696d67, merchant);
     const b = std.hash.Wyhash.hash(0x70617474, merchant);
     _ = std.fmt.bufPrint(out, "{x:0>16}{x:0>16}", .{ a, b }) catch unreachable;
-}
-
-/// The id before Nov 2026. Each step only multiplied and added, so every
-/// character depended on the hash's lowest byte: 256 possible ids, and two
-/// merchants often shared one (the later overwrote the earlier). Kept only to
-/// carry decisions stored under it over to the new id.
-fn legacyMerchantId(merchant: []const u8, out: *[32]u8) void {
-    var hash: u64 = 5381;
-    for (merchant) |ch| {
-        hash = hash *% 33 +% ch;
-    }
-    const hex_chars = "0123456789abcdef";
-    var h = hash;
-    for (0..16) |i| {
-        out[i * 2] = hex_chars[@intCast((h >> 4) & 0x0F)];
-        out[i * 2 + 1] = hex_chars[@intCast(h & 0x0F)];
-        h = h *% 2654435761 +% @as(u64, @intCast(i));
-    }
 }
 
 // --- Tests ---
@@ -1167,49 +1134,4 @@ test "years of history don't push current patterns out (newest bookings win)" {
         try std.testing.expect(c.sqlite3_step(st) == c.SQLITE_ROW);
         try std.testing.expectEqual(@as(i64, 1), c.sqlite3_column_int64(st, 0));
     }
-}
-
-test "merchants that shared an old id are both found; old decisions carry over" {
-    var database = try Db.init(":memory:");
-    defer database.close();
-    var nb: [128]u8 = undefined;
-    const first_desc = "LASTSCHRIFT MUSTERSTROM AG";
-    const first = nb[0..normalizeMerchant(first_desc, &nb).?];
-    var first_legacy: [32]u8 = undefined;
-    legacyMerchantId(first, &first_legacy);
-    // A second merchant whose old id was the same (only 256 existed).
-    var second_desc_buf: [64]u8 = undefined;
-    var second_desc: []const u8 = "";
-    var i: usize = 0;
-    while (i < 5000) : (i += 1) {
-        const d = try std.fmt.bufPrint(&second_desc_buf, "LASTSCHRIFT MUSTERFUNK {c}{c}{c}", .{ @as(u8, @intCast('A' + i % 26)), @as(u8, @intCast('A' + (i / 26) % 26)), @as(u8, @intCast('A' + (i / 676) % 26)) });
-        var b2: [128]u8 = undefined;
-        const n2 = normalizeMerchant(d, &b2) orelse continue;
-        var l2: [32]u8 = undefined;
-        legacyMerchantId(b2[0..n2], &l2);
-        if (std.mem.eql(u8, &l2, &first_legacy) and !std.mem.eql(u8, b2[0..n2], first)) {
-            second_desc = d;
-            break;
-        }
-    }
-    try std.testing.expect(second_desc.len > 0);
-
-    var sql_buf: [1024]u8 = undefined;
-    const rows = try std.fmt.bufPrintSentinel(&sql_buf,
-        \\INSERT INTO transactions (id, date_year, date_month, date_day, description, amount_cents) VALUES
-        \\ ('a1', 2026, 8, 3, '{0s}', -4100), ('a2', 2026, 9, 3, '{0s}', -4100), ('a3', 2026, 10, 3, '{0s}', -4100),
-        \\ ('b1', 2026, 8, 20, '{1s}', -1299), ('b2', 2026, 9, 20, '{1s}', -1299), ('b3', 2026, 10, 20, '{1s}', -1299);
-        \\INSERT INTO recurring_overrides (id, hidden, updated_at) VALUES ('{2s}', 1, 1);
-    , .{ first_desc, second_desc, first_legacy }, 0);
-    try std.testing.expect(c.sqlite3_exec(database.handle, rows.ptr, null, null, null) == c.SQLITE_OK);
-    _ = try detectRecurring(&database);
-
-    var st: ?*c.sqlite3_stmt = null;
-    try std.testing.expect(c.sqlite3_prepare_v2(database.handle, "SELECT COUNT(*), SUM(COALESCE(o.hidden, 0)) FROM recurring_patterns p LEFT JOIN recurring_overrides o ON o.id = p.id;", -1, &st, null) == c.SQLITE_OK);
-    defer _ = c.sqlite3_finalize(st.?);
-    try std.testing.expect(c.sqlite3_step(st.?) == c.SQLITE_ROW);
-    try std.testing.expectEqual(@as(i64, 2), c.sqlite3_column_int64(st.?, 0));
-    // The old "hidden" (shared id) now belongs to both: it was ambiguous before
-    // too. What matters: nothing is lost and both patterns exist.
-    try std.testing.expect(c.sqlite3_column_int64(st.?, 1) >= 1);
 }

@@ -117,10 +117,6 @@ pub const Date = struct {
     month: u8,
     day: u8,
 
-    pub fn order(self: Date) u32 {
-        return @as(u32, self.year) * 10000 + @as(u32, self.month) * 100 + @as(u32, self.day);
-    }
-
     pub fn eql(a: Date, b: Date) bool {
         return a.year == b.year and a.month == b.month and a.day == b.day;
     }
@@ -143,10 +139,6 @@ pub const Transaction = struct {
 
     pub fn accountSlice(self: *const Transaction) []const u8 {
         return self.account[0..self.account_len];
-    }
-
-    pub fn amountFloat(self: *const Transaction) f64 {
-        return @as(f64, @floatFromInt(self.amount_cents)) / 100.0;
     }
 };
 
@@ -245,16 +237,6 @@ test "Category.fromInt invalid value falls back to uncategorized" {
     try std.testing.expectEqual(Category.uncategorized, Category.fromInt(17));
 }
 
-test "Date.order computes YYYYMMDD integer" {
-    const d = Date{ .year = 2026, .month = 3, .day = 5 };
-    try std.testing.expectEqual(@as(u32, 20260305), d.order());
-}
-
-test "Date.order with single-digit month/day" {
-    const d = Date{ .year = 2026, .month = 1, .day = 1 };
-    try std.testing.expectEqual(@as(u32, 20260101), d.order());
-}
-
 test "Date.eql same dates" {
     const a = Date{ .year = 2026, .month = 3, .day = 5 };
     const b = Date{ .year = 2026, .month = 3, .day = 5 };
@@ -289,24 +271,6 @@ test "Transaction.accountSlice returns correct slice" {
     try std.testing.expectEqualStrings("comdirect", txn.accountSlice());
 }
 
-test "Transaction.amountFloat converts cents to float" {
-    var txn: Transaction = undefined;
-    txn.amount_cents = 12345;
-    try std.testing.expectApproxEqAbs(@as(f64, 123.45), txn.amountFloat(), 0.001);
-}
-
-test "Transaction.amountFloat negative cents" {
-    var txn: Transaction = undefined;
-    txn.amount_cents = -4250;
-    try std.testing.expectApproxEqAbs(@as(f64, -42.50), txn.amountFloat(), 0.001);
-}
-
-test "Transaction.amountFloat zero" {
-    var txn: Transaction = undefined;
-    txn.amount_cents = 0;
-    try std.testing.expectApproxEqAbs(@as(f64, 0.0), txn.amountFloat(), 0.001);
-}
-
 // --- Stress / edge case tests ---
 
 test "Transaction: max-length description (256 chars)" {
@@ -337,29 +301,6 @@ test "Transaction: empty account" {
     var txn: Transaction = undefined;
     txn.account_len = 0;
     try std.testing.expectEqual(@as(usize, 0), txn.accountSlice().len);
-}
-
-test "Transaction.amountFloat large salary" {
-    var txn: Transaction = undefined;
-    txn.amount_cents = 350000; // 3500.00 EUR
-    try std.testing.expectApproxEqAbs(@as(f64, 3500.0), txn.amountFloat(), 0.001);
-}
-
-test "Transaction.amountFloat very large amount" {
-    var txn: Transaction = undefined;
-    txn.amount_cents = 99999999; // 999,999.99 EUR
-    try std.testing.expectApproxEqAbs(@as(f64, 999999.99), txn.amountFloat(), 0.01);
-}
-
-test "Transaction.amountFloat single cent" {
-    var txn: Transaction = undefined;
-    txn.amount_cents = 1;
-    try std.testing.expectApproxEqAbs(@as(f64, 0.01), txn.amountFloat(), 0.001);
-}
-
-test "Date.order boundary: year 9999" {
-    const d = Date{ .year = 9999, .month = 12, .day = 31 };
-    try std.testing.expectEqual(@as(u32, 99991231), d.order());
 }
 
 test "Category.fromInt all valid enum values roundtrip" {

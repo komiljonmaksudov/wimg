@@ -219,7 +219,6 @@ object WimgDimens {
 object WimgMotion {
     val EaseOut: Easing = CubicBezierEasing(0.23f, 1f, 0.32f, 1f)       // enter, exit, docking
     val EaseInOut: Easing = CubicBezierEasing(0.77f, 0f, 0.175f, 1f)    // on-screen shape changes
-    val Drawer: Easing = CubicBezierEasing(0.32f, 0.72f, 0f, 1f)        // bottom sheets
 
     const val PRESS_MS = 120
     const val PRESS_SCALE = 0.97f
@@ -230,10 +229,7 @@ object WimgMotion {
     val DOCK_CONTENT_RISE = 6.dp
     const val UNDOCK_MS = 180
     const val UNDO_COUNTDOWN_MS = 6_000
-    const val BAR_WIDTH_MS = 240
     const val BAR_COMPACT_MS = 160
-    const val SHEET_IN_MS = 300
-    const val SHEET_OUT_MS = 200
     const val HOLD_TO_DELETE_MS = 2_000
     const val HOLD_RELEASE_MS = 200
 
@@ -243,12 +239,8 @@ object WimgMotion {
 
     fun <T> dock(deltaHeightDp: Float) = tween<T>(dockDurationMs(deltaHeightDp), easing = EaseOut)
     fun <T> undock() = tween<T>(UNDOCK_MS, easing = EaseOut)
-    fun <T> barWidth() = tween<T>(BAR_WIDTH_MS, easing = EaseInOut)
     fun <T> barCompact() = tween<T>(BAR_COMPACT_MS, easing = EaseOut)
     fun <T> press() = tween<T>(PRESS_MS, easing = EaseOut)
-    fun <T> sheetIn() = tween<T>(SHEET_IN_MS, easing = Drawer)
-    fun <T> sheetOut() = tween<T>(SHEET_OUT_MS, easing = EaseOut)
-    fun <T> undoCountdown() = tween<T>(UNDO_COUNTDOWN_MS, easing = LinearEasing)
 }
 
 val LocalWimgPalette = staticCompositionLocalOf { LightWimgPalette }

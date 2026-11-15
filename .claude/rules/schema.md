@@ -1,7 +1,10 @@
 # SQLite Schema
 
-From `schema_sql` in `libwimg/src/db.zig` (migrations below it add the same
-columns to older DBs and drop the old `embeddings` table). Amounts are integer
+From `schema_sql` in `libwimg/src/db.zig`: one schema, version 1 (meta key
+`schema`), no migration steps since 2026-11-15. A database from before (meta
+`schema_version`) is relabelled when it is at the last old version (23) and
+rebuilt empty otherwise (sync brings the data back). A schema change from now
+on is a new version with its own step in `migrate()`. Amounts are integer
 cents, `category` is the integer ID from `categories.zig`, `updated_at` is unix
 ms for LWW sync, `deleted` is a soft-delete tombstone.
 

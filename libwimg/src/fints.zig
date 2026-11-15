@@ -231,20 +231,12 @@ pub const ResponseCode = struct {
         return self.text[0..self.text_len];
     }
 
-    pub fn referenceSlice(self: *const ResponseCode) []const u8 {
-        return self.reference[0..self.reference_len];
-    }
-
     pub fn parameterSlice(self: *const ResponseCode) []const u8 {
         return self.parameter[0..self.parameter_len];
     }
 
     pub fn isSuccess(self: *const ResponseCode) bool {
         return self.code[0] == '0'; // 0xxx = success
-    }
-
-    pub fn isTanRequired(self: *const ResponseCode) bool {
-        return std.mem.eql(u8, &self.code, "0030") or std.mem.eql(u8, &self.code, "3920");
     }
 
     pub fn isError(self: *const ResponseCode) bool {
@@ -521,30 +513,6 @@ pub fn buildAnonInit(session: *const FintsSession, buf: []u8) ?usize {
     }) orelse return null;
 
     return writeEnvelope(session, buf, inner_buf[0..inner_pos]);
-}
-
-/// Build anonymous initialization wrapped in HNVSK/HNVSD security envelope.
-/// Required by Deutsche Bank, Postbank, and norisbank which reject bare anonymous init with 9110.
-/// Uses dummy encryption (PIN:1, sec_func=998), user_id=9999999999, system_id=0.
-pub fn buildAnonInitWithEnvelope(session: *const FintsSession, buf: []u8) ?usize {
-    var inner_buf: [4096]u8 = undefined;
-    var inner_pos: usize = 0;
-
-    // HKIDN — anonymous identification inside envelope (seg 3, after HNVSK=998 and HNVSD=999)
-    inner_pos += writeHkidn(&inner_buf, inner_pos, 3, &session.blz, "9999999999", "0", "0") orelse return null;
-
-    // HKVVB — BPD request
-    inner_pos += writeSegment(&inner_buf, inner_pos, "HKVVB", 4, 3, &.{
-        "0",
-        "0",
-        "1",
-        session.productIdSlice(),
-        "5.0.0",
-    }) orelse return null;
-
-    // Wrap in HNVSK/HNVSD envelope using sec_func=998 (dummy encryption for anonymous)
-    // Uses "9999999999" as user_id in key_name, system_id=0
-    return writeAnonAuthEnvelope(session, buf, inner_buf[0..inner_pos], 4);
 }
 
 /// Write HNVSK/HNVSD envelope for anonymous init (no real credentials).
@@ -2434,31 +2402,6 @@ fn escapeFintsValue(buf: []u8, value: []const u8) ?usize {
     return pos;
 }
 
-/// Unescape FinTS value: remove ? before +, :, ', ?
-pub fn unescapeFintsValue(buf: []u8, value: []const u8) usize {
-    var pos: usize = 0;
-    var i: usize = 0;
-    while (i < value.len) {
-        if (i + 1 < value.len and value[i] == '?') {
-            const next = value[i + 1];
-            if (next == '?' or next == '+' or next == ':' or next == '\'') {
-                if (pos < buf.len) {
-                    buf[pos] = next;
-                    pos += 1;
-                }
-                i += 2;
-                continue;
-            }
-        }
-        if (pos < buf.len) {
-            buf[pos] = value[i];
-            pos += 1;
-        }
-        i += 1;
-    }
-    return pos;
-}
-
 fn writeUint(buf: []u8, val: usize) ?usize {
     var tmp: [20]u8 = undefined;
     var n = val;
@@ -2558,12 +2501,6 @@ test "escapeFintsValue no escaping needed" {
     try std.testing.expectEqualStrings("plain text 123", buf[0..len]);
 }
 
-test "unescapeFintsValue removes escape chars" {
-    var buf: [64]u8 = undefined;
-    const len = unescapeFintsValue(&buf, "Hello?+World?:Test??End?'Done");
-    try std.testing.expectEqualStrings("Hello+World:Test?End'Done", buf[0..len]);
-}
-
 test "base64 roundtrip" {
     var enc_buf: [128]u8 = undefined;
     var dec_buf: [128]u8 = undefined;
@@ -2602,31 +2539,6 @@ test "buildAnonInit produces valid envelope with 9999999999 customer_id" {
     try std.testing.expect(std.mem.indexOf(u8, msg, "9999999999") != null);
     // Must NOT contain HNVSK (bare envelope for standard banks)
     try std.testing.expect(std.mem.indexOf(u8, msg, "HNVSK") == null);
-}
-
-test "buildAnonInitWithEnvelope wraps in HNVSK/HNVSD" {
-    var s = FintsSession.init("10070000", "https://fints.deutsche-bank.de/", "user", "pin");
-    s.product_id_len = 25;
-    @memcpy(s.product_id[0..25], "F7C4049477F6136957A46EC28");
-
-    var buf: [8192]u8 = undefined;
-    const len = buildAnonInitWithEnvelope(&s, &buf) orelse return error.TestUnexpectedResult;
-    const msg = buf[0..len];
-
-    // Must start with HNHBK
-    try std.testing.expect(std.mem.startsWith(u8, msg, "HNHBK:1:3+"));
-    // Must contain security envelope segments
-    try std.testing.expect(std.mem.indexOf(u8, msg, "HNVSK:998:3+PIN:1+998") != null);
-    try std.testing.expect(std.mem.indexOf(u8, msg, "HNVSD:999:1+@") != null);
-    // Must contain HKIDN and HKVVB inside envelope
-    try std.testing.expect(std.mem.indexOf(u8, msg, "HKIDN") != null);
-    try std.testing.expect(std.mem.indexOf(u8, msg, "HKVVB") != null);
-    // Must use 9999999999 as anonymous user
-    try std.testing.expect(std.mem.indexOf(u8, msg, "9999999999") != null);
-    // Size field must match actual message length
-    const size_str = msg[10..22];
-    const declared_size = std.fmt.parseInt(usize, size_str, 10) catch return error.TestUnexpectedResult;
-    try std.testing.expectEqual(len, declared_size);
 }
 
 test "FintsSession detects bank_family from URL" {
@@ -2678,7 +2590,6 @@ test "parseResponse extracts HIRMS reference and parameter" {
 
     try std.testing.expectEqual(@as(u8, 1), resp.code_count);
     try std.testing.expectEqualStrings("3040", resp.codes[0].codeSlice());
-    try std.testing.expectEqualStrings("4", resp.codes[0].referenceSlice());
     try std.testing.expectEqualStrings("Weitere Daten folgen", resp.codes[0].textSlice());
     try std.testing.expectEqualStrings("TD_TOKEN_123", resp.codes[0].parameterSlice());
 }
@@ -3126,12 +3037,6 @@ test "ResponseCode classification" {
     c.code = "9800".*;
     try std.testing.expect(!c.isSuccess());
     try std.testing.expect(c.isError());
-
-    c.code = "0030".*;
-    try std.testing.expect(c.isTanRequired());
-
-    c.code = "3920".*;
-    try std.testing.expect(c.isTanRequired());
 }
 
 test "the pending-only HKCAZ sends the account as IBAN:BIC" {

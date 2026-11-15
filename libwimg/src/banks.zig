@@ -15,14 +15,6 @@ pub fn detectBankFamily(url: []const u8) BankFamily {
     return .standard;
 }
 
-/// Returns true if the bank family requires HNVSK/HNVSD envelope for anonymous init.
-pub fn needsAnonEnvelope(family: BankFamily) bool {
-    return switch (family) {
-        .deutsche_bank, .postbank, .norisbank => true,
-        .standard => false,
-    };
-}
-
 pub const BankInfo = struct {
     blz: [8]u8,
     bic: [11]u8,
@@ -1890,11 +1882,4 @@ test "detectBankFamily identifies norisbank" {
 
 test "detectBankFamily returns standard for Comdirect" {
     try std.testing.expectEqual(BankFamily.standard, detectBankFamily("https://fints.comdirect.de/fints"));
-}
-
-test "needsAnonEnvelope for bank families" {
-    try std.testing.expect(needsAnonEnvelope(.deutsche_bank));
-    try std.testing.expect(needsAnonEnvelope(.postbank));
-    try std.testing.expect(needsAnonEnvelope(.norisbank));
-    try std.testing.expect(!needsAnonEnvelope(.standard));
 }
