@@ -11,4 +11,3 @@ Open work only, grouped by area; finished work moves to [CHANGELOG.md](CHANGELOG
 
 ## Android
 - [ ] Notification tap: not reproducible on the emulator anymore (foreground and background, 2026-11-15); confirm with a real notification on the phone.
-- [ ] Bar polish: closing search switches the content in one frame (opening crossfades); after a back the blue + is paler for ~5 frames (layer crossfade).

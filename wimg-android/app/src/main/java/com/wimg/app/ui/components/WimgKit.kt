@@ -763,8 +763,8 @@ fun FloatingBar(
                 label = "dockRow",
             ) { r -> if (r != null) DockedRowContent(r) }
         }
-        // Hand-made crossfade: the old content fades out from fully visible while
-        // the new one fades in, starting on the same frame (no empty bar between).
+        // Hand-made crossfade: the new content shows at once underneath, the old
+        // content fades out over it (no empty or half see-through bar between).
         // Keys are state (they change only when the kind of bar changes); the
         // content per key is a plain map, refreshed every composition without
         // triggering another one.
@@ -777,14 +777,18 @@ fun FloatingBar(
             while (keys.size > 2) contents.remove(keys.removeAt(0))
         }
         Box(contentAlignment = Alignment.Center, modifier = Modifier.wrapContentWidth(Alignment.CenterHorizontally, unbounded = true)) {
-            keys.toList().forEach { k ->
+            // The new content is there at full strength at once, underneath; only
+            // the old content fades out on top of it. Fading both (new in, old
+            // out) left the bar half see-through for a few frames: everything,
+            // the blue + most visibly, went pale after a back.
+            keys.toList().asReversed().forEach { k ->
                 val layer = contents[k] ?: return@forEach
                 androidx.compose.runtime.key(k) {
                     val isTop = k == keys.last()
-                    val alpha = remember { androidx.compose.animation.core.Animatable(if (keys.size == 1) 1f else 0f) }
+                    val alpha = remember { androidx.compose.animation.core.Animatable(1f) }
                     LaunchedEffect(isTop) {
-                        if (isTop) alpha.animateTo(1f, tween(150, easing = WimgMotion.EaseOut))
-                        else { alpha.animateTo(0f, tween(110, easing = WimgMotion.EaseOut)); keys.remove(k); contents.remove(k) }
+                        if (isTop) alpha.snapTo(1f)
+                        else { alpha.animateTo(0f, tween(90, easing = WimgMotion.EaseOut)); keys.remove(k); contents.remove(k) }
                     }
                     Row(
                         Modifier
