@@ -24,7 +24,7 @@ if [[ "${1:-}" != "--no-build" ]]; then
 	python3 wimg-site/build.py
 fi
 
-if [[ ! -f wimg-site/public/index.html || ! -f wimg-site/public/app.js ]]; then
+if [[ ! -f wimg-site/public/index.html || ! -f wimg-site/public/site.js ]]; then
 	echo "wimg-site/public is incomplete — did the build run?" >&2
 	exit 1
 fi
