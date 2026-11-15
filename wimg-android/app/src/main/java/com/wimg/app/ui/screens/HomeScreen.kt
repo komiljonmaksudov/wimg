@@ -71,6 +71,8 @@ import com.wimg.app.ui.components.BarPanel
 import com.wimg.app.ui.components.IconTile
 import com.wimg.app.ui.components.amountText
 import com.wimg.app.ui.components.pressable
+import com.wimg.app.ui.components.SquirrelPose
+import com.wimg.app.i18n.__t
 import com.wimg.app.ui.theme.LocaleState
 import com.wimg.app.ui.theme.Wimg
 import com.wimg.app.ui.theme.WimgShape
@@ -97,6 +99,8 @@ internal data class HomeData(
     val hasAnyData: Boolean,
     /** Not yet booked, from the last bank fetch (current month view only). */
     val pending: List<Transaction> = emptyList(),
+    /** Days (ISO) with spending, for the stitches of days without (squirrel ring). */
+    val spendDates: Set<String> = emptySet(),
 )
 
 @Composable
@@ -221,11 +225,14 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
     val spent = abs(s?.expenses ?: 0.0)
     val available = s?.available ?: 0.0
     val daysCounted = if (isCurrent) now.get(Calendar.DAY_OF_MONTH) else daysInMonth(year, month)
+    // The squirrel's one line after a tap, for a few seconds under the amount.
+    var explain by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(explain) { if (explain != null) { kotlinx.coroutines.delay(5_000); explain = null } }
 
     BandScreen(
         band = {
             if (period != null) {
-                PeriodBand(periods, period, s, d?.previous, accounts.filter { selectedAccount == null && !it.isHidden || it.id == selectedAccount })
+                PeriodBand(periods, period, prevPeriod, s, d?.previous, d?.spendDates.orEmpty(), explain) { explain = it }
                 return@BandScreen
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -245,24 +252,33 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
                     )
                     val count = s?.tx_count ?: 0
                     Text(
-                        if (isCurrent) L("%d Umsätze bis %s", count, dayMonth(now.get(Calendar.DAY_OF_MONTH), month, shortMonths))
+                        explain ?: if (isCurrent) L("%d Umsätze bis %s", count, dayMonth(now.get(Calendar.DAY_OF_MONTH), month, shortMonths))
                         else L("%d Umsätze", count),
                         style = WimgType.desc,
-                        color = Wimg.colors.bandSub,
+                        color = if (explain != null) Color.White else Wimg.colors.bandSub,
                     )
                 }
                 // Hidden while the number would mislead (handoff §4.2): income must
                 // cover spending and be at least 10 % of last month's.
                 val prevIncome = d?.previous?.income ?: 0.0
-                if (income > 0 && income >= spent && (prevIncome <= 0 || income >= prevIncome * 0.1)) {
-                    SavingsRing(((income - spent) / income * 100).roundToInt())
-                }
+                val quote = if (income > 0 && income >= spent && (prevIncome <= 0 || income >= prevIncome * 0.1)) ((income - spent) / income * 100).roundToInt() else null
+                if (isCurrent) {
+                    val dim = daysInMonth(year, month)
+                    val (py, pm) = monthBefore(year, month, 1)
+                    val usual = (d?.previous?.expenses?.let { abs(it) } ?: 0.0) / daysInMonth(py, pm)
+                    val (pose, line) = figureState(available, dim - daysCounted + 1, usual, salaryToday = false, salary = null, salaryMode = false)
+                    BandFigure(pose, dim, daysCounted - 1, noSpendDays("%04d-%02d-01".format(year, month), daysCounted - 1, d?.spendDates.orEmpty())) { explain = line }
+                } else if (quote != null) SavingsRing(quote)
             }
             HorizontalDivider(Modifier.padding(top = 20.dp), thickness = 1.dp, color = Color.White.copy(alpha = 0.10f))
             Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val prevIncome = d?.previous?.income ?: 0.0
+                val quote = if (income > 0 && income >= spent && (prevIncome <= 0 || income >= prevIncome * 0.1)) ((income - spent) / income * 100).roundToInt() else null
                 BandStat(L("Einnahmen"), amountText(income), Wimg.colors.bandPos, Modifier.weight(1f))
                 BandStat(L("Ausgaben"), amountText(-spent), Color.White, Modifier.weight(1f))
-                BandStat(L("Ausgaben/Tag"), amountText(spent / daysCounted.coerceAtLeast(1), showPlus = false), Color.White, Modifier.weight(1f))
+                // Current month: the ring holds the squirrel, the Sparquote moves here.
+                if (isCurrent) BandStat(L("Sparquote"), quote?.let { "$it %" } ?: "–", Color.White, Modifier.weight(1f))
+                else BandStat(L("Ausgaben/Tag"), amountText(spent / daysCounted.coerceAtLeast(1), showPlus = false), Color.White, Modifier.weight(1f))
             }
         },
     ) {
@@ -366,6 +382,7 @@ internal fun loadHome(year: Int, month: Int, account: String?, compare: HomeComp
         day = if (lastDate == null) emptyList() else inMonth.filter { it.date == lastDate }.take(6),
         hasAnyData = all.isNotEmpty(),
         pending = if (today.startsWith(prefix)) LibWimg.getPending(account) else emptyList(),
+        spendDates = inMonth.filter { it.amount < 0 }.mapTo(HashSet()) { it.date },
     )
 }
 
@@ -654,6 +671,7 @@ internal fun loadHomeRange(p: com.wimg.app.models.PeriodInfo, prev: com.wimg.app
         day = if (lastDate == null) emptyList() else inRange.filter { it.date == lastDate }.take(6),
         hasAnyData = all.isNotEmpty(),
         pending = if (p.current) LibWimg.getPending(account) else emptyList(),
+        spendDates = inRange.filter { it.amount < 0 }.mapTo(HashSet()) { it.date },
     )
 }
 
@@ -662,9 +680,12 @@ internal fun loadHomeRange(p: com.wimg.app.models.PeriodInfo, prev: com.wimg.app
 private fun PeriodBand(
     periods: com.wimg.app.models.Periods,
     p: com.wimg.app.models.PeriodInfo,
+    prevPeriod: com.wimg.app.models.PeriodInfo?,
     s: MonthlySummary?,
     previous: MonthlySummary?,
-    accounts: List<com.wimg.app.models.Account>,
+    spendDates: Set<String>,
+    explain: String?,
+    onExplain: (String) -> Unit,
 ) {
     val c = Wimg.colors
     val L2 = com.wimg.app.ui.components.PeriodLabels
@@ -680,6 +701,8 @@ private fun PeriodBand(
         available < -0.004 -> c.bandNeg
         else -> Color.White
     }
+    val prevIncome = previous?.income ?: 0.0
+    val quote = if (!overdue && income > 0 && income >= spent && (prevIncome <= 0 || income >= prevIncome * 0.1)) ((income - spent) / income * 100).roundToInt() else null
 
     if (overdue) {
         val n = salary!!.overdue_days
@@ -715,12 +738,13 @@ private fun PeriodBand(
                 available > 0.004 && left > 0 -> L("noch %d Tage · %s pro Tag", left, amountText(available / left, showPlus = false))
                 else -> L("noch %d Tage", left)
             }
-            Text(sub, style = WimgType.desc, color = c.bandSub)
+            Text(explain ?: sub, style = WimgType.desc, color = if (explain != null) Color.White else c.bandSub)
         }
-        val prevIncome = previous?.income ?: 0.0
-        if (!overdue && income > 0 && income >= spent && (prevIncome <= 0 || income >= prevIncome * 0.1)) {
-            SavingsRing(((income - spent) / income * 100).roundToInt())
-        }
+        if (p.current) {
+            val usual = (previous?.expenses?.let { abs(it) } ?: 0.0) / (prevPeriod?.days ?: 30).coerceAtLeast(1)
+            val (pose, line) = figureState(available, left, usual, salaryToday = periods.isSalary && daysIn == 1 && !overdue, salary = p.salary ?: income, salaryMode = periods.isSalary)
+            BandFigure(pose, p.days, daysIn - 1, noSpendDays(p.from, daysIn - 1, spendDates)) { onExplain(line) }
+        } else if (quote != null) SavingsRing(quote)
     }
     HorizontalDivider(Modifier.padding(top = 20.dp), thickness = 1.dp, color = Color.White.copy(alpha = 0.10f))
     Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -733,12 +757,14 @@ private fun PeriodBand(
             p.current && periods.isSalary -> {
                 BandStat(L("Gehalt %s", L2.dotted(p.from)), amountText(p.salary ?: income), c.bandPos, Modifier.weight(1f))
                 BandStat(L("Seitdem ausgegeben"), amountText(-spent), Color.White, Modifier.weight(1f))
-                BandStat(L("Nächstes Gehalt"), "~" + L2.dotted(salary?.next ?: p.to), Color.White, Modifier.weight(1f))
+                // The ring holds the squirrel; the Sparquote moves into this row.
+                BandStat(L("Sparquote"), quote?.let { "$it %" } ?: "–", Color.White, Modifier.weight(1f))
             }
             else -> {
                 BandStat(L("Einnahmen"), amountText(income), c.bandPos, Modifier.weight(1f))
                 BandStat(L("Ausgaben"), amountText(-spent), Color.White, Modifier.weight(1f))
-                BandStat(L("Ausgaben/Tag"), amountText(spent / daysIn.coerceAtLeast(1), showPlus = false), Color.White, Modifier.weight(1f))
+                if (p.current) BandStat(L("Sparquote"), quote?.let { "$it %" } ?: "–", Color.White, Modifier.weight(1f))
+                else BandStat(L("Ausgaben/Tag"), amountText(spent / daysIn.coerceAtLeast(1), showPlus = false), Color.White, Modifier.weight(1f))
             }
         }
     }
@@ -874,4 +900,59 @@ internal fun PayerPanel(periods: com.wimg.app.models.Periods, onDone: () -> Unit
             }
         }
     }
+}
+
+
+// ---------------------------------------------------------------------------
+// Spielgefühl: the squirrel in the band (board "Eichhörnchen im Band")
+// ---------------------------------------------------------------------------
+
+/**
+ * The squirrel's state and the one line its tap shows. Gehalt da on the day the
+ * salary arrived; Leer at or below zero; Knapp when what is left per day is less
+ * than the usual daily spending (last period); Voll when it is clearly more.
+ */
+internal fun figureState(available: Double, left: Int, usualPerDay: Double, salaryToday: Boolean, salary: Double?, salaryMode: Boolean): Pair<com.wimg.app.ui.components.SquirrelPose, String> {
+    val days = left.coerceAtLeast(1)
+    val perDay = available / days
+    fun eur(v: Double) = amountText(v, showPlus = false)
+    return when {
+        salaryToday -> SquirrelPose.GEHALT to __t("Gehalt da: %s. Neuer Gehaltsmonat.").format(eur(salary ?: available))
+        available <= 0.004 -> SquirrelPose.LEER to (if (salaryMode) __t("Leer: %s im Minus. Gehalt kommt in ~%d Tagen.") else __t("Leer: %s im Minus. Neuer Monat in %d Tagen.")).format(eur(-available), days)
+        usualPerDay > 0.5 && perDay < usualPerDay -> SquirrelPose.KNAPP to __t("Knapp: noch %s für %d Tage, sonst gibst du ~%s am Tag aus.").format(eur(available), days, eur(usualPerDay))
+        usualPerDay > 0.5 && perDay > usualPerDay * 1.5 -> SquirrelPose.VOLL to __t("Voll: noch %s für %d Tage. Du brauchst sonst ~%s am Tag. Viel Luft.").format(eur(available), days, eur(usualPerDay))
+        usualPerDay > 0.5 -> SquirrelPose.NORMAL to __t("Normal: %s für %d Tage, das sind %s am Tag. Sonst gibst du ~%s aus.").format(eur(available), days, eur(perDay), eur(usualPerDay))
+        else -> SquirrelPose.NORMAL to __t("Normal: %s für %d Tage, das sind %s am Tag.").format(eur(available), days, eur(perDay))
+    }
+}
+
+/** Days (1-based) among the first [daysPast] of a period starting at [fromIso] without any spending. */
+internal fun noSpendDays(fromIso: String, daysPast: Int, spendDates: Set<String>): Set<Int> {
+    val start = com.wimg.app.ui.components.WimgDates.parse(fromIso) ?: return emptySet()
+    val out = HashSet<Int>()
+    for (i in 1..daysPast.coerceAtLeast(0)) {
+        val c = (start.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, i - 1) }
+        val iso = "%04d-%02d-%02d".format(c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH))
+        if (iso !in spendDates) out += i
+    }
+    return out
+}
+
+/** The ring with the squirrel: blinks every 4–8 s, a tap explains its state. */
+@Composable
+private fun BandFigure(pose: com.wimg.app.ui.components.SquirrelPose, periodDays: Int, dayIndex: Int, noSpend: Set<Int>, onTap: () -> Unit) {
+    var blink by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(kotlin.random.Random.nextLong(4_000, 8_000))
+            blink = true; kotlinx.coroutines.delay(140); blink = false
+        }
+    }
+    // Below 380 dp of width the figure shrinks to 88 % (board).
+    val narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 380
+    com.wimg.app.ui.components.SquirrelRing(
+        pose = pose, periodDays = periodDays, dayIndex = dayIndex, noSpendDays = noSpend,
+        size = if (narrow) 99.dp else 112.dp, blink = blink,
+        modifier = Modifier.clip(CircleShape).pressable(label = L("Eichhörnchen: Zustand erklären"), onClick = onTap),
+    )
 }
