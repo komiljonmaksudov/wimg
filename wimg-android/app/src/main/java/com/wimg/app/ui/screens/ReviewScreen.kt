@@ -88,7 +88,38 @@ internal class ReviewData(
     val fixedPaid: List<Pair<String, Double>>,
     /** Gehaltsmonat: the largest income that is not the salary. */
     val otherIncome: Transaction? = null,
+    /** Days without spending in this period (up to today) and in the one before. */
+    val noSpend: Int = 0,
+    val prevNoSpend: Int? = null,
+    /** A fixed cost that got dearer in this period (Rückblick opener "Abo erwischt"). */
+    val priceRise: PriceRise? = null,
 )
+
+/** Days from [from] to [to] (ISO, inclusive, not after today) with no spending in [txs]. */
+private fun noSpendCount(from: String, to: String, txs: List<Transaction>): Int {
+    val today = WimgDates.todayIso()
+    val end = if (to < today) to else today
+    val spent = txs.asSequence().filter { it.amount < 0 && !it.isExcluded && it.date >= from && it.date <= end }.mapTo(HashSet()) { it.date }
+    val c = WimgDates.parse(from) ?: return 0
+    var n = 0
+    while (true) {
+        val iso = "%04d-%02d-%02d".format(c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH))
+        if (iso > end) break
+        if (iso !in spent) n++
+        c.add(Calendar.DAY_OF_YEAR, 1)
+    }
+    return n
+}
+
+private fun monthEnd(y: Int, m: Int) = "%04d-%02d-%02d".format(y, m, Calendar.getInstance().apply { set(y, m - 1, 1) }.getActualMaximum(Calendar.DAY_OF_MONTH))
+
+/** The newest price rise of a fixed cost booked between [from] and [to]. */
+private fun priceRiseIn(from: String, to: String): PriceRise? = runCatching {
+    LibWimg.getRecurring()
+        .filter { it.active == 1 && !it.isHidden && it.amount < 0 && it.price_change != null && it.prev_amount != null && abs(it.amount) - abs(it.prev_amount) > 0.5 && it.last_seen >= from && it.last_seen <= to }
+        .maxByOrNull { it.last_seen }
+        ?.let { PriceRise(it.id, it.displayName, abs(it.prev_amount!!), abs(it.amount), it.last_seen) }
+}.getOrNull()
 
 private fun prevMonth(y: Int, m: Int) = if (m == 1) y - 1 to 12 else y to m - 1
 
@@ -102,25 +133,38 @@ internal fun loadReview(year: Int, month: Int, account: String?): ReviewData {
     val prefix = "%04d-%02d".format(year, month)
     // Up to today only: scheduled (and demo) bookings dated later don't count yet.
     val today = Calendar.getInstance().let { "%04d-%02d-%02d".format(it.get(Calendar.YEAR), it.get(Calendar.MONTH) + 1, it.get(Calendar.DAY_OF_MONTH)) }
-    val inMonth = LibWimg.getTransactionsFiltered(account).filter { it.date.startsWith(prefix) && !it.isExcluded && it.date <= today }
+    val all = LibWimg.getTransactionsFiltered(account)
+    val inMonth = all.filter { it.date.startsWith(prefix) && !it.isExcluded && it.date <= today }
     // Fixed costs paid this month: active expense patterns seen in it.
     val fixed = runCatching {
         LibWimg.getRecurring().filter { it.active == 1 && !it.isHidden && it.amount < 0 && it.last_seen.startsWith(prefix) }.map { it.displayName to it.amount }
     }.getOrDefault(emptyList())
-    return ReviewData(summary, previous, inMonth.filter { it.amount < 0 }.minByOrNull { it.amount }, inMonth.maxOfOrNull { it.date }, fixed)
+    val prevPrefix = "%04d-%02d".format(py, pm)
+    return ReviewData(
+        summary, previous, inMonth.filter { it.amount < 0 }.minByOrNull { it.amount }, inMonth.maxOfOrNull { it.date }, fixed,
+        noSpend = noSpendCount("$prefix-01", monthEnd(year, month), all),
+        prevNoSpend = previous?.let { noSpendCount("$prevPrefix-01", monthEnd(py, pm), all) },
+        priceRise = priceRiseIn("$prefix-01", monthEnd(year, month)),
+    )
 }
 
 internal fun loadReviewRange(p: com.wimg.app.models.PeriodInfo, prev: com.wimg.app.models.PeriodInfo?, account: String?, salaryMode: Boolean): ReviewData {
     val summary = LibWimg.getSummaryRange(p.from, p.to, account)
     val previous = prev?.let { LibWimg.getSummaryRange(it.from, it.to, account) }?.takeIf { it.tx_count > 0 }
     val today = com.wimg.app.ui.components.WimgDates.todayIso()
-    val inRange = LibWimg.getTransactionsFiltered(account).filter { it.date >= p.from && it.date <= p.to && !it.isExcluded && it.date <= today }
+    val all = LibWimg.getTransactionsFiltered(account)
+    val inRange = all.filter { it.date >= p.from && it.date <= p.to && !it.isExcluded && it.date <= today }
     val fixed = runCatching {
         LibWimg.getRecurring().filter { it.active == 1 && !it.isHidden && it.amount < 0 && it.last_seen >= p.from && it.last_seen <= p.to }.map { it.displayName to it.amount }
     }.getOrDefault(emptyList())
     // The salary is booked on the period's first day; any other income is "weitere".
     val other = if (salaryMode) inRange.filter { it.amount > 0 && it.date != p.from }.maxByOrNull { it.amount } else null
-    return ReviewData(summary, previous, inRange.filter { it.amount < 0 }.minByOrNull { it.amount }, inRange.maxOfOrNull { it.date }, fixed, other)
+    return ReviewData(
+        summary, previous, inRange.filter { it.amount < 0 }.minByOrNull { it.amount }, inRange.maxOfOrNull { it.date }, fixed, other,
+        noSpend = noSpendCount(p.from, p.to, all),
+        prevNoSpend = if (previous != null && prev != null) noSpendCount(prev.from, prev.to, all) else null,
+        priceRise = priceRiseIn(p.from, p.to),
+    )
 }
 
 /** Share of spending change vs. the previous month, in % (negative = less). */
@@ -142,12 +186,16 @@ fun ReviewScreen(selectedAccount: String?, navController: NavController? = null)
     val cacheKey = if (period != null) reviewPeriodKey(period.from, selectedAccount) else reviewKey(year, month, selectedAccount)
     // Last result first (loaded ahead in the background), fresh data replaces it.
     var data by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<ReviewData>(cacheKey)) }
+    // Opened from the month-end notice (read before it is cleared below).
+    val fromNotice = remember { ReviewTarget.ym != null || ReviewTarget.period != null }
+    var loadedKey by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { ReviewTarget.ym = null; ReviewTarget.period = null }
     LaunchedEffect(year, month, selectedAccount, period, Changes.version) {
         com.wimg.app.ui.components.ScreenCache.get<ReviewData>(cacheKey)?.let { data = it }
         data = withContext(Dispatchers.IO) {
             if (period != null) loadReviewRange(period, prevPeriod, selectedAccount, periods.isSalary) else loadReview(year, month, selectedAccount)
         }.also { com.wimg.app.ui.components.ScreenCache.put(cacheKey, it) }
+        loadedKey = cacheKey
     }
 
     val locale = if (LocaleState.locale == "en") Locale.ENGLISH else Locale.GERMAN
@@ -163,6 +211,30 @@ fun ReviewScreen(selectedAccount: String?, navController: NavController? = null)
         else { { MonthPickerPanel(year, month, shortMonths, now, onPick = { y, m -> year = y; month = m; pickerOpen = false }) } },
         onPanelDismiss = { pickerOpen = false },
     )
+
+    // Rückblick opener: once per closed period, from the month-end notice or when
+    // the Sparquote is at least the one before; never without something true to say.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val openerLabel = if (period != null) com.wimg.app.ui.components.PeriodLabels.short(period) else months[month - 1]
+    val cards = data?.takeIf { loadedKey == cacheKey }?.let { openerCards(it, openerLabel, if (period != null) null else months[pm - 1], periods?.isSalary == true) }.orEmpty()
+    var openerFor by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(loadedKey) {
+        if (loadedKey != cacheKey || cards.isEmpty()) return@LaunchedEffect
+        val prefs = context.getSharedPreferences("wimg_moments", 0)
+        val forced = context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 &&
+            java.io.File(context.filesDir, "opener").let { f -> f.exists().also { f.delete() } }
+        val closed = if (period != null) !period.current else !isCurrent
+        val sd = data?.summary; val pv = data?.previous
+        val rate = sd?.let { if (it.income > 0) (it.income - abs(it.expenses)) / it.income else null }
+        val prevRate = pv?.let { if (it.income > 0) (it.income - abs(it.expenses)) / it.income else null }
+        val good = rate != null && (prevRate == null || rate >= prevRate)
+        val key = "opener:$cacheKey"
+        if (forced || (closed && (fromNotice || good) && !prefs.getBoolean(key, false))) {
+            prefs.edit().putBoolean(key, true).apply()
+            openerFor = cacheKey
+        }
+    }
+    if (openerFor == cacheKey && cards.isNotEmpty()) ReviewOpener(L("Rückblick %s", openerLabel), cards) { openerFor = null }
 
     val c = Wimg.colors
     val d = data

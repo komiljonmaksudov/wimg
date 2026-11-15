@@ -72,6 +72,13 @@ import com.wimg.app.ui.components.IconTile
 import com.wimg.app.ui.components.amountText
 import com.wimg.app.ui.components.pressable
 import com.wimg.app.ui.components.SquirrelPose
+import com.wimg.app.ui.components.endFrame
+import com.wimg.app.ui.theme.WimgMotion
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.layout.layout
+import com.wimg.app.ui.components.SquirrelMoment
 import com.wimg.app.i18n.__t
 import com.wimg.app.ui.theme.LocaleState
 import com.wimg.app.ui.theme.Wimg
@@ -101,7 +108,18 @@ internal data class HomeData(
     val pending: List<Transaction> = emptyList(),
     /** Days (ISO) with spending, for the stitches of days without (squirrel ring). */
     val spendDates: Set<String> = emptySet(),
+    /** Newest unconfirmed price rise of a fixed cost in this period (the squirrel's ghost moment). */
+    val priceRise: PriceRise? = null,
 )
+
+internal class PriceRise(val id: String, val name: String, val old: Double, val new: Double, val seen: String)
+
+/** A fixed cost booked at a higher price since [fromIso] and not yet confirmed ("Stimmt, neuer Preis"). */
+internal fun latestPriceRise(fromIso: String): PriceRise? =
+    LibWimg.getRecurring()
+        .filter { it.active == 1 && !it.isHidden && it.amount < 0 && it.price_change != null && it.prev_amount != null && abs(it.amount) - abs(it.prev_amount) > 0.5 && it.last_seen >= fromIso }
+        .maxByOrNull { it.last_seen }
+        ?.let { PriceRise(it.id, it.displayName, abs(it.prev_amount!!), abs(it.amount), it.last_seen) }
 
 @Composable
 fun HomeScreen(selectedAccount: String?, navController: NavController? = null, onSelectAccount: (String?) -> Unit = {}) {
@@ -225,14 +243,12 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
     val spent = abs(s?.expenses ?: 0.0)
     val available = s?.available ?: 0.0
     val daysCounted = if (isCurrent) now.get(Calendar.DAY_OF_MONTH) else daysInMonth(year, month)
-    // The squirrel's one line after a tap, for a few seconds under the amount.
-    var explain by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(explain) { if (explain != null) { kotlinx.coroutines.delay(5_000); explain = null } }
+    val openRecurring: (String) -> Unit = { id -> navController?.navigate("rec/$id") }
 
     BandScreen(
         band = {
             if (period != null) {
-                PeriodBand(periods, period, prevPeriod, s, d?.previous, d?.spendDates.orEmpty(), explain) { explain = it }
+                PeriodBand(periods, period, prevPeriod, s, d, openRecurring)
                 return@BandScreen
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -252,10 +268,10 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
                     )
                     val count = s?.tx_count ?: 0
                     Text(
-                        explain ?: if (isCurrent) L("%d Umsätze bis %s", count, dayMonth(now.get(Calendar.DAY_OF_MONTH), month, shortMonths))
+                        if (isCurrent) L("%d Umsätze bis %s", count, dayMonth(now.get(Calendar.DAY_OF_MONTH), month, shortMonths))
                         else L("%d Umsätze", count),
                         style = WimgType.desc,
-                        color = if (explain != null) Color.White else Wimg.colors.bandSub,
+                        color = Wimg.colors.bandSub,
                     )
                 }
                 // Hidden while the number would mislead (handoff §4.2): income must
@@ -266,8 +282,11 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
                     val dim = daysInMonth(year, month)
                     val (py, pm) = monthBefore(year, month, 1)
                     val usual = (d?.previous?.expenses?.let { abs(it) } ?: 0.0) / daysInMonth(py, pm)
-                    val (pose, line) = figureState(available, dim - daysCounted + 1, usual, salaryToday = false, salary = null, salaryMode = false)
-                    BandFigure(pose, dim, daysCounted - 1, noSpendDays("%04d-%02d-01".format(year, month), daysCounted - 1, d?.spendDates.orEmpty())) { explain = line }
+                    // Until the numbers are loaded the squirrel just sits there (no "Leer" from an empty first frame).
+                    val (pose, line) = if (d == null) SquirrelPose.NORMAL to "" else figureState(available, dim - daysCounted + 1, usual, salaryToday = false, salary = null, salaryMode = false)
+                    val ym = "%04d-%02d".format(year, month)
+                    val moment = if (d == null) null else pendingMoment(pose, periodKey = ym, salaryToday = false, salaryMode = false, spentToday = spentToday(d), rise = d?.priceRise, left = dim - daysCounted + 1, available = available, openRecurring = openRecurring)
+                    BandFigure(pose, line, dim, daysCounted - 1, if (d == null) emptySet() else noSpendDays("$ym-01", daysCounted - 1, d.spendDates), moment)
                 } else if (quote != null) SavingsRing(quote)
             }
             HorizontalDivider(Modifier.padding(top = 20.dp), thickness = 1.dp, color = Color.White.copy(alpha = 0.10f))
@@ -383,6 +402,7 @@ internal fun loadHome(year: Int, month: Int, account: String?, compare: HomeComp
         hasAnyData = all.isNotEmpty(),
         pending = if (today.startsWith(prefix)) LibWimg.getPending(account) else emptyList(),
         spendDates = inMonth.filter { it.amount < 0 }.mapTo(HashSet()) { it.date },
+        priceRise = if (today.startsWith(prefix)) latestPriceRise("$prefix-01") else null,
     )
 }
 
@@ -672,6 +692,7 @@ internal fun loadHomeRange(p: com.wimg.app.models.PeriodInfo, prev: com.wimg.app
         hasAnyData = all.isNotEmpty(),
         pending = if (p.current) LibWimg.getPending(account) else emptyList(),
         spendDates = inRange.filter { it.amount < 0 }.mapTo(HashSet()) { it.date },
+        priceRise = if (p.current) latestPriceRise(p.from) else null,
     )
 }
 
@@ -682,11 +703,10 @@ private fun PeriodBand(
     p: com.wimg.app.models.PeriodInfo,
     prevPeriod: com.wimg.app.models.PeriodInfo?,
     s: MonthlySummary?,
-    previous: MonthlySummary?,
-    spendDates: Set<String>,
-    explain: String?,
-    onExplain: (String) -> Unit,
+    d: HomeData?,
+    openRecurring: (String) -> Unit,
 ) {
+    val previous = d?.previous
     val c = Wimg.colors
     val L2 = com.wimg.app.ui.components.PeriodLabels
     val income = s?.income ?: 0.0
@@ -738,12 +758,14 @@ private fun PeriodBand(
                 available > 0.004 && left > 0 -> L("noch %d Tage · %s pro Tag", left, amountText(available / left, showPlus = false))
                 else -> L("noch %d Tage", left)
             }
-            Text(explain ?: sub, style = WimgType.desc, color = if (explain != null) Color.White else c.bandSub)
+            Text(sub, style = WimgType.desc, color = c.bandSub)
         }
         if (p.current) {
             val usual = (previous?.expenses?.let { abs(it) } ?: 0.0) / (prevPeriod?.days ?: 30).coerceAtLeast(1)
-            val (pose, line) = figureState(available, left, usual, salaryToday = periods.isSalary && daysIn == 1 && !overdue, salary = p.salary ?: income, salaryMode = periods.isSalary)
-            BandFigure(pose, p.days, daysIn - 1, noSpendDays(p.from, daysIn - 1, spendDates)) { onExplain(line) }
+            val (pose, line) = if (d == null) SquirrelPose.NORMAL to "" else figureState(available, left, usual, salaryToday = periods.isSalary && daysIn == 1 && !overdue, salary = p.salary ?: income, salaryMode = periods.isSalary)
+            val salaryToday = periods.isSalary && daysIn == 1 && !overdue
+            val moment = if (d == null) null else pendingMoment(pose, periodKey = p.from, salaryToday = salaryToday, salaryMode = periods.isSalary, spentToday = spentToday(d), rise = d?.priceRise, left = left, available = available, openRecurring = openRecurring)
+            BandFigure(pose, line, p.days, daysIn - 1, if (d == null) emptySet() else noSpendDays(p.from, daysIn - 1, d.spendDates), moment)
         } else if (quote != null) SavingsRing(quote)
     }
     HorizontalDivider(Modifier.padding(top = 20.dp), thickness = 1.dp, color = Color.White.copy(alpha = 0.10f))
@@ -938,21 +960,184 @@ internal fun noSpendDays(fromIso: String, daysPast: Int, spendDates: Set<String>
     return out
 }
 
-/** The ring with the squirrel: blinks every 4–8 s, a tap explains its state. */
+/** A moment the squirrel plays once (prototype MOMENTS), with the line its bubble shows after. */
+internal class PendingMoment(
+    val key: String,
+    val moment: SquirrelMoment,
+    val line: String,
+    val action: String? = null,
+    val onAction: (() -> Unit)? = null,
+    val prices: Pair<String, String> = "" to "",
+)
+
+private const val MOMENTS_PREFS = "wimg_moments"
+
+internal fun spentToday(d: HomeData?): Boolean {
+    val today = com.wimg.app.ui.components.WimgDates.todayIso()
+    return d == null || today in d.spendDates || d.pending.any { it.amount < 0 && it.date == today }
+}
+
+/**
+ * Which moment to play now, if any, once each (remembered on this device):
+ * Gehalt ist da (first open of a new pay period) > Leer > Knapp (first time
+ * in a period) > Preiserhöhung (a new unconfirmed price) > Tag ohne Ausgaben
+ * (after 20:00, nothing spent today).
+ */
 @Composable
-private fun BandFigure(pose: com.wimg.app.ui.components.SquirrelPose, periodDays: Int, dayIndex: Int, noSpend: Set<Int>, onTap: () -> Unit) {
+internal fun pendingMoment(
+    pose: SquirrelPose, periodKey: String, salaryToday: Boolean, salaryMode: Boolean, spentToday: Boolean,
+    rise: PriceRise?, left: Int, available: Double, openRecurring: (String) -> Unit,
+): PendingMoment? {
+    val prefs = LocalContext.current.getSharedPreferences(MOMENTS_PREFS, 0)
+    fun eur(v: Double) = amountText(v, showPlus = false)
+    val days = left.coerceAtLeast(1)
+    val hour = remember { Calendar.getInstance().get(Calendar.HOUR_OF_DAY) }
+    val today = com.wimg.app.ui.components.WimgDates.todayIso()
+    val candidates = buildList {
+        if (salaryToday) add(PendingMoment("gehalt:$periodKey", SquirrelMoment.GEHALT, L("Gehalt ist da. Neuer Gehaltsmonat.")))
+        if (pose == SquirrelPose.LEER) add(PendingMoment("leer:$periodKey", SquirrelMoment.LEER,
+            if (salaryMode) L("Leer. Die Motte findet's gemütlich. Gehalt kommt in ~%d Tagen.", days) else L("Leer. Die Motte findet's gemütlich. Neuer Monat in %d Tagen.", days)))
+        if (pose == SquirrelPose.KNAPP) add(PendingMoment("knapp:$periodKey", SquirrelMoment.KNAPP,
+            L("%s für %d Tage. Das sind %s am Tag. Geht.", eur(available), days, eur(available / days))))
+        if (rise != null) add(PendingMoment("price:${rise.id}:${Math.round(rise.new * 100)}", SquirrelMoment.PRICE,
+            L("Hab dich. %s kostet jetzt %s statt %s.", rise.name, eur(rise.new), eur(rise.old)), L("Ansehen"), { openRecurring(rise.id) }, eur(rise.old) to eur(rise.new)))
+        if (hour >= 20 && !spentToday && pose != SquirrelPose.LEER) add(PendingMoment("nospend:$today", SquirrelMoment.NO_SPEND, L("Heute kein Euro raus.")))
+    }
+    // Debug builds: `files/moment` holding gehalt|leer|knapp|price|nospend plays that one once (for checking).
+    val forced = if (LocalContext.current.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) java.io.File(LocalContext.current.filesDir, "moment").takeIf { it.exists() }?.let { f ->
+        val name = f.readText().trim(); f.delete()
+        when (name) {
+            "gehalt" -> PendingMoment("dbg", SquirrelMoment.GEHALT, L("Gehalt ist da. Neuer Gehaltsmonat."))
+            "leer" -> PendingMoment("dbg", SquirrelMoment.LEER, L("Leer. Die Motte findet's gemütlich. Gehalt kommt in ~%d Tagen.", days))
+            "knapp" -> PendingMoment("dbg", SquirrelMoment.KNAPP, L("%s für %d Tage. Das sind %s am Tag. Geht.", eur(available), days, eur(available / days)))
+            "price" -> PendingMoment("dbg", SquirrelMoment.PRICE, L("Hab dich. %s kostet jetzt %s statt %s.", "Klangwelle", eur(11.99), eur(9.99)), L("Ansehen"), {}, eur(9.99) to eur(11.99))
+            "nospend" -> PendingMoment("dbg", SquirrelMoment.NO_SPEND, L("Heute kein Euro raus."))
+            else -> null
+        }
+    } else null
+    return forced ?: candidates.firstOrNull { !prefs.getBoolean(it.key, false) }
+}
+
+/** Plays [m] frame by frame (prototype timings); with animations off it shows the end at once. */
+private suspend fun playMoment(m: PendingMoment, set: (com.wimg.app.ui.components.SquirrelFrame) -> Unit) {
+    if (android.animation.ValueAnimator.getDurationScale() == 0f) { set(m.moment.endFrame()); return }
+    var cur = com.wimg.app.ui.components.SquirrelFrame(m.moment.from)
+    set(cur)
+    kotlinx.coroutines.delay(500) // let the page settle first
+    for (st in m.moment.steps) {
+        val target = st.to(cur)
+        val start = cur
+        val t0 = androidx.compose.runtime.withFrameMillis { it }
+        while (true) {
+            val u = ((androidx.compose.runtime.withFrameMillis { it } - t0) / st.ms.toFloat()).coerceIn(0f, 1f)
+            set(com.wimg.app.ui.components.lerp(start, target, st.ease.transform(u)))
+            if (u >= 1f) break
+        }
+        cur = target
+    }
+    // The bubble takes the ghost's place: it fades out as the line comes in.
+    if (cur.gop > 0f) {
+        val t0 = androidx.compose.runtime.withFrameMillis { it }
+        while (true) {
+            val u = ((androidx.compose.runtime.withFrameMillis { it } - t0) / 160f).coerceIn(0f, 1f)
+            set(cur.copy(gop = 1f - u))
+            if (u >= 1f) break
+        }
+    }
+}
+
+private class Bubble(val text: String, val action: String? = null, val onAction: (() -> Unit)? = null)
+
+/**
+ * The ring with the squirrel: blinks every 4–8 s, plays a pending moment once,
+ * and a tap shows its line in a bubble beside it (nothing on the page moves).
+ */
+@Composable
+private fun BandFigure(pose: SquirrelPose, line: String, periodDays: Int, dayIndex: Int, noSpend: Set<Int>, moment: PendingMoment?) {
+    val context = LocalContext.current
     var blink by remember { mutableStateOf(false) }
+    var frame by remember { mutableStateOf(com.wimg.app.ui.components.SquirrelFrame(pose)) }
+    var playing by remember { mutableStateOf(false) }
+    var bubble by remember { mutableStateOf<Bubble?>(null) }
+    var prices by remember { mutableStateOf("" to "") }
+    val currentPose by androidx.compose.runtime.rememberUpdatedState(pose)
+    LaunchedEffect(pose) { if (!playing && frame.z == 0f) frame = com.wimg.app.ui.components.SquirrelFrame(pose) }
     LaunchedEffect(Unit) {
         while (true) {
             kotlinx.coroutines.delay(kotlin.random.Random.nextLong(4_000, 8_000))
-            blink = true; kotlinx.coroutines.delay(140); blink = false
+            if (!playing && frame.pose != SquirrelPose.SLEEP) { blink = true; kotlinx.coroutines.delay(140); blink = false }
         }
+    }
+    // One moment per visit, fixed once chosen: marking it played changes what
+    // pendingMoment() answers next, and that must not cancel it halfway.
+    var chosen by remember { mutableStateOf<PendingMoment?>(null) }
+    if (chosen == null && moment != null) chosen = moment
+    LaunchedEffect(chosen) {
+        val m = chosen ?: return@LaunchedEffect
+        context.getSharedPreferences(MOMENTS_PREFS, 0).edit().putBoolean(m.key, true).apply()
+        prices = m.prices
+        playing = true
+        try { playMoment(m) { frame = it } } finally { playing = false }
+        bubble = Bubble(m.line, m.action, m.onAction)
+    }
+    LaunchedEffect(bubble) {
+        if (bubble == null) return@LaunchedEffect
+        kotlinx.coroutines.delay(if (bubble?.action != null) 7_000 else 5_000)
+        bubble = null
+        // Back to the real state (the ghost leaves with the bubble); asleep stays asleep.
+        if (!playing && frame.pose != SquirrelPose.SLEEP) frame = com.wimg.app.ui.components.SquirrelFrame(currentPose)
     }
     // Below 380 dp of width the figure shrinks to 88 % (board).
     val narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 380
-    com.wimg.app.ui.components.SquirrelRing(
-        pose = pose, periodDays = periodDays, dayIndex = dayIndex, noSpendDays = noSpend,
-        size = if (narrow) 99.dp else 112.dp, blink = blink,
-        modifier = Modifier.clip(CircleShape).pressable(label = L("Eichhörnchen: Zustand erklären"), onClick = onTap),
-    )
+    val size = if (narrow) 99.dp else 112.dp
+    Box(Modifier.size(size)) {
+        com.wimg.app.ui.components.SquirrelRing(
+            frame = frame, periodDays = periodDays, dayIndex = dayIndex, noSpendDays = noSpend,
+            size = size, blink = blink, ghostPrices = prices,
+        )
+        // Tap target on its own layer: clipping the ring itself would cut off the price ghost beside it.
+        Box(Modifier.matchParentSize().clip(CircleShape).pressable(label = L("Eichhörnchen: Zustand erklären")) {
+            if (line.isNotEmpty()) bubble = if (bubble?.text == line) null else Bubble(line)
+        })
+        SquirrelBubble(bubble, Modifier.align(Alignment.CenterStart))
+    }
+}
+
+/** The squirrel's speech bubble, left of the ring and pointing at it; grows from its tail. */
+@Composable
+private fun SquirrelBubble(bubble: Bubble?, modifier: Modifier = Modifier) {
+    var last by remember { mutableStateOf(bubble) }
+    if (bubble != null) last = bubble
+    androidx.compose.animation.AnimatedVisibility(
+        visible = bubble != null,
+        enter = androidx.compose.animation.fadeIn(tween(160, easing = WimgMotion.EaseOut)) +
+            androidx.compose.animation.scaleIn(tween(200, easing = WimgMotion.EaseOut), initialScale = 0.9f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0.5f)),
+        exit = androidx.compose.animation.fadeOut(tween(150, easing = WimgMotion.EaseOut)),
+        modifier = modifier
+            // Hangs out to the left of the ring, over the amount, without taking room.
+            .layout { m, cs ->
+                val p = m.measure(cs.copy(minWidth = 0, maxWidth = 236.dp.roundToPx()))
+                layout(0, 0) { p.place(-p.width + 10.dp.roundToPx(), -p.height / 2) }
+            },
+    ) {
+        val b = last ?: return@AnimatedVisibility
+        val c = Wimg.colors
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(
+                Modifier.widthIn(max = 220.dp)
+                    .shadow(10.dp, RoundedCornerShape(16.dp), ambientColor = Color.Black.copy(alpha = 0.3f), spotColor = Color.Black.copy(alpha = 0.3f))
+                    .clip(RoundedCornerShape(16.dp)).background(Color.White).padding(horizontal = 14.dp, vertical = 10.dp),
+            ) {
+                Text(b.text, style = WimgType.desc, color = Color(0xFF1A1A1A))
+                if (b.action != null) Text(
+                    b.action, style = WimgType.chip, color = c.accent,
+                    modifier = Modifier.padding(top = 6.dp).clip(RoundedCornerShape(8.dp)).pressable { b.onAction?.invoke() }.padding(vertical = 2.dp),
+                )
+            }
+            // Tail towards the squirrel.
+            androidx.compose.foundation.Canvas(Modifier.size(8.dp, 14.dp)) {
+                drawPath(androidx.compose.ui.graphics.Path().apply { moveTo(0f, 0f); lineTo(size.width, size.height / 2); lineTo(0f, size.height); close() }, Color.White)
+            }
+        }
+    }
 }

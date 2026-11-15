@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.unit.Dp
 import kotlin.math.PI
 import kotlin.math.hypot
@@ -288,16 +289,18 @@ private fun DrawScope.drawSquirrel(pose: SquirrelPose, blink: Boolean, z: Float)
  */
 @Composable
 fun SquirrelRing(
-    pose: SquirrelPose,
+    frame: SquirrelFrame,
     periodDays: Int,
     dayIndex: Int,
     noSpendDays: Set<Int>,
     size: Dp,
     modifier: Modifier = Modifier,
     blink: Boolean = false,
-    z: Float = 0f,
     color: Color = Color(0xFF8FB0D3),
+    /** Price-rise moment: the tag's old and new price ("9,99 €", "11,99 €"). */
+    ghostPrices: Pair<String, String> = "" to "",
 ) {
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
     Canvas(modifier.size(size)) {
         val s = this.size.minDimension / 112f
         withTransform({ scale(s, s, pivot = Offset.Zero) }) {
@@ -323,9 +326,128 @@ fun SquirrelRing(
             }
             // Inside the ring, ears and tail may stand out above it.
             val clip = Path().apply { addOval(Rect(c - 44, c - 44, c + 44, c + 44)); addRect(Rect(-40f, -60f, 152f, 56f)) }
+            // The ghost of a price rise floats in from the left, outside the ring.
+            if (frame.gop > 0.02f) ghost(measurer, -62f + frame.gx + 12f, 58f, frame.gop, frame.gprice, frame.gcaught, ghostPrices)
             clipPath(clip) {
-                translate(4f, 2f) { withTransform({ scale(104f / 120f, 104f / 120f, pivot = Offset.Zero) }) { drawSquirrel(pose, blink, z) } }
+                // Squash, lean and hop of a moment, around the squirrel's feet (prototype T2).
+                withTransform({
+                    translate(frame.dx, frame.dy)
+                    rotate(frame.rot, pivot = Offset(56f, 98f))
+                    scale(frame.sx, frame.sy, pivot = Offset(56f, 98f))
+                }) {
+                    translate(4f, 2f) { withTransform({ scale(104f / 120f, 104f / 120f, pivot = Offset.Zero) }) { drawSquirrel(frame.pose, blink, frame.z) } }
+                }
             }
         }
+    }
+}
+
+
+// ---------------------------------------------------------------------------
+// Moments (prototype MOMENTS + SQM): four short steps, ~1 s in all
+// ---------------------------------------------------------------------------
+
+/** One drawn state of the squirrel: a pose plus the squash, lean and props of a moment. */
+data class SquirrelFrame(
+    val pose: SquirrelPose,
+    val sx: Float = 1f, val sy: Float = 1f, val dx: Float = 0f, val dy: Float = 0f, val rot: Float = 0f,
+    val z: Float = 0f,
+    /** Price-rise ghost: opacity, x offset, price flipped to the new one (0..1), caught (0..1). */
+    val gop: Float = 0f, val gx: Float = -30f, val gprice: Float = 0f, val gcaught: Float = 0f,
+)
+
+/** Between two frames: numbers ease, the drawn pose switches at the middle (prototype mix()). */
+fun lerp(a: SquirrelFrame, b: SquirrelFrame, t: Float): SquirrelFrame {
+    fun m(x: Float, y: Float) = x + (y - x) * t
+    return SquirrelFrame(if (t < 0.5f) a.pose else b.pose, m(a.sx, b.sx), m(a.sy, b.sy), m(a.dx, b.dx), m(a.dy, b.dy), m(a.rot, b.rot), m(a.z, b.z), m(a.gop, b.gop), m(a.gx, b.gx), m(a.gprice, b.gprice), m(a.gcaught, b.gcaught))
+}
+
+class MomentStep(val ms: Int, val ease: androidx.compose.animation.core.Easing, val to: (SquirrelFrame) -> SquirrelFrame)
+
+private val Out = androidx.compose.animation.core.CubicBezierEasing(0.23f, 1f, 0.32f, 1f)
+private val Drawer = androidx.compose.animation.core.CubicBezierEasing(0.32f, 0.72f, 0f, 1f)
+private val InOut = androidx.compose.animation.core.CubicBezierEasing(0.77f, 0f, 0.175f, 1f)
+
+/** The five moments of the band. [from] is where it starts, the last step is where it rests. */
+enum class SquirrelMoment(val from: SquirrelPose, val steps: List<MomentStep>) {
+    /** Gehalt ist da: hops out of the empty pocket into the payday pose. */
+    GEHALT(SquirrelPose.LEER, listOf(
+        MomentStep(220, Out) { it.copy(pose = SquirrelPose.LEER, sy = 1.04f, sx = 0.98f, dy = -2f) },
+        MomentStep(260, Out) { it.copy(pose = SquirrelPose.GEHALT, sy = 0.94f, sx = 1.05f, dy = 2f) },
+        MomentStep(280, Drawer) { it.copy(pose = SquirrelPose.GEHALT, sy = 1f, sx = 1f, dy = 0f) },
+        MomentStep(240, InOut) { it.copy(pose = SquirrelPose.GEHALT, rot = 0f) },
+    )),
+    /** Tag ohne Ausgaben (after 20:00): yawns with its paws up and falls asleep, a "z" appears. */
+    NO_SPEND(SquirrelPose.NORMAL, listOf(
+        MomentStep(260, InOut) { it.copy(pose = SquirrelPose.NORMAL) },
+        MomentStep(260, Out) { it.copy(pose = SquirrelPose.YAWN, sy = 1.05f, sx = 0.98f) },
+        MomentStep(290, Drawer) { it.copy(pose = SquirrelPose.SLEEP, sy = 0.97f, sx = 1.02f) },
+        MomentStep(280, Out) { it.copy(pose = SquirrelPose.SLEEP, sy = 0.98f, sx = 1f, z = 1f) },
+    )),
+    /** Preiserhöhung: the price-tag ghost floats in, the tag flips, the squirrel leans over and catches it. */
+    PRICE(SquirrelPose.NORMAL, listOf(
+        MomentStep(220, Out) { it.copy(pose = SquirrelPose.LOOK, gop = 1f, gx = 0f, gprice = 0f) },
+        MomentStep(200, Out) { it.copy(pose = SquirrelPose.LOOK, gprice = 1f, rot = -3f) },
+        MomentStep(260, Drawer) { it.copy(pose = SquirrelPose.LOOK, rot = -6f, dx = -3f, gcaught = 1f, sx = 1.03f, sy = 0.97f) },
+        MomentStep(260, InOut) { it.copy(pose = SquirrelPose.NORMAL, rot = -2f, dx = 0f, sx = 1f, sy = 1f) },
+    )),
+    /** Knapp: looks down, leans in, hugs the last acorn. */
+    KNAPP(SquirrelPose.NORMAL, listOf(
+        MomentStep(220, Out) { it.copy(pose = SquirrelPose.NORMAL, dy = 1f) },
+        MomentStep(260, Drawer) { it.copy(pose = SquirrelPose.KNAPP, rot = -4f, sy = 0.96f, sx = 1.02f) },
+        MomentStep(280, Out) { it.copy(pose = SquirrelPose.KNAPP, rot = 0f, sy = 1.03f, sx = 0.99f) },
+        MomentStep(240, InOut) { it.copy(pose = SquirrelPose.KNAPP, sy = 1f, sx = 1f, dy = 0f) },
+    )),
+    /** Leer: the pocket turns inside out and the moth lands on its head. */
+    LEER(SquirrelPose.KNAPP, listOf(
+        MomentStep(220, Out) { it.copy(pose = SquirrelPose.KNAPP, dy = 3f) },
+        MomentStep(280, Drawer) { it.copy(pose = SquirrelPose.LEER, sy = 0.94f, sx = 1.04f, dy = 0f) },
+        MomentStep(280, Out) { it.copy(pose = SquirrelPose.LEER, sy = 1.02f, sx = 0.99f) },
+        MomentStep(240, InOut) { it.copy(pose = SquirrelPose.LEER, sy = 1f, sx = 1f) },
+    )),
+}
+
+/** The frame the moment ends on (also what "Weniger Bewegung" shows straight away). */
+fun SquirrelMoment.endFrame(): SquirrelFrame = steps.fold(SquirrelFrame(from)) { f, st -> st.to(f) }
+
+/** Price-rise ghost with its price tag (prototype ghostSVG), at ring coordinates. */
+private fun DrawScope.ghost(measurer: androidx.compose.ui.text.TextMeasurer, x: Float, y: Float, op: Float, gprice: Float, caught: Float, prices: Pair<String, String>) {
+    translate(x, y) {
+        withTransform({ scale(0.9f, 0.9f, pivot = Offset.Zero) }) {
+            val body = "M-22 22 L-22 -8 A22 22 0 0 1 22 -8 L22 22 Q16 15 11 22 Q5 28 0 22 Q-5 15 -11 22 Q-16 28 -22 22 Z"
+            drawPath(path(body), Color(0xFFE7A9C0), 0.92f * op)
+            drawPath(path(body), Color(0xFFC57A98), op, style = Stroke(2.4f))
+            val ink = Color(0xFF3B2230)
+            drawCircle(ink, 2.8f, Offset(-7f, -6f), op); drawCircle(ink, 2.8f, Offset(7f, -6f), op)
+            if (caught > 0.5f) drawOval(ink, Offset(-3.4f, 0.6f), Size(6.8f, 8.8f), op)
+            else drawPath(path("M-5 3 Q0 7 5 3"), ink, op, style = Stroke(2f, cap = StrokeCap.Round))
+            drawLine(Color(0xFF8D8475).copy(alpha = op), Offset(-14f, 4f), Offset(-28f, 14f), 1.6f)
+            // The tag flips over (scaleY through 0) from the old price to the new one.
+            val flip = maxOf(0.05f, kotlin.math.abs(gprice - 0.5f) * 2f)
+            val newPrice = gprice > 0.5f
+            translate(-48f, 20f) {
+                rotate(-8f, pivot = Offset.Zero) {
+                    withTransform({ scale(1f, flip, pivot = Offset.Zero) }) {
+                        val tag = "M18 -10 L-24 -10 L-24 10 L18 10 L26 0 Z"
+                        drawPath(path(tag), Color(0xFFFFF6E2), op); drawPath(path(tag), Color(0xFFB8922E), op, style = Stroke(1.8f))
+                        drawCircle(Color(0xFFB8922E), 2f, Offset(18f, 0f), op)
+                        // Measured so that one text pixel is one unit of this (already scaled) drawing.
+                        val label = if (newPrice) prices.second else prices.first
+                        val t = measurer.measure(label, androidx.compose.ui.text.TextStyle(color = if (newPrice) Color(0xFF9A5B00) else Color(0xFF6B6A66), fontSize = androidx.compose.ui.unit.TextUnit(11.5f / density / fontScale, androidx.compose.ui.unit.TextUnitType.Sp), fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold), softWrap = false)
+                        drawText(t, topLeft = Offset(-3f - t.size.width / 2f, -t.size.height / 2f), alpha = op)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** The caught price-tag ghost on its own (Rückblick opener card "Abo erwischt"); [width] is the ghost with its tag. */
+@Composable
+fun PriceGhost(prices: Pair<String, String>, width: Dp, modifier: Modifier = Modifier) {
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    Canvas(modifier.size(width, width * 0.62f)) {
+        val s = size.width / 100f
+        withTransform({ scale(s, s, pivot = Offset.Zero) }) { ghost(measurer, 76f, 32f, 1f, 1f, 1f, prices) }
     }
 }

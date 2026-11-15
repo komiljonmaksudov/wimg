@@ -30,6 +30,7 @@ the debt/goal C ABI + tables.
 | Sync: device list, remove device, new key, QR scan, wrong-key check | no | yes | board 21; `sync_devices` in libwimg |
 | Gehaltsmonat (salary / fixed-day periods) | no | yes     | boards 3 + 26A; detection and periods in libwimg `period.zig` |
 | Manual entries: edit, delete, "Von Hand" filter | no | yes  | libwimg v22 (`source`, `deleted_transactions`), iOS UI not yet |
+| Squirrel in the band: moments + bubble, Rückblick opener | no | yes | `Squirrel.kt`, `ReviewOpener.kt`; played once each (prefs `wimg_moments`) |
 | Update checker (GitHub Releases)         | no  | yes     | iOS uses TestFlight                          |
 | Navigation                               | 4 tabs (Suche, Home, Umsätze, Mehr) | one floating bar + places menu | |
 | Stored bank PIN                          | Keychain `fints_pin` | Keystore AES-256-GCM (`PinStore.kt`) | |
