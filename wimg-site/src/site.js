@@ -93,7 +93,7 @@ document.querySelectorAll('[data-themebtn]').forEach(b=>b.addEventListener('clic
 // Ziehen auf dem Schreibtisch
 let z=30;
 document.querySelectorAll('.desk [data-drag]').forEach(el=>{
- el.addEventListener('pointerdown',e=>{if(innerWidth<=760||e.button>0)return;const desk=el.closest('.desk');const dr=desk.getBoundingClientRect(),r=el.getBoundingClientRect();
+ el.addEventListener('pointerdown',e=>{if(innerWidth<1200||e.button>0)return;const desk=el.closest('.desk');const dr=desk.getBoundingClientRect(),r=el.getBoundingClientRect();
   const ox=e.clientX-r.left,oy=e.clientY-r.top;let moved=false;const sx=e.clientX,sy=e.clientY;
   const mv=ev=>{if(!moved&&Math.hypot(ev.clientX-sx,ev.clientY-sy)<4)return;if(!moved){moved=true;el.classList.add('lift');el.style.zIndex=++z;el.style.right='auto';el.style.bottom='auto';}
    el.style.left=(ev.clientX-dr.left-ox)+'px';el.style.top=(ev.clientY-dr.top-oy)+'px';};
