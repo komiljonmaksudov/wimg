@@ -185,7 +185,14 @@ fun ReviewScreen(selectedAccount: String?, navController: NavController? = null)
     val prevPeriod = period?.let { p -> periods.periods.getOrNull(periods.periods.indexOf(p) + 1) }
     val cacheKey = if (period != null) reviewPeriodKey(period.from, selectedAccount) else reviewKey(year, month, selectedAccount)
     // Last result first (loaded ahead in the background), fresh data replaces it.
-    var data by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<ReviewData>(cacheKey)) }
+    // Last result first; with none (cold start, a past month from the notice) load it
+    // once right away, so the page never says "no transactions" while loading.
+    var data by remember {
+        mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<ReviewData>(cacheKey) ?: runCatching {
+            (if (period != null) loadReviewRange(period, prevPeriod, selectedAccount, periods.isSalary) else loadReview(year, month, selectedAccount))
+                .also { com.wimg.app.ui.components.ScreenCache.put(cacheKey, it) }
+        }.getOrNull())
+    }
     // Opened from the month-end notice (read before it is cleared below).
     val fromNotice = remember { ReviewTarget.ym != null || ReviewTarget.period != null }
     var loadedKey by remember { mutableStateOf<String?>(null) }

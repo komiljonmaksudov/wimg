@@ -36,6 +36,9 @@ object PeriodState {
 /** The current periods, reloaded after every change. */
 @Composable
 fun rememberPeriods(): Periods? {
+    // First use after a cold start: load once right away, so a screen opened
+    // directly (notification, widget) doesn't draw a calendar month first.
+    if (PeriodState.data == null) androidx.compose.runtime.remember { runCatching { PeriodState.reload() } }
     LaunchedEffect(Changes.version) { withContext(Dispatchers.IO) { runCatching { PeriodState.reload() } } }
     return PeriodState.data
 }

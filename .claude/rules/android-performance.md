@@ -56,3 +56,9 @@ debug build first if you need to read the DB.
 - **A global `Changes.bump()`** reloads every list in the app. Settings that
   only affect one derived thing (period mode) reload just that
   (`PeriodState.setMode`).
+- **"Not loaded" is not "empty"**: a page opened with nothing cached (cold
+  start from a notification or widget, a past month) used to draw its empty
+  state ("keine Umsätze") for a few frames. Rule: first state from
+  `ScreenCache`; with no entry, load it once synchronously in `remember`
+  (Rückblick: 120–180 ms on the Poco, hidden in the app start) and keep
+  later loads on `Dispatchers.IO`. Same for `PeriodState` on first use.
