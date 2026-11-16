@@ -9,5 +9,13 @@ Open work only, grouped by area; finished work moves to [CHANGELOG.md](CHANGELOG
 - [x] Marked (`transactions.source = 'manual'`, v22/v23), editable and deletable on Android with real deletion across devices (`deleted_transactions` markers), left out of salary detection, "Von Hand" filter in Umsätze. Done 2026-11-14; edit form and filter not tried on the phone yet.
 - [ ] iOS: the same (edit, delete, filter) once Android is settled.
 
+## FinTS (from the Comdirect analysis, 2026-11-16)
+- [ ] Task reference (HITAN) and challenge text: read with `readElement`, unescape, JSON-escape the challenge; task reference buffer 36 bytes.
+- [ ] HITAB medium names: escape-aware split (names with escaped characters are cut today).
+- [ ] `isEscaped` checks only the previous byte (`??+` reads as escaped); count the run of '?'.
+- [ ] Encode outgoing text as ISO-8859-1 like python-fints (we send UTF-8); escape Kunden-ID in HNSHK/HNVSK key names.
+- [ ] Keep the system id per connection instead of a fresh one each connect (python-fints, hbci4java do).
+- [ ] Drop the `_debug_*` fields from the connect JSON.
+
 ## Android
 - [ ] Notification tap: not reproducible on the emulator anymore (foreground and background, 2026-11-15); confirm with a real notification on the phone.
