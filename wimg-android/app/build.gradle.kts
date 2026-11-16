@@ -19,6 +19,7 @@ android {
         // the iOS job uses for CURRENT_PROJECT_VERSION.
         versionCode = (project.findProperty("wimgVersionCode") as String?)?.toInt() ?: 1
         versionName = "0.9.8"
+        manifestPlaceholders["appLabel"] = "wimg"
 
         ndk {
             abiFilters += "arm64-v8a"
@@ -59,6 +60,13 @@ android {
             initWith(getByName("release"))
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += listOf("release")
+        }
+        // Like bench, but its own app ("wimg Test", com.wimg.app.tester): installs
+        // next to the real one and starts empty, as a new tester sees it.
+        create("preview") {
+            initWith(getByName("bench"))
+            applicationIdSuffix = ".tester"
+            manifestPlaceholders["appLabel"] = "wimg Test"
         }
     }
 
