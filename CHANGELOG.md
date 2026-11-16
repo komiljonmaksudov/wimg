@@ -1,5 +1,115 @@
 # Changelog
 
+## v0.9.8 (2026-11-16)
+
+- docs: TODO keeps the import-seam sketch; Android section back
+- fix: the Rückblick cards also reach under the status bar
+- feat: a closed month's review can be replayed as cards any time
+- fix: Rückblick opener fills the screen under the system bars; pending dates also from German card texts
+- fix: a pending card payment shows the day you paid, not the day wimg fetched it
+- docs: Enable Banking ticket sent; auto-reply says no answer without an agreement
+- docs: TODO for bank sources: one import seam, file import, CAMT first, Enable Banking pending
+- docs: bank access review (Nov 2026): FinTS stays, GoCardless closed, CAMT first, triggers for more
+- feat: each bank login keeps its FinTS system id instead of asking for a new one at every sign-in
+- fix: bank texts read and written with FinTS escaping everywhere
+- fix: phones keep wimg upright; landscape filled the screen with the band and hid the menu under the camera
+- docs: field note on Comdirect's random ids and failing MT940; FinTS follow-ups in TODO
+- feat: when a bank's MT940 fails, wimg quietly fetches CAMT instead and remembers it
+- fix: fints-dump --camt flag no longer clashes with the CAMT result list
+- feat: fetch booked statements as CAMT on request; fints-dump gets --until and --camt
+- fix: bank ids with escaped characters are read whole and written escaped
+- fix: FinTS values escape @ too, so a TAN device name with @ no longer breaks the sign-in
+- fix: a saved TAN device goes along whenever the bank requires the name; failed fetches log the TAN parameters
+- fix: the bank fetch picks the account that allows statements, not the last one listed
+- fix: retrying a bank fetch signs in again instead of sending a sign-in without PIN
+- feat: fresh transactions on open and every morning; search finds actions, amounts and wimg's names
+- fix: when the bank asks to send again, wimg retries once instead of a misleading CAMT error
+- docs: index the field note on the deleted PIN
+- fix: a bank hiccup at sign-in no longer deletes the saved PIN
+- fix: a fetch without statement names the bank's real reason, not "3060 Warnungen"
+- fix: bank and import errors show in the floating bar, not as a box under the fields
+- Revert "feat: new landing page: a desk with demo papers, app windows and the squirrel watching you"
+- Revert "fix: website desk never cuts things off or covers the buttons; real app screens in the phones, readable install buttons, app icon in the header"
+- fix: website desk never cuts things off or covers the buttons; real app screens in the phones, readable install buttons, app icon in the header
+- feat: new landing page: a desk with demo papers, app windows and the squirrel watching you
+- fix: Rückblick opened straight from a notice shows its numbers at once, never "no transactions" first
+- feat: the squirrel plays its moments once and speaks in a bubble; Rückblick opens with up to four cards
+- feat: the squirrel sits in the ring next to "Verfügbar"
+- refactor: one database schema (version 1) before launch, and dead code removed
+- fix: the floating bar never goes pale between pages, and closing search fades too
+- docs: field note on the white flash on back; TODO for the bar polish
+- fix: no white flash and no wrong bar when going back; ↻ on a bank card fetches in place
+- feat: manual entry with the system keyboard and a calendar, menus that match the bar
+- feat: manual entries can be edited and deleted, on every device
+- perf: smoother page switches, a calmer floating bar and fixes across the Android app
+- fix: "Erneut erkennen" keeps your current fixed costs, and pending bookings show up
+- feat: Gehaltsmonat — a month can run from one salary to the next (boards 3 and 26A)
+- fix: FinTS debug output no longer prints requests (they carry the PIN and TAN)
+- fix: pending ("Vorgemerkt") bookings from Comdirect
+- feat: wimg Sync shows your devices, scans the key, spots a wrong key and makes a new one (board 21)
+- fix: the bank page opens your transactions (Umsätze row and "Ansehen" after a fetch)
+- feat: choose an account behind the filter, hide or rename accounts, new settings pages (board 20)
+- feat: big band numbers roll to their new value after a change
+- fix: going back to Umsätze on the website demo no longer flashes other numbers
+- feat: the four phones further down the website can be tapped too
+- feat: the demo phone on the website now works like the Android app
+- feat: edit recurring payments, hide them, and set aside one-off payments (board 26)
+- feat: learned rules page, manual transactions and the Hinzufügen panel (board 22)
+- feat: "Alle Daten löschen" also deletes the encrypted copy on the sync server
+- docs: Play Store graphics and README screenshots with invented demo data
+- docs: Google Play store listing and App content answers
+- feat: libwimg functions for learned rules and manual entries
+- docs: Google Play publishing notes (personal account, organisation later)
+- feat: period ring on Home instead of the month chip
+- feat: invented demo merchants, generic keyword rules
+- docs: README with screenshots (demo data)
+- feat: widget previews in the widget picker on Android
+- fix: Android app crashed on start while sync pushed many changes
+- fix: bank logins from older builds get their bank name on the Banken page
+- fix: umlauts in bank texts (FinTS and Comdirect CSV deliver ISO-8859-1)
+- feat: several bank connections on Android
+- fix: MCP query tool names the real columns (date_year/month/day, amount_cents)
+- feat: lock screen, notifications and widgets from the new design on Android
+- docs: describe wimg as it is now (iOS + Android, no web app)
+- fix: Umsätze keeps its filter after opening a transaction on Android
+- fix: iOS bank login no longer breaks on a PIN with quotes, and never logs it
+- refactor: remove the web app, keep translations in i18n/en.ts
+- fix: subscription detail is complete from its first frame on Android
+- refactor: remove dead code and duplicate helpers in libwimg
+- feat: simpler CSV import start on Android
+- refactor: remove dead Android code
+- feat: pending bank transactions (Vorgemerkt), never imported as booked
+- fix: Home transactions open, search keyboard, centred bar buttons
+- fix: keyboard, rotation and bank errors on Android
+- feat: bank PIN encrypted with the Android Keystore; Umsätze filter by period
+- feat: new Rückblick with month-end summary on Android
+- feat: fetch older transactions from the bank page on Android
+- feat: new Über wimg on Android
+- fix: background bank fetch keeps the PIN on hiccups; Analyse removed on Android
+- fix: floating bar changes without gaps or squeezing; full-width lock timer
+- fix: one floating bar that changes instead of being replaced
+- feat: animated launch with the pocket, and safer bank errors on Android
+- fix: switching places on Android is instant and clean
+- feat: new first start and CSV import on Android
+- fix: buttons and chips no longer show dark corners when held
+- fix: new app icon and splash, and colours stay right on Xiaomi phones
+- fix: smoother floating bar on Android
+- feat: new bank connection screens on Android
+- feat: new settings on Android
+- feat: new search on Android
+- feat: fixed-cost details and a 12-month view on Android
+- feat: see every past payment of a fixed cost
+- feat: new Wiederkehrend screen on Android
+- fix: next payment dates for fixed costs were in the wrong month
+- fix: Android sync no longer crashes without network and syncs on open
+- feat: new look for the Android app — Home, Umsätze and transaction details
+- feat: transactions show the merchant instead of the booking type
+- feat: new wimg website replaces the web app
+- feat: wimg moves to komiljonmaksudov.com
+- fix: Android app no longer crashes after a bank refresh
+- fix: recurring payments are detected in FinTS bank data
+- fix: account balance from the bank syncs to your other devices
+
 ## v0.9.7 (2026-11-11)
 
 - fix: FinTS TAN medium lookup runs in its own dialog and returns the device name
