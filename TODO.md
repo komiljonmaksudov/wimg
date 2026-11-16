@@ -19,10 +19,12 @@ Open work only, grouped by area; finished work moves to [CHANGELOG.md](CHANGELOG
 - [x] `_debug_*` fields gone from the connect JSON (2026-11-16).
 
 ## Bank sources (decided 2026-11-16, not started)
-- [ ] One import seam in libwimg: every source (FinTS, CSV, file import, later bunq/Fio) hands over a `Batch` (account, booked, pending, balance, twin rule) and one `import.apply(db, batch)` does duplicates/twins, pending, categories and balance. Plain data + functions, no plugin system. Sketch and reasons: `.claude/rules/banking-aggregators.md` (update 2026-11-16).
+- [ ] One import seam in libwimg: every source (FinTS, CSV, file import, later bunq/Fio) hands over a `Batch` (account, booked, pending, balance, twin rule) and one `import.apply(db, batch)` does duplicates/twins, pending, categories and balance. Plain data + functions, no plugin system, no login framework (sign-in stays inside each source). Sketch:
+  `pub const Batch = struct { account: []const u8, booked: []const Transaction, pending: []const Transaction, balance: ?Balance, twins: TwinRule };` (`.same_id` normally, `.day_and_amount` for CAMT next to MT940 history) and `pub fn apply(db: *Db, batch: Batch) ImportResult`. Moves today's twin check, pending replace, rule categorizing and balance out of `wimg_fints_fetch` and the CSV import. Background: `.claude/rules/banking-aggregators.md` (update 2026-11-16).
 - [ ] CAMT/MT940 file import next to CSV (parsers exist), on top of the seam: private, free, any bank with exports.
 - [ ] CAMT by default where the bank advertises HICAZS, MT940 as legacy fallback.
 - [ ] Enable Banking: support ticket 452772778232 sent 2026-11-16 (personal-use apps inside a public app, shared https redirect, non-commercial option). Auto-reply: without an agreement, tickets are "processed in automated way and you may not hear back". If nothing comes back, ask sales (info@enablebanking.com, per their FAQ). Until a written yes: don't build. Only ever as a labelled extra, Enable Banking sees bookings in transit.
 - [ ] Direct bank connectors (bunq, Fio, comdirect REST) only on user demand; comdirect REST needs a TAN per session, FinTS doesn't.
 
+## Android
 - [ ] Notification tap: not reproducible on the emulator anymore (foreground and background, 2026-11-15); confirm with a real notification on the phone.
