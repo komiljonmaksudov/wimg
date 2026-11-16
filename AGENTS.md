@@ -9,8 +9,7 @@ When a rule file conflicts with CLAUDE.md or the code, trust CLAUDE.md + the cod
 `libwimg/` (Zig 0.17.0 + vendored SQLite) **is** the app — all logic, no UI. Two thin shells
 render it: `wimg-ios/` (SwiftUI, links `libwimg.a` via C ABI) and `wimg-android/`
 (Kotlin/Compose, `libwimg.so` via JNI). `wimg-sync-zig/` is the native Zig sync + MCP server
-(production, self-hosted on Hetzner). `wimg-sync/` is the old Cloudflare Worker — **rollback
-path only, never deploy it**. `wimg-site/` is the static landing page. There is no web app.
+(self-hosted on Hetzner). `wimg-site/` is the static landing page. There is no web app.
 Never put business logic in the shells.
 
 ## Gitignored build prerequisites (first build always breaks here)
@@ -27,18 +26,16 @@ Never put business logic in the shells.
 
 | Task | Command | From |
 | --- | --- | --- |
-| Local sync server :8787 (Worker) | `./scripts/dev.sh` | repo root |
-| Same but native Zig sync server | `WIMG_NATIVE_SYNC=1 ./scripts/dev.sh` | repo root |
+| Local sync server :8787 | `./scripts/dev.sh` | repo root |
 | libwimg tests | `zig build test` (one test binary per module) | `libwimg/` |
 | libwimg format | `zig fmt --check src/` | `libwimg/` |
 | Sync server tests | `zig build test` | `wimg-sync-zig/` |
-| Compact WASM (rollback Worker) | `./scripts/build-wasm.sh` | repo root |
 | iOS | `./scripts/build-ios.sh` && `./scripts/gen-xcodeproj.sh` | repo root |
 | Android | `./scripts/build-android.sh` && `./gradlew assembleDebug` | repo root / `wimg-android/` |
 | i18n codegen | `bun scripts/i18n-codegen.ts` | repo root |
 | Landing page + sync server → VPS | `./scripts/deploy-server.sh [web\|sync]` | repo root |
 
-No root `package.json` — bun is only used for scripts and `wimg-sync/`.
+No root `package.json` — bun is only used for scripts.
 
 ## i18n — do not translate source text
 
@@ -55,7 +52,7 @@ diff). At call sites use `#L("German")` (iOS, compile-time) / `L("German")` (And
   and gitleaks (if installed).
 - **Releases**: `./scripts/release.sh <patch|minor|major|X.Y.Z> [--push]` — reads the version
   from `versionName` in `wimg-android/app/build.gradle.kts`, bumps it + `MARKETING_VERSION` in
-  `wimg-ios/project.yml`, writes `CHANGELOG.md`, commits, tags, pushes. CI builds WASM, iOS,
+  `wimg-ios/project.yml`, writes `CHANGELOG.md`, commits, tags, pushes. CI builds iOS,
   Android and the sync server from the tag; iOS/Android only when the tag touched `libwimg/`
   or the platform dir. CI never deploys.
 - **iOS**: `wimg-ios/wimg.xcodeproj` is generated from `project.yml` (XcodeGen) — never hand-edit
@@ -79,4 +76,4 @@ diff). At call sites use `#L("German")` (iOS, compile-time) / `L("German")` (And
 - FinTS has auxiliary checkers run with bun (not part of CI): `scripts/test-bank-matrix.ts`
   and `scripts/check-bank-drift.ts`.
 - CI (`check` job) runs: zig fmt + `zig build test` (libwimg + sync server), the
-  translation-table diff, `tsc --noEmit` (wimg-sync). `make check` runs the same minus tsc.
+  translation-table diff. `make check` runs the same.

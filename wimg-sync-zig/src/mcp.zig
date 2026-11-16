@@ -1,5 +1,5 @@
 //! MCP (Model Context Protocol) over Streamable HTTP — the native port of
-//! `../wimg-sync/src/mcp-tools.ts` + `mcp-session.ts`.
+//! `wimg-sync/src/mcp-tools.ts` + `mcp-session.ts` (deleted; in git history).
 //!
 //! Two tools, matching the Worker after its Code-Mode refactor:
 //!   query(sql)                          — read-only SQL over the live SQLite
@@ -18,7 +18,7 @@
 //! initialize flow) get `-32022` — the old era was dropped on purpose.
 //!
 //! Natively we share libwimg's address space, so strings are passed by
-//! (ptr, len) directly — no `wimg_alloc` bounce needed. Every libwimg call that
+//! (ptr, len) directly. Every libwimg call that
 //! returns a length-prefixed buffer allocates from libwimg's arena, which
 //! `wimg_free` resets wholesale; so we copy each result out immediately.
 

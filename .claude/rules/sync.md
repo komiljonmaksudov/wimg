@@ -7,8 +7,8 @@ Production server: `wimg-sync-zig/` (native Zig, links libwimg) on the Hetzner
 VPS behind Caddy (`infra/wimg-sync.caddy`, `infra/systemd/wimg-sync.service`),
 at `https://wimg-sync.komiljonmaksudov.com`. Details: `wimg-sync-zig/README.md`.
 
-`wimg-sync/` (Cloudflare Worker + Durable Objects + compact WASM) is a rollback
-path only. CI no longer deploys it.
+The old Cloudflare Worker (`wimg-sync/`) was deleted on 2026-11-16; git history
+has it.
 
 ## How it works
 

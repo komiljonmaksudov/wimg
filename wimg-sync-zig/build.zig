@@ -74,8 +74,6 @@ pub fn build(b: *std.Build) void {
 /// libwimg as a static lib from its native root. No sqlite3.c here — the exe
 /// supplies one shared copy.
 fn libwimg(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Step.Compile {
-    const opts = b.addOptions();
-    opts.addOption(bool, "compact", false);
     const lib = b.addLibrary(.{
         .name = "wimg",
         .linkage = .static,
@@ -85,7 +83,6 @@ fn libwimg(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builti
             .optimize = optimize,
         }),
     });
-    lib.root_module.addOptions("config", opts);
     nativeLibc(b, lib);
     return lib;
 }

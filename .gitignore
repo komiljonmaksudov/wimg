@@ -17,15 +17,8 @@ libwimg/vendor/sqlite3.h
 libwimg/vendor/sqlite.zip
 libwimg/vendor/sqlite-amalgamation-*/
 
-# WASM build artifact (generated from zig build)
-wimg-sync/libwimg-compact.wasm
-
 # Web — dependencies & build
 .svelte-kit/
-
-# Sync Worker — dependencies & build
-wimg-sync/node_modules/
-wimg-sync/.wrangler/
 
 # MCP Server — dependencies
 wimg-mcp/node_modules/
@@ -74,7 +67,6 @@ Thumbs.db
 npm-debug.log*
 
 
-.wrangler/
 
 docs/wimg-full.md
 
@@ -87,12 +79,11 @@ docs/wimg-full.md
 wimg-ios/plugins/WimgI18n/.build/
 wimg-ios/plugins/WimgI18n/.swiftpm/
 
-# Root-level (no deps here, everything lives in wimg-sync/)
+# Root-level (no deps here; bun only runs scripts/)
 /node_modules/
 /package.json
 /bun.lock
 
-wimg-sync/.dev.vars
 
 # Generated reports
 scripts/bank-matrix-last.json

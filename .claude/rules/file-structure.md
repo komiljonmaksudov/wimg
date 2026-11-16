@@ -8,12 +8,11 @@ wimg/
 ├── i18n/en.ts                 translation source of truth
 ├── scripts/
 │   ├── release.sh             version bump + changelog + commit + tag
-│   ├── build-wasm.sh          compact WASM → wimg-sync/libwimg-compact.wasm
 │   ├── build-ios.sh           XCFramework
 │   ├── build-android.sh       libwimg.so (arm64-v8a)
 │   ├── gen-xcodeproj.sh       regenerate .xcodeproj from project.yml
 │   ├── build-all.sh           all of the above
-│   ├── dev.sh                 local sync server on :8787 (Worker, or native with WIMG_NATIVE_SYNC=1)
+│   ├── dev.sh                 local sync server on :8787 (wimg-sync-zig)
 │   ├── deploy-server.sh       landing page + sync server → VPS (from a Mac)
 │   ├── i18n-codegen.ts        en.ts → Translations.swift + Translations.kt
 │   ├── test-bank-matrix.ts    FinTS top-bank anonymous init probe
@@ -25,9 +24,9 @@ wimg/
 ├── wimg-site/                 static landing page (build.py → public/)
 │
 ├── libwimg/
-│   ├── build.zig              wasm (compact default) / native / -Dshared=true for Android
+│   ├── build.zig              native (iOS/macOS/Linux) / -Dshared=true for Android
 │   ├── include/libwimg.h      C header
-│   ├── vendor/                sqlite3.c (gitignored), wasm_vfs.c, libc_shim.c
+│   ├── vendor/                sqlite3.c (gitignored)
 │   └── src/
 │       ├── root.zig           C ABI exports (+ FinTS native-only)
 │       ├── db.zig             SQLite wrapper + schema + migrations
@@ -66,6 +65,5 @@ wimg/
 │       │                      Review, FinTS, Import, Search, Settings, About, Onboarding
 │       └── widget/            Glance widgets: Monat, Fixkosten offen, Heute
 │
-├── wimg-sync-zig/             production sync + MCP server (native Zig)
-└── wimg-sync/                 old Cloudflare Worker, rollback only
+└── wimg-sync-zig/             sync + MCP server (native Zig)
 ```

@@ -10,8 +10,7 @@ libwimg (Zig)
 │
 ├── → libwimg.a         (aarch64-apple-ios, XCFramework)  ← iOS
 ├── → libwimg.so        (aarch64-linux-android)           ← Android
-├── → linked natively                                     ← wimg-sync-zig (MCP)
-└── → libwimg-compact.wasm (wasm32-freestanding)          ← wimg-sync Worker (rollback only)
+└── → linked natively                                     ← wimg-sync-zig (MCP)
 
 wimg-ios      SwiftUI, links libwimg.a, SQLite file at ~/Documents/wimg.db
 wimg-android  Kotlin + Compose, libwimg.so via JNI (wimg_jni.c)

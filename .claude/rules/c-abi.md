@@ -3,7 +3,7 @@
 The exact `export fn` list in `libwimg/src/root.zig` (header:
 `libwimg/include/libwimg.h`). Swift calls it directly, Android through the JNI
 shim `wimg-android/app/src/main/cpp/wimg_jni.c`, the sync server links it
-natively (MCP), the rollback Worker loads it as WASM.
+natively (MCP).
 
 Pointer returns are length-prefixed JSON: 4-byte little-endian `u32` length,
 then the bytes. Free with `wimg_free`. `null` / negative `i32` = error, details
@@ -14,7 +14,6 @@ via `wimg_get_error`.
 export fn wimg_init(path: [*:0]const u8) i32
 export fn wimg_close() void
 export fn wimg_free(ptr: [*]const u8, len: u32) void
-export fn wimg_alloc(size: u32) ?[*]u8
 export fn wimg_get_error() ?[*]const u8
 
 // Import
@@ -96,7 +95,7 @@ export fn wimg_add_goal(data: [*]const u8, len: u32) i32
 export fn wimg_contribute_goal(id: [*]const u8, id_len: u32, amount_cents: i64) i32
 export fn wimg_delete_goal(id: [*]const u8, id_len: u32) i32
 
-// FinTS — native only, @export'ed in a `comptime { if (!is_wasm) ... }` block
+// FinTS
 fn wimg_set_http_callback(cb: fints_http_mod.HttpCallback) callconv(.c) void
 fn wimg_fints_connect(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8         // {"blz","user","pin","product"}
 fn wimg_fints_send_tan(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8        // {"tan":"..."}
@@ -105,9 +104,3 @@ fn wimg_fints_get_banks() callconv(.c) ?[*]const u8
 fn wimg_fints_get_tan_media() callconv(.c) ?[*]const u8                               // HKTAB → media JSON
 fn wimg_fints_set_tan_medium(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8  // {"name":"..."}
 ```
-
-## WASM (compact only)
-
-`scripts/build-wasm.sh` → `wimg-sync/libwimg-compact.wasm`, used only by the
-rollback Worker. `-Dcompact` defaults to `true`. Budget: 16 MB FBA (`root.zig`)
-+ 4 × 8 MB VFS files (`wasm_vfs.c`) + 8 MB heap (`libc_shim.c`) + 1 MB stack.

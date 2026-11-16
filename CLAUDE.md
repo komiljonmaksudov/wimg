@@ -43,9 +43,8 @@ Licence: MIT (`LICENSE`).
 - **Everyday commands:** `make` lists them (`test`, `check`, `ios`, `android`, `i18n`, `deploy*`, `release-*`)
 - **Tests:** `zig build test` in `libwimg/` and `wimg-sync-zig/`
 - **Release:** `scripts/release.sh` — version from Android `versionName`, bumps it + iOS `MARKETING_VERSION`, changelog (filters chore/ci/build), commit, tag, `--push`
-- **Build WASM:** `scripts/build-wasm.sh` — compact build for the rollback Worker only
 - **Build iOS / Android:** `scripts/build-ios.sh` (XCFramework) / `scripts/build-android.sh` (libwimg.so + libwimg-jni.so)
-- **CI:** `.github/workflows/release.yml` — check (incl. translation-table diff) → wasm, iOS (TestFlight), Android, sync server → GitHub release. CI never deploys; `./scripts/deploy-server.sh` ships site + sync server from a Mac.
+- **CI:** `.github/workflows/release.yml` — check (incl. translation-table diff) → iOS (TestFlight), Android, sync server → GitHub release. CI never deploys; `./scripts/deploy-server.sh` ships site + sync server from a Mac.
 - **i18n:** `i18n/en.ts` is the single source of truth. `scripts/i18n-codegen.ts` writes `wimg-ios/plugins/WimgI18n/Sources/WimgI18n/Translations.swift` and `wimg-android/app/src/main/java/com/wimg/app/i18n/Translations.kt`; CI fails if they are out of date.
 
 ---
@@ -90,7 +89,7 @@ German on disk — `Text("X")` or `Text(#L("X"))` (iOS) / `Text(L("X"))`
 Hosting (Aug 2026): wimg no longer runs on Cloudflare. `wimg-sync.komiljonmaksudov.com`
 is the native Zig server (`wimg-sync-zig/`, sync + MCP) on a Hetzner VPS
 behind Caddy. See `.claude/rules/sync.md` and `infra/`. The old Cloudflare
-Worker in `wimg-sync/` is kept as a rollback path only.
+Worker (`wimg-sync/`) and the compact WASM build were deleted on 2026-11-16.
 
 Domain move (Nov 2026): both names moved from `mili-my.name` to
 `komiljonmaksudov.com` (DNS at Namecheap, A records → 91.98.69.226). The
@@ -254,7 +253,7 @@ Split into `.claude/rules/` for context efficiency:
 
 - `architecture.md` — architecture overview, data flow
 - `schema.md` — complete SQLite schema (all tables)
-- `c-abi.md` — all C ABI function signatures + compact WASM budget
+- `c-abi.md` — all C ABI function signatures
 - `phases.md` — all phase details (completed + future)
 - `sync.md` — sync server, E2E encryption, MCP server, API
 - `feature-parity.md` — iOS vs Android parity table

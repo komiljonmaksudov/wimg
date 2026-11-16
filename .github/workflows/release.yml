@@ -21,7 +21,7 @@ env:
 jobs:
   detect-changes:
     # Decide whether iOS / Android pipelines need to run for this tag.
-    # Tags that only touch web or sync code skip the native builds so
+    # Tags that only touch sync or site code skip the native builds so
     # TestFlight + APK aren't churned for no reason.
     runs-on: ubuntu-latest
     outputs:
@@ -97,43 +97,8 @@ jobs:
           bun scripts/i18n-codegen.ts
           git diff --exit-code -- wimg-ios/plugins/WimgI18n wimg-android/app/src/main/java/com/wimg/app/i18n
 
-      - name: Install sync dependencies
-        working-directory: wimg-sync
-        run: bun install --frozen-lockfile
-
-      - name: Typecheck sync worker
-        working-directory: wimg-sync
-        run: bunx tsc --noEmit
-
-  build-wasm:
-    needs: check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-
-      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
-        with:
-          version: ${{ env.ZIG_VERSION }}
-
-      - name: Download SQLite amalgamation
-        working-directory: libwimg/vendor
-        run: |
-          curl -fsSL https://www.sqlite.org/2026/sqlite-amalgamation-3520000.zip -o sqlite.zip
-          unzip -o sqlite.zip
-          cp sqlite-amalgamation-3520000/sqlite3.c sqlite3.c
-          cp sqlite-amalgamation-3520000/sqlite3.h sqlite3.h
-
-      - name: Build WASM
-        run: ./scripts/build-wasm.sh
-
-      - name: Upload WASM artifacts
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: libwimg-wasm
-          path: wimg-sync/libwimg-compact.wasm
-
-      # No deploy step: CI never touches the VPS. The landing page and the sync
-      # server are shipped from a Mac with ./scripts/deploy-server.sh.
+  # No deploy step: CI never touches the VPS. The landing page and the sync
+  # server are shipped from a Mac with ./scripts/deploy-server.sh.
 
   build-libwimg-ios:
     # Historical: Zig 0.15.2's build runner couldn't link on macos-26
@@ -377,30 +342,14 @@ jobs:
           name: wimg-sync-server
           path: wimg-sync-zig/zig-out/bin/wimg-sync
 
-  # The deploy-sync job is gone. wimg-sync.komiljonmaksudov.com is served by the native
-  # Zig server on the VPS (wimg-sync-zig/, deployed with infra/scripts/deploy.sh),
-  # so redeploying the Cloudflare Worker every release shipped nothing anyone
-  # used — and failed anyway: Code Mode's LOADER binding needs a paid Workers
-  # plan (error 10195), which is what broke v0.9.4 and v0.9.5.
-  #
-  # wimg-sync/ stays in the tree as a rollback path, and its last deployed
-  # version is still live on Cloudflare. Deploy it by hand if ever needed:
-  #   cd wimg-sync && bunx wrangler deploy
-
   release:
-    needs: [check, detect-changes, build-wasm, build-libwimg-ios, build-ios, build-android, build-sync-server]
+    needs: [check, detect-changes, build-libwimg-ios, build-ios, build-android, build-sync-server]
     if: always() && !failure() && !cancelled()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-
-      - name: Download WASM artifacts
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        with:
-          name: libwimg-wasm
-          path: artifacts/libwimg-wasm
 
       - name: Download iOS artifacts
         if: needs.detect-changes.outputs.ios == 'true'
@@ -456,7 +405,6 @@ jobs:
 
           # Collect available artifacts
           ASSETS=()
-          [ -f artifacts/libwimg-wasm/libwimg-compact.wasm ] && ASSETS+=(artifacts/libwimg-wasm/libwimg-compact.wasm)
           [ -f artifacts/libwimg-ios/libwimg.xcframework.zip ] && ASSETS+=(artifacts/libwimg-ios/libwimg.xcframework.zip)
           [ -f artifacts/libwimg-android/libwimg.so ] && ASSETS+=(artifacts/libwimg-android/libwimg.so)
           [ -f artifacts/libwimg-android/wimg.apk ] && ASSETS+=(artifacts/libwimg-android/wimg.apk)

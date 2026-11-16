@@ -1,20 +1,9 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    // Default: wasm32-freestanding (the compact build for the wimg-sync worker).
-    const target = b.standardTargetOptions(.{
-        .default_target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
-    });
+    // Native by default; iOS and Android pass -Dtarget (scripts/build-*.sh).
+    const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-
-    const is_wasm = target.result.cpu.arch == .wasm32;
-
-    // Compact mode: smaller memory buffers for CF Workers (128MB limit). The web
-    // app with its larger buffers is gone, so compact is the default.
-    const compact = b.option(bool, "compact", "Use smaller memory buffers for CF Workers") orelse true;
-
-    // Stub libc include path for wasm32-freestanding
-    const libc_include = b.path("vendor/libc");
 
     // Common SQLite flags shared between native targets (iOS, macOS, etc.)
     const native_sqlite_flags: []const []const u8 = &.{
@@ -27,86 +16,8 @@ pub fn build(b: *std.Build) void {
         "-DSQLITE_DEFAULT_MEMSTATUS=0",
     };
 
-    // --- WASM library (primary target) ---
-    if (is_wasm) {
-        const options = b.addOptions();
-        options.addOption(bool, "compact", compact);
-
-        const wasm_lib = b.addExecutable(.{
-            .name = "libwimg",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("src/root.zig"),
-                .target = target,
-                .optimize = optimize,
-            }),
-        });
-        wasm_lib.root_module.addOptions("config", options);
-
-        // Export all `export fn` symbols
-        wasm_lib.entry = .disabled;
-        wasm_lib.rdynamic = true;
-
-        const wasm_sqlite_flags: []const []const u8 = &.{
-            "-DSQLITE_OS_OTHER=1",
-            "-DSQLITE_OMIT_WAL=1",
-            "-DSQLITE_OMIT_LOAD_EXTENSION=1",
-            "-DSQLITE_THREADSAFE=0",
-            "-DSQLITE_TEMP_STORE=3",
-            "-DSQLITE_OMIT_LOCALTIME=1",
-            "-DSQLITE_DEFAULT_MEMSTATUS=0",
-            "-DSQLITE_DEFAULT_SYNCHRONOUS=0",
-            // NOT using SQLITE_OMIT_AUTOINIT — need sqlite3_open to call sqlite3_initialize/sqlite3_os_init
-            "-DSQLITE_OMIT_DEPRECATED=1",
-            "-DSQLITE_OMIT_PROGRESS_CALLBACK=1",
-            "-DSQLITE_OMIT_SHARED_CACHE=1",
-            "-DSQLITE_OMIT_UTF16=1",
-            "-DSQLITE_OMIT_COMPLETE=1",
-            "-DSQLITE_OMIT_DECLTYPE=1",
-            "-DSQLITE_OMIT_GET_TABLE=1",
-            "-DSQLITE_OMIT_TRACE=1",
-            "-DSQLITE_OMIT_TCL_VARIABLE=1",
-            "-DSQLITE_DQS=0",
-            "-DSQLITE_CORE=1",
-            "-DSQLITE_HAVE_ISNAN=1",
-        };
-
-        // Add stub libc headers for wasm32-freestanding C compilation
-        wasm_lib.root_module.addIncludePath(libc_include);
-
-        wasm_lib.root_module.addCSourceFile(.{
-            .file = b.path("vendor/sqlite3.c"),
-            .flags = wasm_sqlite_flags,
-        });
-        // Memory budgets: compact (MCP/CF Workers) vs normal (web browser)
-        //   compact: 8MB VFS + 4MB heap  = ~53MB total (fits CF Workers 128MB)
-        //   normal:  32MB VFS + 16MB heap = ~149MB total (browsers handle this fine)
-        const vfs_flags: []const []const u8 = if (compact)
-            &.{}
-        else
-            &.{"-DMAX_FILE_SIZE=(32*1024*1024)"};
-        const shim_flags: []const []const u8 = if (compact)
-            &.{}
-        else
-            &.{"-DHEAP_SIZE=(16*1024*1024)"};
-
-        wasm_lib.root_module.addCSourceFile(.{
-            .file = b.path("vendor/wasm_vfs.c"),
-            .flags = vfs_flags,
-        });
-        wasm_lib.root_module.addCSourceFile(.{
-            .file = b.path("vendor/libc_shim.c"),
-            .flags = shim_flags,
-        });
-
-        // Stack size for WASM
-        wasm_lib.stack_size = 1 * 1024 * 1024; // 1 MB stack
-
-        b.installArtifact(wasm_lib);
-    } else {
+    {
         // --- Native library (for testing / iOS / macOS / Android) ---
-        const options = b.addOptions();
-        options.addOption(bool, "compact", false);
-
         // Android needs shared library (.so) for System.loadLibrary()
         const shared = b.option(bool, "shared", "Build shared library (.so) instead of static (.a)") orelse false;
 
@@ -119,7 +30,6 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
             }),
         });
-        lib.root_module.addOptions("config", options);
 
         // Android: the NDK libc goes on this artifact only. The global `--libc`
         // flag also applies to the build runner on Zig 0.17, which then looks
@@ -302,8 +212,6 @@ pub fn build(b: *std.Build) void {
 
     // root.zig (the C ABI and its FinTS error handling) has tests too; it was
     // never in this step, so they didn't run.
-    const root_options = b.addOptions();
-    root_options.addOption(bool, "compact", false);
     const root_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/root.zig"),
@@ -311,7 +219,6 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    root_tests.root_module.addOptions("config", root_options);
     root_tests.root_module.addCSourceFile(.{
         .file = b.path("vendor/sqlite3.c"),
         .flags = native_sqlite_flags,

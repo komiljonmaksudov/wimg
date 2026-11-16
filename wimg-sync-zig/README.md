@@ -1,16 +1,14 @@
 # wimg-sync-zig
 
-Native Zig rewrite of the `wimg-sync` Cloudflare Worker — the "Phase 1 binary"
-that `infra/` provisions a VPS for. Speaks plain HTTP on `:8080`; Caddy
+The wimg sync + MCP server, in Zig, on a self-hosted VPS that `infra/`
+provisions. It replaced a Cloudflare Worker (`wimg-sync/`, deleted 2026-11-16). Speaks plain HTTP on `:8080`; Caddy
 terminates TLS in front (see `../infra/Caddyfile`).
 
 ## Why
 
-`wimg-sync/` (TypeScript on CF Workers + Durable Objects) works, but moving sync
-onto a self-hosted Hetzner box aligns with wimg's local-first, no-intermediary
-values and removes the Cloudflare dependency. `infra/` already has the
-provisioning, systemd units, Caddy config, and restic backups — it was just
-waiting for this binary at `zig-out/bin/wimg-sync`.
+A self-hosted Hetzner box fits wimg's local-first, no-intermediary values and
+removes the Cloudflare dependency. `infra/` has the provisioning, systemd units,
+Caddy config and restic backups for this binary at `zig-out/bin/wimg-sync`.
 
 ## Status
 
@@ -95,8 +93,8 @@ zig build run          # listens on 0.0.0.0:8080, writes ./sync.db
 Config via env: `PORT` (default `8080`, matching the Caddyfile), `WIMG_SYNC_DB`
 (default `sync.db`, relative to the working dir — `/var/lib/wimg` under systemd),
 and `BIND` (default `0.0.0.0`; the systemd unit sets `127.0.0.1` so only Caddy
-on the same host can reach it). Local dev: `WIMG_NATIVE_SYNC=1 ./scripts/dev.sh` runs this server
-on `:8787` so the web client's dev URL hits it unchanged. Reuses
+on the same host can reach it). Local dev: `make dev` runs this server
+on `:8787`. Reuses
 `../libwimg/vendor/sqlite3.c` rather than vendoring a second 9 MB copy, so the
 libwimg amalgamation must be present (it's gitignored; CI fetches it).
 
@@ -117,10 +115,8 @@ VPS=root@<ip> ../infra/scripts/deploy.sh   # builds nothing — expects zig-out/
    alive through proxies. This server replies `pong` to client pings and handles
    `ConnectionClose`, but doesn't ping on its own yet (needs a read timeout or a
    per-connection timer). Clients reconnect on close, so it's not blocking.
-3. **Cutover** — DNS, client `config.ts`/iOS/Android base URLs, and CLAUDE.md
-   (still documents sync as CF Durable Objects).
 
-### WebSocket protocol (implemented, matches `../wimg-sync/src/sync-room.ts`)
+### WebSocket protocol
 
 Client → server: `{type:"push",rows:[...]}`, `{type:"pull",since:N}`, `{type:"pong"}`.
 Server → client: `{type:"changes",rows:[...]}` (fan-out), `{type:"push_ack",merged:N}`,
@@ -128,7 +124,7 @@ Server → client: `{type:"changes",rows:[...]}` (fan-out), `{type:"push_ack",me
 sockets (sender excluded); an HTTP push is broadcast to all of them (clients
 suppress their own echo via a 2 s window).
 
-## Notes on Zig 0.16
+## Notes on Zig (0.16 and later; built with 0.17)
 
 The 0.16 IO redesign moved networking into `std.Io.net` (the old `std.posix`
 socket wrappers are gone) and made `std.Io.Mutex` require an `Io`. The server

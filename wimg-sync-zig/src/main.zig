@@ -1,5 +1,5 @@
 //! wimg-sync server (native Zig) — the self-hosted replacement for the
-//! Cloudflare Worker in `wimg-sync/`.
+//! Cloudflare Worker (`wimg-sync/`, deleted 2026-11-16).
 //!
 //! Listens on plain HTTP (Caddy terminates TLS in front). Endpoints are
 //! wire-compatible with the Worker so clients need no changes:

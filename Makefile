@@ -7,7 +7,7 @@ SHELL := /bin/bash
 SQLITE_ZIP :=https://www.sqlite.org/2026/sqlite-amalgamation-3520000.zip
 SQLITE := libwimg/vendor/sqlite3.c
 
-.PHONY: help dev dev-native wasm ios android \
+.PHONY: help dev ios android \
 	test check fmt i18n \
 	deploy deploy-web deploy-sync release-patch release-minor
 
@@ -26,16 +26,10 @@ $(SQLITE):
 
 # --- Dev ---------------------------------------------------------------------
 
-dev: $(SQLITE) ## Sync server :8787 (Cloudflare Worker)
+dev: $(SQLITE) ## Local sync server :8787 (wimg-sync-zig)
 	./scripts/dev.sh
 
-dev-native: $(SQLITE) ## Same, with the native Zig sync server
-	WIMG_NATIVE_SYNC=1 ./scripts/dev.sh
-
 # --- Build -------------------------------------------------------------------
-
-wasm: ## Build the compact WASM for the wimg-sync worker
-	./scripts/build-wasm.sh
 
 ios: $(SQLITE) ## Build XCFramework + regenerate the Xcode project
 	./scripts/build-ios.sh

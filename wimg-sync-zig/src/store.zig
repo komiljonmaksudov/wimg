@@ -4,7 +4,7 @@
 //! The CF Worker gives each sync key its own DO (and its own SQLite). A single
 //! VPS process serves every key, so rows are partitioned by `sync_key` instead.
 //! The merge is last-write-wins on `updated_at`, byte-for-byte the same SQL as
-//! `wimg-sync/src/sync-room.ts`.
+//! `wimg-sync/src/sync-room.ts` (deleted; in git history).
 //!
 //! `data` is an opaque, client-side-encrypted JSON value. The server never
 //! decrypts it for sync — it stores the raw JSON text and echoes it back

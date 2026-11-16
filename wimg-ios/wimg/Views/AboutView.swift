@@ -253,13 +253,13 @@ struct AboutView: View {
                     )
                     creditRow(
                         "cloud",
-                        "Cloudflare Workers + Durable Objects",
-                        "Sync-Server, MCP-Endpunkt und Push — alles auf Cloudflares Edge."
+                        "Eigener Server bei Hetzner",
+                        "Sync-Server und MCP-Endpunkt in Zig, ohne Cloud-Anbieter dazwischen."
                     )
                     creditRow(
                         "swift",
-                        "SwiftUI · SvelteKit · Kotlin Compose",
-                        "Drei Plattform-Shells über einer Zig-Bibliothek."
+                        "SwiftUI · Kotlin Compose",
+                        "Zwei Plattform-Shells über einer Zig-Bibliothek."
                     )
                 }
                 .padding(16)

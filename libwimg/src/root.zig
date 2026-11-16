@@ -1,7 +1,5 @@
 const std = @import("std");
 const dbg = @import("dbg.zig");
-const builtin = @import("builtin");
-const config = @import("config");
 const types = @import("types.zig");
 const db_mod = @import("db.zig");
 const parser = @import("parser.zig");
@@ -15,17 +13,11 @@ const Db = db_mod.Db;
 const Transaction = types.Transaction;
 const ImportResult = types.ImportResult;
 
-const is_wasm = builtin.cpu.arch == .wasm32;
-
-// FinTS modules — native only (WASM can't do HTTPS)
-const fints_mod = if (!is_wasm) @import("fints.zig") else struct {};
-const fints_http_mod = if (!is_wasm) @import("fints_http.zig") else struct {};
-const mt940_mod = if (!is_wasm) @import("mt940.zig") else struct {};
-const camt_mod = if (!is_wasm) @import("camt.zig") else struct {};
-const banks_mod = if (!is_wasm) @import("banks.zig") else struct {};
-
-// --- JS interop: imported logging function (WASM only) ---
-extern fn js_console_log(ptr: [*]const u8, len: u32) void;
+const fints_mod = @import("fints.zig");
+const fints_http_mod = @import("fints_http.zig");
+const mt940_mod = @import("mt940.zig");
+const camt_mod = @import("camt.zig");
+const banks_mod = @import("banks.zig");
 
 // --- Error reporting ---
 var error_buf: [512]u8 = undefined;
@@ -39,17 +31,6 @@ fn setError(comptime fmt: []const u8, args: anytype) void {
         return;
     };
     error_len = @intCast(slice.len);
-    if (is_wasm) {
-        js_console_log(&error_buf, error_len);
-    }
-}
-
-fn log(comptime fmt: []const u8, args: anytype) void {
-    var buf: [512]u8 = undefined;
-    const slice = std.fmt.bufPrint(&buf, fmt, args) catch return;
-    if (is_wasm) {
-        js_console_log(&buf, @intCast(slice.len));
-    }
 }
 
 /// Log a SQLite error with the actual error message from sqlite3_errmsg.
@@ -71,11 +52,9 @@ fn sqliteError(comptime context: []const u8, handle: anytype) void {
     }
 }
 
-// --- WASM memory management ---
-// compact=true (MCP/CF Workers): 16 MB. normal (web browser): 64 MB.
-const wasm_buf_size = if (config.compact) 16 * 1024 * 1024 else 64 * 1024 * 1024;
-var wasm_buf: [wasm_buf_size]u8 = undefined;
-var fba = std.heap.FixedBufferAllocator.init(&wasm_buf);
+// --- Memory for returned JSON (freed with wimg_free) ---
+var ret_buf: [64 * 1024 * 1024]u8 = undefined;
+var fba = std.heap.FixedBufferAllocator.init(&ret_buf);
 
 // Global database instance
 var global_db: ?Db = null;
@@ -99,8 +78,6 @@ export fn wimg_get_error() ?[*]const u8 {
 
 /// Initialize the database. Returns 0 on success, -1 on error.
 export fn wimg_init(path: [*:0]const u8) i32 {
-    log("wimg_init", .{});
-
     if (global_db != null) {
         global_db.?.close();
     }
@@ -110,15 +87,12 @@ export fn wimg_init(path: [*:0]const u8) i32 {
         return -1;
     };
 
-    log("wimg_init: database initialized successfully", .{});
     return 0;
 }
 
 /// Import a CSV file. Auto-detects format. Returns a pointer to a JSON string
 /// with the import result, or null on error.
 export fn wimg_import_csv(data: [*]const u8, len: u32) ?[*]const u8 {
-    log("wimg_import_csv: len={d}", .{len});
-
     var database = global_db orelse {
         setError("wimg_import_csv: database not initialized", .{});
         return null;
@@ -196,10 +170,6 @@ export fn wimg_import_csv(data: [*]const u8, len: u32) ?[*]const u8 {
         account_created = true;
     }
 
-    log("wimg_import_csv: format={s}, {d} imported, {d} duplicates, {d} errors, {d} auto-categorized", .{
-        format.name(), result.imported, result.skipped_duplicates, result.errors, categorized,
-    });
-
     // Serialize result to JSON (with format and categorized count)
     var json_buf: [512]u8 = undefined;
     const json_len = formatImportResultEx(&json_buf, &result, format, categorized) orelse {
@@ -213,8 +183,6 @@ export fn wimg_import_csv(data: [*]const u8, len: u32) ?[*]const u8 {
 /// Parse CSV without importing into the database (preview only).
 /// Returns a length-prefixed JSON string with format, total_rows, and transactions array.
 export fn wimg_parse_csv(data: [*]const u8, len: u32) ?[*]const u8 {
-    log("wimg_parse_csv: len={d}", .{len});
-
     const csv_data = data[0..len];
 
     const max_txns = 2000;
@@ -226,10 +194,6 @@ export fn wimg_parse_csv(data: [*]const u8, len: u32) ?[*]const u8 {
 
     var result: ImportResult = undefined;
     const format = parser.parseCsv(csv_data, txn_buf, &result);
-
-    log("wimg_parse_csv: format={s}, parsed {d} rows, {d} transactions", .{
-        format.name(), result.total_rows, result.imported,
-    });
 
     // Apply rule-based categorization (preview includes predicted categories)
     if (global_db) |database| {
@@ -1478,11 +1442,6 @@ export fn wimg_free(ptr: [*]const u8, len: u32) void {
     fba.reset();
 }
 
-/// Expose memory allocation for the JS host to write data into WASM memory.
-export fn wimg_alloc(size: u32) ?[*]u8 {
-    const buf = fba.allocator().alloc(u8, size) catch return null;
-    return buf.ptr;
-}
 // --- Snapshots ---
 
 /// Take a monthly snapshot for the given year/month. Returns 0 on success, -1 on error.
@@ -1735,18 +1694,16 @@ export fn wimg_decrypt_field(
 // --- FinTS (native-only) ---
 
 // Global FinTS session state — only exists on native targets
-var fints_session: if (!is_wasm) fints_mod.FintsSession else void = if (!is_wasm) fints_mod.FintsSession.init("", "", "", "") else {};
+var fints_session: fints_mod.FintsSession = fints_mod.FintsSession.init("", "", "", "");
 
 comptime {
-    if (!is_wasm) {
-        @export(&wimg_fints_connect, .{ .name = "wimg_fints_connect" });
-        @export(&wimg_fints_send_tan, .{ .name = "wimg_fints_send_tan" });
-        @export(&wimg_fints_fetch, .{ .name = "wimg_fints_fetch" });
-        @export(&wimg_fints_get_banks, .{ .name = "wimg_fints_get_banks" });
-        @export(&wimg_fints_get_tan_media, .{ .name = "wimg_fints_get_tan_media" });
-        @export(&wimg_fints_set_tan_medium, .{ .name = "wimg_fints_set_tan_medium" });
-        @export(&wimg_set_http_callback, .{ .name = "wimg_set_http_callback" });
-    }
+    @export(&wimg_fints_connect, .{ .name = "wimg_fints_connect" });
+    @export(&wimg_fints_send_tan, .{ .name = "wimg_fints_send_tan" });
+    @export(&wimg_fints_fetch, .{ .name = "wimg_fints_fetch" });
+    @export(&wimg_fints_get_banks, .{ .name = "wimg_fints_get_banks" });
+    @export(&wimg_fints_get_tan_media, .{ .name = "wimg_fints_get_tan_media" });
+    @export(&wimg_fints_set_tan_medium, .{ .name = "wimg_fints_set_tan_medium" });
+    @export(&wimg_set_http_callback, .{ .name = "wimg_set_http_callback" });
 }
 
 fn wimg_set_http_callback(cb: fints_http_mod.HttpCallback) callconv(.c) void {
@@ -1974,8 +1931,6 @@ fn normalizeTouchdownToken(raw: []const u8, out_buf: []u8) []const u8 {
 /// Connect to a bank via FinTS. Input JSON: {"blz":"...","user":"...","pin":"..."}
 /// Returns length-prefixed JSON: {"status":"ok"} or {"status":"tan_required","challenge":"..."}
 fn wimg_fints_connect(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
-    if (is_wasm) return null;
-
     const json = data[0..len];
 
     const blz = jsonExtractString(json, "\"blz\"") orelse {
@@ -2004,12 +1959,10 @@ fn wimg_fints_connect(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     @memcpy(fints_session.product_id[0..prod_len], product[0..prod_len]);
     fints_session.product_id_len = @intCast(prod_len);
 
-    if (!is_wasm) {
-        dbg.print("[FinTS Zig] bank_family={s} for BLZ {s}\n", .{
-            @tagName(fints_session.bank_family),
-            blz,
-        });
-    }
+    dbg.print("[FinTS Zig] bank_family={s} for BLZ {s}\n", .{
+        @tagName(fints_session.bank_family),
+        blz,
+    });
 
     // Step 1: First dialog (sec_func=999): BPD, UPD, TAN methods. With the system
     // id the app kept from an earlier sync it asks for no new one (no HKSYN); if
@@ -2050,24 +2003,22 @@ fn wimg_fints_connect(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         selectTanSecFuncFromSync(&sync_resp, &fints_session);
         fints_session.msg_num += 1;
 
-        if (!is_wasm) {
-            dbg.print("[FinTS Zig] sync ({s}) resp_len={d}, codes={d}, has_tan={}\n", .{
-                if (use_kept) "kept system id" else "new system id",
-                sync_resp_len,
-                sync_resp.code_count,
-                fints_session.has_pending_tan,
-            });
-            dbg.print("[FinTS Zig] dialog_id='{s}' (len={d})\n", .{
-                fints_session.dialogIdSlice(),
-                fints_session.dialog_id_len,
-            });
-            dbg.print("[FinTS Zig] system_id='{s}' (len={d})\n", .{
-                fints_session.systemIdSlice(),
-                fints_session.system_id_len,
-            });
-            for (sync_resp.codes[0..sync_resp.code_count]) |*c| {
-                dbg.print("[FinTS Zig] sync code: {s} '{s}'\n", .{ c.codeSlice(), c.textSlice() });
-            }
+        dbg.print("[FinTS Zig] sync ({s}) resp_len={d}, codes={d}, has_tan={}\n", .{
+            if (use_kept) "kept system id" else "new system id",
+            sync_resp_len,
+            sync_resp.code_count,
+            fints_session.has_pending_tan,
+        });
+        dbg.print("[FinTS Zig] dialog_id='{s}' (len={d})\n", .{
+            fints_session.dialogIdSlice(),
+            fints_session.dialog_id_len,
+        });
+        dbg.print("[FinTS Zig] system_id='{s}' (len={d})\n", .{
+            fints_session.systemIdSlice(),
+            fints_session.system_id_len,
+        });
+        for (sync_resp.codes[0..sync_resp.code_count]) |*c| {
+            dbg.print("[FinTS Zig] sync code: {s} '{s}'\n", .{ c.codeSlice(), c.textSlice() });
         }
 
         // Close the first dialog with its security function (999), whatever TAN method comes later.
@@ -2107,8 +2058,6 @@ fn wimg_fints_connect(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
 /// Submit a TAN. Input JSON: {"tan":"123456"}
 /// Returns length-prefixed JSON: {"status":"ok"} or {"status":"error","message":"..."}
 fn wimg_fints_send_tan(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
-    if (is_wasm) return null;
-
     const json = data[0..len];
     const tan = jsonExtractString(json, "\"tan\"") orelse {
         setError("wimg_fints_send_tan: missing tan field", .{});
@@ -2139,14 +2088,12 @@ fn wimg_fints_send_tan(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
             setError("wimg_fints_send_tan: failed to build TAN response", .{});
             return null;
         };
-        if (!is_wasm) {
-            dbg.print("[FinTS Zig] send tan: task_reference='{s}' (len={d})\n", .{
-                fints_session.challenge_ref[0..fints_session.challenge_ref_len],
-                fints_session.challenge_ref_len,
-            });
-            // Never the request itself: it carries the PIN and the TAN.
-            dbg.print("[FinTS Zig] send tan msg_len={d}\n", .{msg_len});
-        }
+        dbg.print("[FinTS Zig] send tan: task_reference='{s}' (len={d})\n", .{
+            fints_session.challenge_ref[0..fints_session.challenge_ref_len],
+            fints_session.challenge_ref_len,
+        });
+        // Never the request itself: it carries the PIN and the TAN.
+        dbg.print("[FinTS Zig] send tan msg_len={d}\n", .{msg_len});
 
         const resp_len = fints_http_mod.sendFintsMessage(
             std.heap.page_allocator,
@@ -2162,39 +2109,35 @@ fn wimg_fints_send_tan(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         fints_mod.parseResponse(&fints_session, resp_buf[0..resp_len], &resp);
         fints_session.msg_num += 1;
 
-        if (!is_wasm) {
-            dbg.print("[FinTS Zig] fetch hkkaz: resp_len={d}, codes={d}, mt940_len={d}, has_tan={}\n", .{
-                resp_len,
-                resp.code_count,
-                resp.mt940_len,
-                fints_session.has_pending_tan,
-            });
-            for (resp.codes[0..resp.code_count]) |*c| {
-                dbg.print("[FinTS Zig] fetch hkkaz code: {s} '{s}'\n", .{ c.codeSlice(), c.textSlice() });
-            }
-            if (resp.mt940_len == 0) {
-                const p_len = @min(resp_len, 260);
-                dbg.print("[FinTS Zig] fetch hkkaz resp[0..{d}]='{s}'\n", .{ p_len, resp_buf[0..p_len] });
-            } else {
-                const p_len = @min(@as(usize, resp.mt940_len), 120);
-                dbg.print("[FinTS Zig] fetch hkkaz mt940[0..{d}]='{s}'\n", .{ p_len, resp.mt940_data[0..p_len] });
-            }
+        dbg.print("[FinTS Zig] fetch hkkaz: resp_len={d}, codes={d}, mt940_len={d}, has_tan={}\n", .{
+            resp_len,
+            resp.code_count,
+            resp.mt940_len,
+            fints_session.has_pending_tan,
+        });
+        for (resp.codes[0..resp.code_count]) |*c| {
+            dbg.print("[FinTS Zig] fetch hkkaz code: {s} '{s}'\n", .{ c.codeSlice(), c.textSlice() });
+        }
+        if (resp.mt940_len == 0) {
+            const p_len = @min(resp_len, 260);
+            dbg.print("[FinTS Zig] fetch hkkaz resp[0..{d}]='{s}'\n", .{ p_len, resp_buf[0..p_len] });
+        } else {
+            const p_len = @min(@as(usize, resp.mt940_len), 120);
+            dbg.print("[FinTS Zig] fetch hkkaz mt940[0..{d}]='{s}'\n", .{ p_len, resp.mt940_data[0..p_len] });
         }
 
-        if (!is_wasm) {
-            dbg.print("[FinTS Zig] send tan: resp_len={d}, codes={d}, has_tan={}, challenge_len={d}, hhduc_len={d}\n", .{
-                resp_len,
-                resp.code_count,
-                fints_session.has_pending_tan,
-                fints_session.challenge_len,
-                fints_session.challenge_hhduc_len,
-            });
-            for (resp.codes[0..resp.code_count]) |*c| {
-                dbg.print("[FinTS Zig] send tan code: {s} '{s}'\n", .{ c.codeSlice(), c.textSlice() });
-            }
-            const p_len = @min(resp_len, 300);
-            dbg.print("[FinTS Zig] send tan resp[0..{d}]='{s}'\n", .{ p_len, resp_buf[0..p_len] });
+        dbg.print("[FinTS Zig] send tan: resp_len={d}, codes={d}, has_tan={}, challenge_len={d}, hhduc_len={d}\n", .{
+            resp_len,
+            resp.code_count,
+            fints_session.has_pending_tan,
+            fints_session.challenge_len,
+            fints_session.challenge_hhduc_len,
+        });
+        for (resp.codes[0..resp.code_count]) |*c| {
+            dbg.print("[FinTS Zig] send tan code: {s} '{s}'\n", .{ c.codeSlice(), c.textSlice() });
         }
+        const p_len = @min(resp_len, 300);
+        dbg.print("[FinTS Zig] send tan resp[0..{d}]='{s}'\n", .{ p_len, resp_buf[0..p_len] });
 
         if (resp.hasError()) {
             var result_buf: [1024]u8 = undefined;
@@ -2522,8 +2465,6 @@ test "sign-in: only a refused login counts as a wrong PIN" {
 }
 
 fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
-    if (is_wasm) return null;
-
     var database = global_db orelse {
         setError("wimg_fints_fetch: database not initialized", .{});
         return null;
@@ -2570,11 +2511,9 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         };
 
         // Debug: log auth init raw message
-        if (!is_wasm) {
-            // Never the request itself: its signature segment carries the PIN.
-            dbg.print("[FinTS Zig] auth init msg_len={d}\n", .{auth_len});
-            dbg.print("[FinTS Zig] auth init total_len={d}\n", .{auth_len});
-        }
+        // Never the request itself: its signature segment carries the PIN.
+        dbg.print("[FinTS Zig] auth init msg_len={d}\n", .{auth_len});
+        dbg.print("[FinTS Zig] auth init total_len={d}\n", .{auth_len});
 
         const auth_resp_len = fints_http_mod.sendFintsMessage(
             std.heap.page_allocator,
@@ -2591,47 +2530,45 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         fints_mod.parseResponse(&fints_session, resp_buf[0..auth_resp_len], &auth_resp);
         fints_session.msg_num += 1;
 
-        if (!is_wasm) {
-            dbg.print("[FinTS Zig] fetch auth: resp_len={d}, codes={d}, has_tan={}, dialog_id='{s}'\n", .{
-                auth_resp_len,
-                auth_resp.code_count,
-                fints_session.has_pending_tan,
-                fints_session.dialogIdSlice(),
+        dbg.print("[FinTS Zig] fetch auth: resp_len={d}, codes={d}, has_tan={}, dialog_id='{s}'\n", .{
+            auth_resp_len,
+            auth_resp.code_count,
+            fints_session.has_pending_tan,
+            fints_session.dialogIdSlice(),
+        });
+        dbg.print("[FinTS Zig] fetch auth: challenge_len={d}, hhduc_len={d}\n", .{
+            fints_session.challenge_len,
+            fints_session.challenge_hhduc_len,
+        });
+        if (fints_session.challenge_hhduc_len > 0) {
+            const hh = fints_session.challenge_hhduc[0..fints_session.challenge_hhduc_len];
+            const p0: u8 = if (hh.len > 0) hh[0] else 0;
+            const p1: u8 = if (hh.len > 1) hh[1] else 0;
+            const p2: u8 = if (hh.len > 2) hh[2] else 0;
+            const p3: u8 = if (hh.len > 3) hh[3] else 0;
+            dbg.print("[FinTS Zig] fetch auth: hhduc kind={s}, first4={x:0>2} {x:0>2} {x:0>2} {x:0>2}\n", .{
+                classifyHhduc(hh),
+                p0,
+                p1,
+                p2,
+                p3,
             });
-            dbg.print("[FinTS Zig] fetch auth: challenge_len={d}, hhduc_len={d}\n", .{
-                fints_session.challenge_len,
-                fints_session.challenge_hhduc_len,
-            });
-            if (fints_session.challenge_hhduc_len > 0) {
-                const hh = fints_session.challenge_hhduc[0..fints_session.challenge_hhduc_len];
-                const p0: u8 = if (hh.len > 0) hh[0] else 0;
-                const p1: u8 = if (hh.len > 1) hh[1] else 0;
-                const p2: u8 = if (hh.len > 2) hh[2] else 0;
-                const p3: u8 = if (hh.len > 3) hh[3] else 0;
-                dbg.print("[FinTS Zig] fetch auth: hhduc kind={s}, first4={x:0>2} {x:0>2} {x:0>2} {x:0>2}\n", .{
-                    classifyHhduc(hh),
-                    p0,
-                    p1,
-                    p2,
-                    p3,
-                });
-                if (hh.len >= 4) {
-                    const type_len: usize = (@as(usize, hh[0]) << 8) | @as(usize, hh[1]);
-                    if (type_len > 0 and 2 + type_len <= hh.len) {
-                        const mime = hh[2 .. 2 + type_len];
-                        if (std.mem.startsWith(u8, mime, "image/")) {
-                            dbg.print("[FinTS Zig] fetch auth: hhduc mime={s}\n", .{mime});
-                        }
+            if (hh.len >= 4) {
+                const type_len: usize = (@as(usize, hh[0]) << 8) | @as(usize, hh[1]);
+                if (type_len > 0 and 2 + type_len <= hh.len) {
+                    const mime = hh[2 .. 2 + type_len];
+                    if (std.mem.startsWith(u8, mime, "image/")) {
+                        dbg.print("[FinTS Zig] fetch auth: hhduc mime={s}\n", .{mime});
                     }
                 }
             }
-            // Show response codes
-            for (auth_resp.codes[0..auth_resp.code_count]) |*c| {
-                dbg.print("[FinTS Zig] fetch auth code: {s} '{s}'\n", .{ c.codeSlice(), c.textSlice() });
-            }
-            const p_len = @min(auth_resp_len, 450);
-            dbg.print("[FinTS Zig] fetch auth resp[0..{d}]='{s}'\n", .{ p_len, resp_buf[0..p_len] });
         }
+        // Show response codes
+        for (auth_resp.codes[0..auth_resp.code_count]) |*c| {
+            dbg.print("[FinTS Zig] fetch auth code: {s} '{s}'\n", .{ c.codeSlice(), c.textSlice() });
+        }
+        const p_len = @min(auth_resp_len, 450);
+        dbg.print("[FinTS Zig] fetch auth resp[0..{d}]='{s}'\n", .{ p_len, resp_buf[0..p_len] });
 
         if (auth_resp.hasError()) {
             // python-fints parity: when bank requests TAN mechanism selection (3920),
@@ -2696,19 +2633,17 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                     const hhduc = fints_session.challenge_hhduc[0..fints_session.challenge_hhduc_len];
                     var decoded_hhduc_buf: [8192]u8 = undefined;
                     const normalized_hhduc = normalizePhotoTanPayload(hhduc, &decoded_hhduc_buf);
-                    if (!is_wasm) {
-                        dbg.print("[FinTS Zig] fetch auth: normalized phototan kind={s}, len={d}\n", .{
-                            classifyHhduc(normalized_hhduc),
-                            normalized_hhduc.len,
-                        });
-                        const n0: u8 = if (normalized_hhduc.len > 0) normalized_hhduc[0] else 0;
-                        const n1: u8 = if (normalized_hhduc.len > 1) normalized_hhduc[1] else 0;
-                        const n2: u8 = if (normalized_hhduc.len > 2) normalized_hhduc[2] else 0;
-                        const n3: u8 = if (normalized_hhduc.len > 3) normalized_hhduc[3] else 0;
-                        dbg.print("[FinTS Zig] fetch auth: normalized first4={x:0>2} {x:0>2} {x:0>2} {x:0>2}\n", .{ n0, n1, n2, n3 });
-                        if (normalized_hhduc.len >= 4 and normalized_hhduc[0] == 0x89 and normalized_hhduc[1] == 'P' and normalized_hhduc[2] == 'N' and normalized_hhduc[3] == 'G') {
-                            dbg.print("[FinTS Zig] fetch auth: normalized png has_iend={}\n", .{pngHasIend(normalized_hhduc)});
-                        }
+                    dbg.print("[FinTS Zig] fetch auth: normalized phototan kind={s}, len={d}\n", .{
+                        classifyHhduc(normalized_hhduc),
+                        normalized_hhduc.len,
+                    });
+                    const n0: u8 = if (normalized_hhduc.len > 0) normalized_hhduc[0] else 0;
+                    const n1: u8 = if (normalized_hhduc.len > 1) normalized_hhduc[1] else 0;
+                    const n2: u8 = if (normalized_hhduc.len > 2) normalized_hhduc[2] else 0;
+                    const n3: u8 = if (normalized_hhduc.len > 3) normalized_hhduc[3] else 0;
+                    dbg.print("[FinTS Zig] fetch auth: normalized first4={x:0>2} {x:0>2} {x:0>2} {x:0>2}\n", .{ n0, n1, n2, n3 });
+                    if (normalized_hhduc.len >= 4 and normalized_hhduc[0] == 0x89 and normalized_hhduc[1] == 'P' and normalized_hhduc[2] == 'N' and normalized_hhduc[3] == 'G') {
+                        dbg.print("[FinTS Zig] fetch auth: normalized png has_iend={}\n", .{pngHasIend(normalized_hhduc)});
                     }
                     const b64_encoder = std.base64.standard.Encoder;
                     var b64_buf: [12288]u8 = undefined;
@@ -2793,17 +2728,15 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
             return null;
         };
         last_request_len = msg_len;
-        if (!is_wasm) {
-            // Never the request itself: its signature segment carries the PIN.
-            dbg.print("[FinTS Zig] fetch mode={s} msg_len={d}\n", .{ if (fetch_mode == .mt940) "mt940" else "camt", msg_len });
-            if (fints_session.account_ktv_len > 0) {
-                dbg.print("[FinTS Zig] fetch account_ktv='{s}'\n", .{fints_session.accountKtvSlice()});
-            } else {
-                dbg.print("[FinTS Zig] fetch account_ktv missing, fallback user_id='{s}'\n", .{fints_session.userIdSlice()});
-            }
-            if (touchdown.len > 0) {
-                dbg.print("[FinTS Zig] fetch touchdown='{s}'\n", .{touchdown});
-            }
+        // Never the request itself: its signature segment carries the PIN.
+        dbg.print("[FinTS Zig] fetch mode={s} msg_len={d}\n", .{ if (fetch_mode == .mt940) "mt940" else "camt", msg_len });
+        if (fints_session.account_ktv_len > 0) {
+            dbg.print("[FinTS Zig] fetch account_ktv='{s}'\n", .{fints_session.accountKtvSlice()});
+        } else {
+            dbg.print("[FinTS Zig] fetch account_ktv missing, fallback user_id='{s}'\n", .{fints_session.userIdSlice()});
+        }
+        if (touchdown.len > 0) {
+            dbg.print("[FinTS Zig] fetch touchdown='{s}'\n", .{touchdown});
         }
 
         const resp_len = fints_http_mod.sendFintsMessage(
@@ -2875,19 +2808,17 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                 balance_cents = mt940_result.closing_balance;
             }
 
-            if (!is_wasm) {
-                dbg.print("[FinTS Zig] fetch hkkaz mt940 parsed count={d}, errors={d}, mt940_len={d}\n", .{
-                    mt940_result.count,
-                    mt940_result.errors,
-                    resp.mt940_len,
+            dbg.print("[FinTS Zig] fetch hkkaz mt940 parsed count={d}, errors={d}, mt940_len={d}\n", .{
+                mt940_result.count,
+                mt940_result.errors,
+                resp.mt940_len,
+            });
+            const preview_len = @min(@as(usize, resp.mt940_len), 180);
+            if (preview_len > 0) {
+                dbg.print("[FinTS Zig] fetch hkkaz mt940 preview[0..{d}]='{s}'\n", .{
+                    preview_len,
+                    resp.mt940_data[0..preview_len],
                 });
-                const preview_len = @min(@as(usize, resp.mt940_len), 180);
-                if (preview_len > 0) {
-                    dbg.print("[FinTS Zig] fetch hkkaz mt940 preview[0..{d}]='{s}'\n", .{
-                        preview_len,
-                        resp.mt940_data[0..preview_len],
-                    });
-                }
             }
 
             for (txn_buf[0..mt940_result.count]) |*txn| {
@@ -2921,19 +2852,17 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                 balance_cents = camt_result.closing_balance;
             }
 
-            if (!is_wasm) {
-                dbg.print("[FinTS Zig] fetch hkcaz camt parsed count={d}, errors={d}, camt_len={d}\n", .{
-                    camt_result.count,
-                    camt_result.errors,
-                    resp.camt_len,
+            dbg.print("[FinTS Zig] fetch hkcaz camt parsed count={d}, errors={d}, camt_len={d}\n", .{
+                camt_result.count,
+                camt_result.errors,
+                resp.camt_len,
+            });
+            const preview_len = @min(@as(usize, resp.camt_len), 180);
+            if (preview_len > 0) {
+                dbg.print("[FinTS Zig] fetch hkcaz camt preview[0..{d}]='{s}'\n", .{
+                    preview_len,
+                    resp.camt_data[0..preview_len],
                 });
-                const preview_len = @min(@as(usize, resp.camt_len), 180);
-                if (preview_len > 0) {
-                    dbg.print("[FinTS Zig] fetch hkcaz camt preview[0..{d}]='{s}'\n", .{
-                        preview_len,
-                        resp.camt_data[0..preview_len],
-                    });
-                }
             }
 
             // CAMT next to MT940 history: a booking whose twin (same account, day and
@@ -2990,9 +2919,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                 used_camt_fallback = true;
                 touchdown = "";
                 page_count = 0;
-                if (!is_wasm) {
-                    dbg.print("[FinTS Zig] fetch fallback: switching from HKKAZ to HKCAZ\n", .{});
-                }
+                dbg.print("[FinTS Zig] fetch fallback: switching from HKKAZ to HKCAZ\n", .{});
                 continue;
             }
             break;
@@ -3025,12 +2952,10 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         return makeLengthPrefixed(bankErrorJsonReq("No statement payload from bank", seen[0..seen_count], preview, &result_buf));
     }
 
-    if (!is_wasm) {
-        if (used_camt_fallback) {
-            dbg.print("[FinTS Zig] fetch fallback used: HKCAZ/HICAZ path\n", .{});
-        }
-        dbg.print("[FinTS Zig] fetch hkkaz import result imported={d}, duplicates={d}\n", .{ imported, duplicates });
+    if (used_camt_fallback) {
+        dbg.print("[FinTS Zig] fetch fallback used: HKCAZ/HICAZ path\n", .{});
     }
+    dbg.print("[FinTS Zig] fetch hkkaz import result imported={d}, duplicates={d}\n", .{ imported, duplicates });
 
     // Auto-create account entry
     database.ensureAccount(account_name, account_name, "#4361ee") catch {};
@@ -3052,7 +2977,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     // not-yet-booked entries in CAMT (HICAZ DE 4). One extra request for the
     // last 30 days; only that part is used, booked entries stay from MT940
     // (switching them to CAMT would change their texts and ids).
-    if (!is_wasm and fetch_mode == .mt940 and !saw_pending_part and fints_session.supports_camt and fints_session.account_iban_len > 0) {
+    if (fetch_mode == .mt940 and !saw_pending_part and fints_session.supports_camt and fints_session.account_iban_len > 0) {
         var pfrom_buf: [8]u8 = undefined;
         const pfrom = daysBefore(to, 30, &pfrom_buf) orelse from;
         if (fints_mod.buildPendingCamt(&fints_session, pfrom, to, &msg_buf)) |plen| {
@@ -3091,8 +3016,6 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
 /// Get the list of supported banks as JSON.
 /// Returns length-prefixed JSON array.
 fn wimg_fints_get_banks() callconv(.c) ?[*]const u8 {
-    if (is_wasm) return null;
-
     var buf: [262144]u8 = undefined; // 256KB — ~1750 banks × ~140 bytes each
     const len = banks_mod.toJson(&buf) orelse {
         setError("wimg_fints_get_banks: buffer too small", .{});
@@ -3107,8 +3030,6 @@ fn wimg_fints_get_banks() callconv(.c) ?[*]const u8 {
 /// - success: {"status":"ok","media":[{"name":"...","status":1},...]}
 /// - error:   {"status":"error","message":"..."}
 fn wimg_fints_get_tan_media() callconv(.c) ?[*]const u8 {
-    if (is_wasm) return null;
-
     if (!fints_session.tan_medium_required) {
         // Bank does not require TAN medium selection.
         return makeLengthPrefixed("{\"status\":\"ok\",\"media\":[]}");
@@ -3140,10 +3061,8 @@ fn wimg_fints_get_tan_media() callconv(.c) ?[*]const u8 {
     fints_mod.parseResponse(&fints_session, resp_buf[0..init_resp_len], &init_resp);
     fints_session.msg_num += 1;
     if (init_resp.hasError()) {
-        if (!is_wasm) {
-            for (init_resp.codes[0..init_resp.code_count]) |*c| {
-                dbg.print("[FinTS Zig] HKTAB dialog init code: {s} '{s}'\n", .{ c.codeSlice(), c.textSlice() });
-            }
+        for (init_resp.codes[0..init_resp.code_count]) |*c| {
+            dbg.print("[FinTS Zig] HKTAB dialog init code: {s} '{s}'\n", .{ c.codeSlice(), c.textSlice() });
         }
         fints_session.resetDialog();
         return makeLengthPrefixed("{\"status\":\"error\",\"message\":\"TAN-Medien konnten nicht geladen werden\"}");
@@ -3174,9 +3093,7 @@ fn wimg_fints_get_tan_media() callconv(.c) ?[*]const u8 {
     fints_mod.parseResponse(&fints_session, resp_buf[0..resp_len], &resp);
     fints_session.msg_num += 1;
 
-    if (!is_wasm) {
-        dbg.print("[FinTS Zig] HKTAB resp: tan_media_count={d}\n", .{resp.tan_media_count});
-    }
+    dbg.print("[FinTS Zig] HKTAB resp: tan_media_count={d}\n", .{resp.tan_media_count});
 
     // Build JSON object with TAN media array
     var json_buf: [3072]u8 = undefined;
@@ -3219,8 +3136,6 @@ fn wimg_fints_get_tan_media() callconv(.c) ?[*]const u8 {
 /// Input JSON: {"name":"iPhone von Max"}
 /// This must be called before wimg_fints_fetch if the bank requires medium selection.
 fn wimg_fints_set_tan_medium(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
-    if (is_wasm) return null;
-
     const json = data[0..len];
     const name = jsonExtractString(json, "\"name\"") orelse {
         return makeLengthPrefixed("{\"status\":\"error\",\"message\":\"Missing name field\"}");
@@ -3230,9 +3145,7 @@ fn wimg_fints_set_tan_medium(data: [*]const u8, len: u32) callconv(.c) ?[*]const
     @memcpy(fints_session.tan_medium_name[0..n_len], name[0..n_len]);
     fints_session.tan_medium_name_len = @intCast(n_len);
 
-    if (!is_wasm) {
-        dbg.print("[FinTS Zig] TAN medium set to '{s}'\n", .{fints_session.tan_medium_name[0..n_len]});
-    }
+    dbg.print("[FinTS Zig] TAN medium set to '{s}'\n", .{fints_session.tan_medium_name[0..n_len]});
 
     return makeLengthPrefixed("{\"status\":\"ok\"}");
 }

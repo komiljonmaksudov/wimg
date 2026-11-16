@@ -23,9 +23,6 @@ void wimg_close(void);
 // Free a pointer previously returned by other wimg_ functions.
 void wimg_free(const uint8_t *ptr, uint32_t len);
 
-// Allocate memory in the wimg scratch space. Used by WASM host.
-uint8_t *wimg_alloc(uint32_t size);
-
 // Get the last error message (length-prefixed string), or NULL if no error.
 const uint8_t *wimg_get_error(void);
 
@@ -223,8 +220,7 @@ const uint8_t *wimg_encrypt_field(const uint8_t *plaintext, uint32_t plaintext_l
 const uint8_t *wimg_decrypt_field(const uint8_t *ciphertext, uint32_t ciphertext_len,
                                   const uint8_t *key);
 
-// --- FinTS (native only — not available in WASM builds) ---
-#if !defined(LIBWIMG_WASM)
+// --- FinTS ---
 
 // Set HTTP callback for platform-native HTTPS.
 // On iOS, this should be set to a function using URLSession.
@@ -272,7 +268,7 @@ const uint8_t *wimg_fints_get_tan_media(void);
 // Must be called before wimg_fints_fetch if bank requires medium selection.
 const uint8_t *wimg_fints_set_tan_medium(const uint8_t *data, uint32_t len);
 
-#endif // !LIBWIMG_WASM
+
 
 #ifdef __cplusplus
 }

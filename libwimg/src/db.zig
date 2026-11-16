@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const types = @import("types.zig");
 const categories = @import("categories.zig");
 const booking = @import("booking.zig");
@@ -11,19 +10,12 @@ const Date = types.Date;
 const Category = types.Category;
 const ImportResult = types.ImportResult;
 
-// Time: on WASM, import from JS host; on native, call libc gettimeofday
-// directly to avoid threading an Io instance through every call site.
-const is_wasm = builtin.cpu.arch == .wasm32;
-extern fn js_time_ms() i64;
-
+// Time: libc gettimeofday directly, to avoid threading an Io instance
+// through every call site.
 pub fn nowMs() i64 {
-    if (is_wasm) {
-        return js_time_ms();
-    } else {
-        var tv: std.c.timeval = undefined;
-        _ = std.c.gettimeofday(&tv, null);
-        return @as(i64, tv.sec) * 1000 + @divTrunc(@as(i64, tv.usec), 1000);
-    }
+    var tv: std.c.timeval = undefined;
+    _ = std.c.gettimeofday(&tv, null);
+    return @as(i64, tv.sec) * 1000 + @divTrunc(@as(i64, tv.usec), 1000);
 }
 
 pub const DbError = error{

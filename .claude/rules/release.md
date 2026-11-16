@@ -64,16 +64,14 @@ Triggered on tag push (`v*`) or manual dispatch:
 ```
 detect-changes     → iOS/Android builds only if the tag touched libwimg/ or the platform dir
 check              → zig fmt + zig build test (libwimg, wimg-sync-zig),
-                     translation tables match i18n/en.ts (codegen + git diff),
-                     tsc --noEmit for wimg-sync
+                     translation tables match i18n/en.ts (codegen + git diff)
   ↓
-build-wasm         → compact WASM (artifact only)
 build-libwimg-ios  → XCFramework (macos-15)
 build-ios          → archive + TestFlight upload (macos-26; skipped without ASC_* secrets)
 build-android      → libwimg.so + debug APK (+ signed Play bundle if keystore secrets exist)
 build-sync-server  → wimg-sync-zig Linux binary
   ↓
-release            → GitHub Release: compact WASM, XCFramework, .so, APK, wimg-sync-linux-x86_64
+release            → GitHub Release: XCFramework, .so, APK, wimg-sync-linux-x86_64
 ```
 
 CI never deploys. The landing page and sync server ship from a Mac with

@@ -5,7 +5,7 @@ Audience: engineers touching `libwimg/src/fints.zig`, `root.zig`, `mt940.zig`, `
 
 ## Scope
 
-- Native-only FinTS (iOS + Android), no WASM transport.
+- FinTS on iOS + Android.
 - Protocol implemented in Zig, transport via C callback (`URLSession` on iOS, OkHttp on Android).
 - Current verified bank: Comdirect (`BLZ 20041177`).
 - Anonymous init (`buildAnonInit`) is only used by the Subsembly integration

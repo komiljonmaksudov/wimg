@@ -1,10 +1,6 @@
 const std = @import("std");
 const dbg = @import("dbg.zig");
-const builtin = @import("builtin");
-const is_wasm = builtin.cpu.arch == .wasm32;
-const banks_mod = if (!is_wasm) @import("banks.zig") else struct {
-    pub const BankFamily = enum(u8) { standard = 0, deutsche_bank = 1, postbank = 2, norisbank = 3 };
-};
+const banks_mod = @import("banks.zig");
 
 /// FinTS 3.0 session state. Tracks dialog lifecycle and TAN flow.
 pub const FintsSession = struct {
@@ -134,7 +130,7 @@ pub const FintsSession = struct {
         s.has_pending_tan = false;
         s.has_active_dialog = false;
         s.decoupled = false;
-        s.bank_family = if (!is_wasm) banks_mod.detectBankFamily(url) else .standard;
+        s.bank_family = banks_mod.detectBankFamily(url);
         s.challenge_len = 0;
         s.challenge_hhduc_len = 0;
         s.challenge_ref_len = 0;
@@ -450,12 +446,6 @@ fn buildHktanProcessSubmit(session: *const FintsSession, tan_process: []const u8
 }
 
 fn fillCurrentDateTime(date_buf: *[8]u8, time_buf: *[6]u8) void {
-    if (is_wasm) {
-        @memcpy(date_buf[0..8], "19700101");
-        @memcpy(time_buf[0..6], "000000");
-        return;
-    }
-
     var tv: std.c.timeval = undefined;
     _ = std.c.gettimeofday(&tv, null);
     const now_secs: i64 = tv.sec;
@@ -1085,14 +1075,12 @@ pub fn parseResponse(session: *FintsSession, data: []const u8, out: *ParsedRespo
         } else if (std.mem.startsWith(u8, segment, "HNVSD")) {
             // Security envelope contains inner segments
             if (extractEnvelopeContent(segment)) |inner| {
-                if (!is_wasm) {
-                    const plen = @min(inner.len, 120);
-                    dbg.print("[FinTS Zig] HNVSD inner[0..{d}]='{s}'\n", .{ plen, inner[0..plen] });
-                    dbg.print("[FinTS Zig] HNVSD inner.len={d}, segment.len={d}\n", .{ inner.len, segment.len });
-                }
+                const plen = @min(inner.len, 120);
+                dbg.print("[FinTS Zig] HNVSD inner[0..{d}]='{s}'\n", .{ plen, inner[0..plen] });
+                dbg.print("[FinTS Zig] HNVSD inner.len={d}, segment.len={d}\n", .{ inner.len, segment.len });
                 parseResponse(session, inner, out);
             } else {
-                if (!is_wasm) dbg.print("[FinTS Zig] HNVSD: extractEnvelopeContent returned null!\n", .{});
+                dbg.print("[FinTS Zig] HNVSD: extractEnvelopeContent returned null!\n", .{});
             }
         } else if (std.mem.startsWith(u8, segment, "HIRMG") or std.mem.startsWith(u8, segment, "HIRMS")) {
             // Response codes
@@ -1101,10 +1089,8 @@ pub fn parseResponse(session: *FintsSession, data: []const u8, out: *ParsedRespo
             // Security header — skip
         } else if (std.mem.startsWith(u8, segment, "HISYN")) {
             // System ID response
-            if (!is_wasm) {
-                const plen = @min(segment.len, 80);
-                dbg.print("[FinTS Zig] HISYN segment='{s}'\n", .{segment[0..plen]});
-            }
+            const plen = @min(segment.len, 80);
+            dbg.print("[FinTS Zig] HISYN segment='{s}'\n", .{segment[0..plen]});
             extractSystemId(segment, out);
         } else if (std.mem.startsWith(u8, segment, "HITANS:")) {
             // TAN method params (version advertised by bank). Track highest seen version.
@@ -2301,7 +2287,7 @@ fn writeKti1(session: *const FintsSession, out: []u8, short: bool) ?usize {
     }
     const iban = session.account_iban[0..session.account_iban_len];
     var bic: []const u8 = "";
-    if (!is_wasm and iban.len > 0) {
+    if (iban.len > 0) {
         if (banks_mod.findByBlz(&session.blz)) |bank| bic = bank.bicSlice();
     }
     // IBAN:BIC alone (python-fints form). Comdirect rejects the long form in
