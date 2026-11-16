@@ -15,6 +15,9 @@ pub const FintsSession = struct {
     user_id_len: u8,
     account_ktv: [96]u8, // Kontoverbindung (Ktonr:Unterkonto:280:BLZ) from HIUPD
     account_ktv_len: u8,
+    /// How well the chosen HIUPD account suits statements (see hiupdScore); a later
+    /// account replaces it only when it scores higher, so the list order doesn't matter.
+    account_score: u8 = 0,
     account_iban: [34]u8, // IBAN of that account (HIUPD), needed for KTI1 (HKKAZ v7, HKCAZ)
     account_iban_len: u8,
     pin: [64]u8,
@@ -93,6 +96,7 @@ pub const FintsSession = struct {
         s.user_id_len = @intCast(uid_len);
         s.account_ktv_len = 0;
         s.account_iban_len = 0;
+        s.account_score = 0;
 
         const pin_l = @min(pin.len, 64);
         @memcpy(s.pin[0..pin_l], pin[0..pin_l]);
@@ -2276,7 +2280,31 @@ fn looksLikeIban(s: []const u8) bool {
     return true;
 }
 
+/// Which account of the login to fetch: one whose HIUPD allows statements
+/// (HKKAZ/HKCAZ) beats one that doesn't, a current account (Kontoart 1-9) beats a
+/// depot or card. Comdirect, 2026-11-16: with the last listed account winning, a
+/// statement request went to an account that has none and came back as
+/// "9900 Interner Fehler".
+fn hiupdScore(segment: []const u8) u8 {
+    var score: u8 = 1;
+    if (std.mem.indexOf(u8, segment, "HKKAZ") != null or std.mem.indexOf(u8, segment, "HKCAZ") != null) score += 4;
+    // Kontoart: the first data element after the account that is 1-2 digits.
+    var it = std.mem.splitScalar(u8, segment, '+');
+    _ = it.next(); // segment head
+    _ = it.next(); // Kontoverbindung
+    while (it.next()) |f| {
+        if (f.len >= 1 and f.len <= 2 and std.ascii.isDigit(f[0]) and (f.len == 1 or std.ascii.isDigit(f[1]))) {
+            const art = std.fmt.parseInt(u8, f, 10) catch break;
+            if (art >= 1 and art <= 9) score += 2;
+            break;
+        }
+    }
+    return score;
+}
+
 fn extractAccountKtvFromHiupd(session: *FintsSession, segment: []const u8) void {
+    const score = hiupdScore(segment);
+    if (score <= session.account_score) return;
     // Find a field like "Ktonr:Unterkonto:280:BLZ" and keep it for HKKAZ requests.
     var pos: usize = 0;
     while (pos < segment.len and segment[pos] != '+') : (pos += 1) {}
@@ -2295,6 +2323,7 @@ fn extractAccountKtvFromHiupd(session: *FintsSession, segment: []const u8) void 
                         const copy_len = @min(candidate.len, session.account_ktv.len);
                         @memcpy(session.account_ktv[0..copy_len], candidate[0..copy_len]);
                         session.account_ktv_len = @intCast(copy_len);
+                        session.account_score = score;
                         // HIUPD v6+: the next data element is this account's IBAN.
                         session.account_iban_len = 0;
                         if (pos < segment.len) {
@@ -2830,6 +2859,19 @@ fn testSessionWithHiupd() FintsSession {
     var resp = ParsedResponse.init();
     parseResponse(&s, "HIUPD:151:6:4+1234567890::280:10050000+DE12100500001234567890+testuser+1+EUR+Max Mustermann++Girokonto'", &resp);
     return s;
+}
+
+test "HIUPD: the account that allows statements wins, whatever the order" {
+    var s = FintsSession.init("20041177", "https://x.de/f", "u", "p");
+    var resp = ParsedResponse.init();
+    // Girokonto first, then a depot (no HKKAZ, Kontoart 30) and a card: Girokonto stays.
+    parseResponse(&s, "HIUPD:5:6:4+1111111111::280:20041177+DE11200411771111111111+u+1+EUR+Max Muster++Girokonto++HKKAZ:1+HKSAL:1'HIUPD:6:6:4+2222222222::280:20041177+DE22200411772222222222+u+30+EUR+Max Muster++Depot++HKWPD:1'HIUPD:7:6:4+3333333333::280:20041177+DE33200411773333333333+u+50+EUR+Max Muster++Visa'", &resp);
+    try std.testing.expectEqualStrings("1111111111::280:20041177", s.accountKtvSlice());
+    try std.testing.expectEqualStrings("DE11200411771111111111", s.account_iban[0..s.account_iban_len]);
+    // Depot listed first: the Girokonto after it still wins.
+    var t = FintsSession.init("20041177", "https://x.de/f", "u", "p");
+    parseResponse(&t, "HIUPD:5:6:4+2222222222::280:20041177+DE22200411772222222222+u+30+EUR+Max Muster++Depot++HKWPD:1'HIUPD:6:6:4+1111111111::280:20041177+DE11200411771111111111+u+1+EUR+Max Muster++Girokonto++HKKAZ:1'", &resp);
+    try std.testing.expectEqualStrings("1111111111::280:20041177", t.accountKtvSlice());
 }
 
 test "HIUPD: account IBAN is kept next to the account reference" {

@@ -2329,6 +2329,40 @@ fn noStatementJson(seen: []const SeenCode, buf: []u8) []const u8 {
 
 /// An error answer naming the code that explains it, plus every code (for the log).
 fn bankErrorJson(comptime what: []const u8, seen: []const SeenCode, buf: []u8) []const u8 {
+    return bankErrorJsonReq(what, seen, "", buf);
+}
+
+/// The request's statement and TAN segments for the log: no PIN (that is only in
+/// HNSHA), digit runs of 9+ masked down to their last 3 (account number, IBAN;
+/// dates and the public BLZ stay readable).
+fn requestPreview(msg: []const u8, out: []u8) []const u8 {
+    var w = std.Io.Writer.fixed(out);
+    for ([_][]const u8{ "HKKAZ:", "HKCAZ:", "HKTAN:" }) |tag| {
+        const start = std.mem.indexOf(u8, msg, tag) orelse continue;
+        const end = std.mem.indexOfScalarPos(u8, msg, start, '\'') orelse msg.len;
+        const seg = msg[start..end];
+        var i: usize = 0;
+        while (i < seg.len) {
+            if (std.ascii.isDigit(seg[i])) {
+                var j = i;
+                while (j < seg.len and std.ascii.isDigit(seg[j])) j += 1;
+                const run = seg[i..j];
+                if (run.len >= 9) {
+                    for (0..run.len - 3) |_| w.writeByte('*') catch return w.buffered();
+                    w.writeAll(run[run.len - 3 ..]) catch return w.buffered();
+                } else w.writeAll(run) catch return w.buffered();
+                i = j;
+            } else {
+                w.writeByte(seg[i]) catch return w.buffered();
+                i += 1;
+            }
+        }
+        w.writeAll("' ") catch return w.buffered();
+    }
+    return w.buffered();
+}
+
+fn bankErrorJsonReq(comptime what: []const u8, seen: []const SeenCode, request: []const u8, buf: []u8) []const u8 {
     const fallback = "{\"status\":\"error\",\"message\":\"" ++ what ++ "\"}";
     var w = std.Io.Writer.fixed(buf);
     w.writeAll("{\"status\":\"error\",\"message\":\"" ++ what) catch return fallback;
@@ -2342,6 +2376,10 @@ fn bankErrorJson(comptime what: []const u8, seen: []const SeenCode, buf: []u8) [
         if (i > 0) w.writeAll("; ") catch break;
         w.print("{s} {s} ", .{ c.step, c.code.codeSlice() }) catch break;
         writeJsonEscaped(&w, c.code.textSlice()) catch break;
+    }
+    if (request.len > 0) {
+        w.writeAll(" || request: ") catch return fallback;
+        writeJsonEscaped(&w, request) catch return fallback;
     }
     w.writeAll("\"}") catch return fallback;
     return w.buffered();
@@ -2425,6 +2463,14 @@ test "no statement: the explaining code wins over general notes, all codes liste
     // Only general notes: the first non-success one is still named.
     const only_general = [_]SeenCode{seen[1]};
     try std.testing.expect(std.mem.indexOf(u8, noStatementJson(&only_general, &buf), "(HKKAZ 3060: ") != null);
+}
+
+test "request preview: statement and TAN segments, account digits masked, never the signature" {
+    var out: [512]u8 = undefined;
+    const msg = "HNHBK:1:3+000000000200+300+0+1'HNSHK:2:4+PIN:2+999'HKKAZ:3:5+1234567890::280:20041177+N+20260818+20261116'HKTAN:4:6+4+HKKAZ'HNSHA:5:2+123++geheim'HNHBS:6:1+1'";
+    const p = requestPreview(msg, &out);
+    try std.testing.expectEqualStrings("HKKAZ:3:5+*******890::280:20041177+N+20260818+20261116' HKTAN:4:6+4+HKKAZ' ", p);
+    try std.testing.expect(std.mem.indexOf(u8, p, "geheim") == null);
 }
 
 test "sign-in: only a refused login counts as a wrong PIN" {
@@ -2683,6 +2729,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     // (Comdirect, 2026-11-16: with 9900 "Interner Fehler"). Ask again later, and
     // don't try the CAMT form, which Comdirect then rejects with a misleading 3010.
     var bank_asks_resend = false;
+    var last_request_len: usize = 0;
 
     while (true) {
         const msg_len = switch (fetch_mode) {
@@ -2693,6 +2740,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
             fints_session.clearPin();
             return null;
         };
+        last_request_len = msg_len;
         if (!is_wasm) {
             // Never the request itself: its signature segment carries the PIN.
             dbg.print("[FinTS Zig] fetch mode={s} msg_len={d}\n", .{ if (fetch_mode == .mt940) "mt940" else "camt", msg_len });
@@ -2885,11 +2933,14 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     }
 
     if (!saw_mt940 and !saw_camt) {
+        // Before HKEND overwrites msg_buf: what we asked for, for the log.
+        var preview_buf: [1024]u8 = undefined;
+        const preview = requestPreview(msg_buf[0..last_request_len], &preview_buf);
         _ = sendDialogEnd(&fints_session, fints_session.tanSecFuncSlice(), &msg_buf, resp_buf);
         fints_session.clearPin();
         var result_buf: [4096]u8 = undefined;
-        if (bank_asks_resend) return makeLengthPrefixed(bankErrorJson("Bank asks to try again", seen[0..seen_count], &result_buf));
-        return makeLengthPrefixed(noStatementJson(seen[0..seen_count], &result_buf));
+        if (bank_asks_resend) return makeLengthPrefixed(bankErrorJsonReq("Bank asks to try again", seen[0..seen_count], preview, &result_buf));
+        return makeLengthPrefixed(bankErrorJsonReq("No statement payload from bank", seen[0..seen_count], preview, &result_buf));
     }
 
     if (!is_wasm) {
