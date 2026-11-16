@@ -433,7 +433,7 @@ object BackgroundRefresh {
         return outcomes.firstOrNull { it is Outcome.AuthFailed } ?: outcomes.firstOrNull { it is Outcome.TanRequired } ?: Outcome.Silent
     }
 
-    private suspend fun refreshOne(context: Context, conn: BankConnection): Outcome {
+    private suspend fun refreshOne(context: Context, conn: BankConnection, camt: Boolean = conn.camt, retried: Boolean = false): Outcome {
         val blz = conn.blz
         val kennung = conn.kennung
         val pin = PinStore.get(context, conn.id) ?: return Outcome.Silent
@@ -473,7 +473,7 @@ object BackgroundRefresh {
             val from = isoDate(cal)
 
             val fetch = withFintsThread {
-                com.wimg.app.bridge.LibWimg.fintsFetch(kotlinx.serialization.json.buildJsonObject { put("from", from); put("to", to) }.toString())
+                com.wimg.app.bridge.LibWimg.fintsFetch(kotlinx.serialization.json.buildJsonObject { put("from", from); put("to", to); if (camt) put("format", "camt") }.toString())
                     ?.let { json.decodeFromString<FintsResult>(it) }
             } ?: return Outcome.Silent
 
@@ -485,8 +485,13 @@ object BackgroundRefresh {
             }
             if (fetch.status != "ok") {
                 fetch.codes?.let { android.util.Log.w("wimg-fints", "background fetch $from..$to: ${fetch.message} | $it") }
+                // The bank failed on its side: once more in the other format (signs in again).
+                val m = fetch.message.orEmpty()
+                if (!retried && (m.startsWith("Bank asks to try again") || m.startsWith("No statement payload") || m.startsWith("Bank refused the request")))
+                    return refreshOne(context, conn, camt = !camt, retried = true)
                 return Outcome.Silent // don't spam on transient errors
             }
+            BankConnections.setCamt(context, conn.id, camt)
 
             val imported = fetch.imported ?: 0
             // Same fields the bank page shows as "Letzter Abruf".

@@ -153,7 +153,18 @@ private const val PRODUCT = "F7C4049477F6136957A46EC28"
 private fun connectBody(blz: String, user: String, pin: String) =
     buildJsonObject { put("blz", blz); put("user", user); put("pin", pin); put("product", PRODUCT) }.toString()
 private fun tanBody(tan: String) = buildJsonObject { put("tan", tan) }.toString()
-private fun fetchBody(from: String, to: String) = buildJsonObject { put("from", from); put("to", to) }.toString()
+private fun fetchBody(from: String, to: String, camt: Boolean = false) = buildJsonObject { put("from", from); put("to", to); if (camt) put("format", "camt") }.toString()
+
+/**
+ * The bank answered, but not with statements, for reasons of its own (server
+ * error, "send again", no statement part): worth one more try in the other
+ * format. Never a refused login, a TAN or a missing PIN.
+ */
+private fun formatMayHelp(r: FintsResult?): Boolean {
+    val m = r?.message ?: return false
+    return r.status == "error" && !isAuthRejected(r) &&
+        (m.startsWith("Bank asks to try again") || m.startsWith("No statement payload") || m.startsWith("Bank refused the request"))
+}
 private fun mediumBody(name: String) = buildJsonObject { put("name", name) }.toString()
 
 private fun iso(c: Calendar) = "%04d-%02d-%02d".format(c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH))
@@ -213,7 +224,7 @@ private object FintsJob {
      * fetches the last 90 days without leaving the page. The bank's page opens
      * only when the bank wants something from the user (TAN, TAN device, login).
      */
-    fun quick(context: Context, conn: com.wimg.app.services.BankConnection, range: Pair<String, String> = rangeDays(90), retried: Boolean = false) {
+    fun quick(context: Context, conn: com.wimg.app.services.BankConnection, range: Pair<String, String> = rangeDays(90), retried: Boolean = false, camt: Boolean? = null) {
         if (running) return
         val saved = PinStore.get(context, conn.id) ?: run { openPage(conn.id, quick = true); return }
         Dock.show(DockRow(DockKind.Sync, __t("Anmelden"), conn.name))
@@ -238,7 +249,7 @@ private object FintsJob {
                         withFintsThread { com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsSetTanMedium(mediumBody(m)) } }
                     }
                     BackgroundRefresh.enqueue(context)
-                    fetch(context, conn.id, range, conn.name, retried = retried)
+                    fetch(context, conn.id, range, conn.name, retried = retried, camt = camt)
                 }
                 r.status == "tan_required" -> {
                     Dock.dismiss()
@@ -290,7 +301,7 @@ private object FintsJob {
                 withFintsThread {
                     if (medium != null) com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsSetTanMedium(mediumBody(medium)) }
                     val (from, to) = rangeDays(14)
-                    decode(com.wimg.app.bridge.LibWimg.fintsFetch(fetchBody(from, to)))
+                    decode(com.wimg.app.bridge.LibWimg.fintsFetch(fetchBody(from, to, conn.camt)))
                 }
             }.getOrNull() else null
             running = false
@@ -303,6 +314,8 @@ private object FintsJob {
                         com.wimg.app.ui.components.NavRequest.route = bankRoute(conn.id)
                     }
                 }
+                // The bank failed on its side: the other format, quietly (signs in again).
+                formatMayHelp(f) -> again(context, conn.id, rangeDays(14), conn.name, retried = true, camt = !conn.camt)
                 f != null && (f.imported != null || f.status == "ok") -> {
                     val n = f.imported ?: 0
                     BankConnections.recordFetch(context, conn.id, n)
@@ -320,9 +333,9 @@ private object FintsJob {
      * signs in again with the saved PIN (like ↻); without one, the bank's page
      * opens for the login.
      */
-    private fun again(context: Context, connId: String, range: Pair<String, String>, bankName: String, retried: Boolean = false) {
+    private fun again(context: Context, connId: String, range: Pair<String, String>, bankName: String, retried: Boolean = false, camt: Boolean? = null) {
         val conn = BankConnections.get(context, connId)
-        if (conn != null && PinStore.get(context, connId) != null) quick(context, conn, range, retried)
+        if (conn != null && PinStore.get(context, connId) != null) quick(context, conn, range, retried, camt)
         else { Dock.dismiss(); openPage(connId) }
     }
 
@@ -332,24 +345,28 @@ private object FintsJob {
     }
     var lastRange: Pair<String, String>? = null
 
-    fun fetch(context: Context, connId: String, range: Pair<String, String>, bankName: String, retried: Boolean = false, onDone: (FintsResult?) -> Unit = {}) {
+    fun fetch(context: Context, connId: String, range: Pair<String, String>, bankName: String, retried: Boolean = false, camt: Boolean? = null, onDone: (FintsResult?) -> Unit = {}) {
+        val useCamt = camt ?: (BankConnections.get(context, connId)?.camt ?: false)
         if (running) return
         running = true
         lastRange = range
         Dock.show(DockRow(DockKind.Sync, __t("Umsätze laden"), __t("%s · läuft im Hintergrund").format(bankName)))
         scope.launch {
-            val result = runCatching { withFintsThread { decode(com.wimg.app.bridge.LibWimg.fintsFetch(fetchBody(range.first, range.second))) } }.getOrNull()
+            val result = runCatching { withFintsThread { decode(com.wimg.app.bridge.LibWimg.fintsFetch(fetchBody(range.first, range.second, useCamt))) } }.getOrNull()
             running = false
-            // 3905 "Bitte senden Sie die Anfrage erneut": the bank's own hiccup. Once more after a moment.
-            val bankAsksAgain = result?.message?.startsWith("Bank asks to try again") == true
-            if (bankAsksAgain && !retried) {
-                kotlinx.coroutines.delay(3_000)
-                again(context, connId, range, bankName, retried = true)
+            // The bank failed on its side: once more, quietly, in the other format
+            // (signing in again, the PIN is gone after a fetch). The bar keeps
+            // saying "Umsätze laden"; which format works is remembered per bank.
+            val formatTrouble = formatMayHelp(result)
+            if (formatTrouble && !retried) {
+                Dock.show(DockRow(DockKind.Sync, __t("Umsätze laden"), __t("%s · läuft im Hintergrund").format(bankName)))
+                again(context, connId, range, bankName, retried = true, camt = !useCamt)
                 return@launch
             }
+            if (result != null && (result.imported != null || result.status == "ok")) BankConnections.setCamt(context, connId, useCamt)
             when {
                 result == null -> Dock.error(__t("Abruf fehlgeschlagen"), bankText(null), __t("Erneut")) { again(context, connId, range, bankName) }
-                bankAsksAgain -> Dock.error(__t("Die Bank hat gerade ein Problem"), __t("%s meldet einen internen Fehler. Versuch es später noch einmal.").format(bankName), __t("Erneut")) { again(context, connId, range, bankName) }
+                formatTrouble -> Dock.error(__t("Abruf hat gerade nicht geklappt"), __t("%s antwortet gerade nicht richtig. Versuch es später noch einmal.").format(bankName), __t("Erneut")) { again(context, connId, range, bankName) }
                 isAuthRejected(result) -> {
                     forgetPin(context, connId)
                     Dock.error(__t("Anmeldung abgelehnt"), bankText(result), __t("Neu anmelden")) {
@@ -908,7 +925,7 @@ private fun BankDetail(b: BankInfo, conn: BankConnection, reload: Int, onOlder: 
                 RowDivider()
                 WimgRow(L("Letzter Abruf"), trailing = {
                     Text(
-                        if (lastAt == 0L) L("noch keiner") else L("%s · %d neue", WimgDates.short(iso(Calendar.getInstance().apply { timeInMillis = lastAt })), conn.lastFetchNew),
+                        (if (lastAt == 0L) L("noch keiner") else L("%s · %d neue", WimgDates.short(iso(Calendar.getInstance().apply { timeInMillis = lastAt })), conn.lastFetchNew)) + if (conn.camt) " · CAMT" else "",
                         style = WimgType.body, color = c.text,
                     )
                 })

@@ -19,6 +19,12 @@ data class BankConnection(
     val tanMedium: String? = null,
     val lastFetchAt: Long = 0,
     val lastFetchNew: Int = 0,
+    /**
+     * Statements come as CAMT (HKCAZ) instead of MT940 (HKKAZ). Set by itself
+     * when one format fails at the bank and the other works (Comdirect's MT940
+     * answered 9900 from 2026-11-16); switches back the same way.
+     */
+    val camt: Boolean = false,
 )
 
 /** The bank logins on this device, newest last. */
@@ -53,6 +59,13 @@ object BankConnections {
     }
 
     fun get(context: Context, id: String): BankConnection? = all(context).firstOrNull { it.id == id }
+
+    /** Remember which statement format works for this bank (see [BankConnection.camt]). */
+    @Synchronized
+    fun setCamt(context: Context, id: String, camt: Boolean) {
+        val c = get(context, id) ?: return
+        if (c.camt != camt) put(context, c.copy(camt = camt))
+    }
 
     /** Adds the connection, or replaces the one with the same id. */
     @Synchronized

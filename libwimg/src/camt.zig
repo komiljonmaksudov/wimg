@@ -15,13 +15,19 @@ pub const CamtResult = struct {
 /// Parse CAMT XML (camt.052/053) into Transaction structs.
 /// This intentionally supports the most common statement entry tags only.
 pub fn parseCamt(data: []const u8, account: []const u8, out: []Transaction) CamtResult {
-    return parseCamtMode(data, account, out, false);
+    return parseCamtMode(data, account, out, false, false);
+}
+
+/// Booked entries dated by value date (ValDt) like MT940's :61:, for a bank
+/// fetched as CAMT next to MT940 history: same dates, so twins can be matched.
+pub fn parseCamtValueDated(data: []const u8, account: []const u8, out: []Transaction) CamtResult {
+    return parseCamtMode(data, account, out, false, true);
 }
 
 /// Not-yet-booked entries (HICAZ DE 4): every entry counts, and one without a
 /// booking date falls back to its value date.
 pub fn parseCamtPending(data: []const u8, account: []const u8, out: []Transaction) CamtResult {
-    return parseCamtMode(data, account, out, true);
+    return parseCamtMode(data, account, out, true, false);
 }
 
 /// `<Sts>PDNG</Sts>` (camt.052/053 v2) or `<Sts><Cd>PDNG</Cd></Sts>` (v8+).
@@ -30,7 +36,7 @@ fn isPendingEntry(entry: []const u8) bool {
     return std.mem.indexOf(u8, sts, "PDNG") != null;
 }
 
-fn parseCamtMode(data: []const u8, account: []const u8, out: []Transaction, pending: bool) CamtResult {
+fn parseCamtMode(data: []const u8, account: []const u8, out: []Transaction, pending: bool, value_date: bool) CamtResult {
     var result = CamtResult{ .count = 0, .errors = 0 };
     if (data.len == 0 or out.len == 0) return result;
 
@@ -49,7 +55,7 @@ fn parseCamtMode(data: []const u8, account: []const u8, out: []Transaction, pend
         if (!pending and isPendingEntry(entry)) continue;
 
         var txn: Transaction = undefined;
-        if (!parseEntry(entry, account, &txn, pending, report_date)) {
+        if (!parseEntry(entry, account, &txn, pending, report_date, value_date)) {
             result.errors += 1;
             continue;
         }
@@ -116,7 +122,7 @@ fn findBalStart(data: []const u8, from: usize) ?usize {
     };
 }
 
-fn parseEntry(entry: []const u8, account: []const u8, out_txn: *Transaction, pending: bool, report_date: ?[]const u8) bool {
+fn parseEntry(entry: []const u8, account: []const u8, out_txn: *Transaction, pending: bool, report_date: ?[]const u8, value_date: bool) bool {
     const amount = extractAmountField(entry) orelse return false;
     const amount_abs = parseIsoAmount(amount.text) orelse return false;
 
@@ -126,7 +132,8 @@ fn parseEntry(entry: []const u8, account: []const u8, out_txn: *Transaction, pen
 
     // Pending entries may carry no date at all (Comdirect camt.052.001.08):
     // then they count as of the report's creation date, i.e. the fetch day.
-    const date_block = extractTagText(entry, "BookgDt") orelse
+    const date_block = (if (value_date) extractTagText(entry, "ValDt") else null) orelse
+        extractTagText(entry, "BookgDt") orelse
         (if (pending) extractTagText(entry, "ValDt") else null);
     const dt = if (date_block) |blk|
         (extractTagText(blk, "Dt") orelse extractTagText(blk, "DtTm") orelse return false)
@@ -442,4 +449,17 @@ test "pending entries without any date take the report's creation date (Comdirec
     // A booked entry still needs its own date.
     const booked = parseCamt(xml, "acc", &out);
     try std.testing.expectEqual(@as(usize, 0), booked.count);
+}
+
+test "value-dated CAMT takes ValDt like MT940, BookgDt when there is none" {
+    const xml = "<Document><Ntry><Amt Ccy=\"EUR\">4.20</Amt><CdtDbtInd>DBIT</CdtDbtInd><BookgDt><Dt>2026-11-16</Dt></BookgDt><ValDt><Dt>2026-11-13</Dt></ValDt><AddtlNtryInf>Karte</AddtlNtryInf></Ntry>" ++
+        "<Ntry><Amt Ccy=\"EUR\">9.99</Amt><CdtDbtInd>DBIT</CdtDbtInd><BookgDt><Dt>2026-11-15</Dt></BookgDt><AddtlNtryInf>Abo</AddtlNtryInf></Ntry></Document>";
+    var out: [4]Transaction = undefined;
+    const r = parseCamtValueDated(xml, "Bank", &out);
+    try std.testing.expectEqual(@as(usize, 2), r.count);
+    try std.testing.expectEqual(@as(u8, 13), out[0].date.day);
+    try std.testing.expectEqual(@as(u8, 15), out[1].date.day);
+    const booked = parseCamt(xml, "Bank", &out);
+    try std.testing.expectEqual(@as(usize, 2), booked.count);
+    try std.testing.expectEqual(@as(u8, 16), out[0].date.day);
 }

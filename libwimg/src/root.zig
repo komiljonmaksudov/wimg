@@ -2503,7 +2503,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     // Convert YYYY-MM-DD to YYYYMMDD for FinTS
     var from_buf: [8]u8 = undefined;
     var to_buf: [8]u8 = undefined;
-    const from = if (from_raw.len == 10 and from_raw[4] == '-') blk: {
+    var from: []const u8 = if (from_raw.len == 10 and from_raw[4] == '-') blk: {
         @memcpy(from_buf[0..4], from_raw[0..4]);
         @memcpy(from_buf[4..6], from_raw[5..7]);
         @memcpy(from_buf[6..8], from_raw[8..10]);
@@ -2725,6 +2725,18 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     var resp = fints_mod.ParsedResponse.init();
     const bank = banks_mod.findByBlz(&fints_session.blz);
     const account_name = if (bank) |b| b.nameSlice() else "FinTS";
+    // CAMT next to MT940 history: start shortly before the newest booking already
+    // here (small answer, under the 64 KB CAMT buffer); twins are skipped below.
+    var camt_from_buf: [8]u8 = undefined;
+    var latest_buf: [8]u8 = undefined;
+    if (camt_short) {
+        if (database.latestBookingDate(account_name)) |latest| {
+            const latest_str = std.fmt.bufPrint(&latest_buf, "{d:0>8}", .{latest}) catch "";
+            if (daysBefore(latest_str, 3, &camt_from_buf)) |narrow| {
+                if (std.mem.order(u8, narrow, from) == .gt) from = narrow;
+            }
+        }
+    }
     // Every code of every answer in this fetch: when no statement comes back, the
     // reason is often in an earlier answer (HKKAZ) than the last one (HKCAZ fallback).
     var seen: [24]SeenCode = undefined;
@@ -2865,11 +2877,11 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
             saw_camt = true;
 
             var txn_buf: [2000]Transaction = undefined;
-            const camt_result = camt_mod.parseCamt(
-                resp.camt_data[0..resp.camt_len],
-                account_name,
-                &txn_buf,
-            );
+            // Next to MT940 history (format camt): value dates, like MT940.
+            const camt_result = if (camt_short)
+                camt_mod.parseCamtValueDated(resp.camt_data[0..resp.camt_len], account_name, &txn_buf)
+            else
+                camt_mod.parseCamt(resp.camt_data[0..resp.camt_len], account_name, &txn_buf);
 
             if (camt_result.closing_balance_date > balance_date_int) {
                 balance_date_int = camt_result.closing_balance_date;
@@ -2891,7 +2903,25 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                 }
             }
 
-            for (txn_buf[0..camt_result.count]) |*txn| {
+            // CAMT next to MT940 history: a booking whose twin (same account, day and
+            // amount) is already here is skipped; counted before inserting, so two
+            // equal coffees on one day both stay.
+            var twin: [2000]bool = @splat(false);
+            if (camt_short) {
+                for (txn_buf[0..camt_result.count], 0..) |*t, i| {
+                    var same_before: i64 = 0;
+                    for (txn_buf[0..i]) |*u| {
+                        if (u.date.year == t.date.year and u.date.month == t.date.month and u.date.day == t.date.day and u.amount_cents == t.amount_cents) same_before += 1;
+                    }
+                    const here = database.countSameBooking(t.accountSlice(), t.date.year, t.date.month, t.date.day, t.amount_cents);
+                    twin[i] = same_before < here;
+                }
+            }
+            for (txn_buf[0..camt_result.count], 0..) |*txn, i| {
+                if (twin[i]) {
+                    duplicates += 1;
+                    continue;
+                }
                 const inserted = database.insertTransaction(txn) catch {
                     continue;
                 };

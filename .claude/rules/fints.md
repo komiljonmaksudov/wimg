@@ -134,6 +134,23 @@ Audience: engineers touching `libwimg/src/fints.zig`, `root.zig`, `mt940.zig`, `
   makes the app forget the stored PIN. Every bank error is logged with all codes:
   `adb logcat -s wimg-fints`.
 
+## MT940 or CAMT per bank (Comdirect, 2026-11-16)
+
+- Comdirect's MT940 (HKKAZ) answered `9050 + 3905 + 9900 Interner Fehler` from
+  2026-11-16 for a well-formed request (HIRMS points at the HKKAZ segment), while
+  HKCAZ with the short KTI1 `IBAN:BIC` delivered the same days.
+- The app falls back quietly: a bank-side error (not a refused login, TAN or
+  missing PIN) signs in again and fetches in the other format; the one that works
+  is kept per connection (`BankConnection.camt`, shown as "· CAMT" on the bank page).
+- `wimg_fints_fetch {"format":"camt"}`: booked entries as CAMT with the short KTI1,
+  dated by value date (`ValDt`, like MT940's `:61:`), starting 3 days before the
+  newest booking already stored for that account (keeps the answer under the
+  64 KB CAMT buffer), and a booking whose twin (account, day, amount; counted, so
+  two equal ones both stay) is already there is skipped: CAMT texts differ from
+  MT940's, so the ids do.
+- Ids from the bank (system id from HISYN, dialog id from HNHBK) are random and can
+  contain `+`; they arrive escaped (`?+`) and must be read and written escaped.
+
 ## CAMT Fallback
 
 - `camt.zig` parser: Ntry extraction, multi-Ustrd concatenation, Amt Ccy parsing.

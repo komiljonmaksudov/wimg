@@ -1228,6 +1228,29 @@ pub const Db = struct {
         return c.sqlite3_column_int(s, 0);
     }
 
+    /// Newest booking date (YYYYMMDD) of a bank account; manual entries don't count.
+    pub fn latestBookingDate(self: *Db, account: []const u8) ?u32 {
+        const v = self.queryInt64("SELECT MAX(date_year * 10000 + date_month * 100 + date_day) FROM transactions WHERE account = ?1 AND source <> 'manual';", account.ptr, account.len) orelse return null;
+        return if (v > 0) @intCast(v) else null;
+    }
+
+    /// Bookings of an account on one day with one amount (a CAMT booking whose
+    /// MT940 twin is already here has another text, so another id).
+    pub fn countSameBooking(self: *Db, account: []const u8, year: u16, month: u8, day: u8, amount_cents: i64) i64 {
+        var stmt: ?*c.sqlite3_stmt = null;
+        const sql = "SELECT COUNT(*) FROM transactions WHERE account = ?1 AND date_year = ?2 AND date_month = ?3 AND date_day = ?4 AND amount_cents = ?5 AND source <> 'manual';";
+        if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) != c.SQLITE_OK or stmt == null) return 0;
+        defer _ = c.sqlite3_finalize(stmt.?);
+        const st = stmt.?;
+        _ = c.sqlite3_bind_text(st, 1, @ptrCast(account.ptr), @intCast(account.len), c.SQLITE_STATIC);
+        _ = c.sqlite3_bind_int(st, 2, year);
+        _ = c.sqlite3_bind_int(st, 3, month);
+        _ = c.sqlite3_bind_int(st, 4, day);
+        _ = c.sqlite3_bind_int64(st, 5, amount_cents);
+        if (c.sqlite3_step(st) != c.SQLITE_ROW) return 0;
+        return c.sqlite3_column_int64(st, 0);
+    }
+
     fn queryInt64(self: *Db, sql: [*:0]const u8, id: [*]const u8, id_len: usize) ?i64 {
         var stmt: ?*c.sqlite3_stmt = null;
         if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) != c.SQLITE_OK or stmt == null) return null;
@@ -5373,4 +5396,24 @@ test "schema v1: new, relabelled from the last old version, rebuilt from older" 
     try std.testing.expectEqual(@as(?i32, 1), db.getMetaInt("schema"));
     try std.testing.expectEqual(@as(i64, 0), testCount(&db, "SELECT COUNT(*) FROM transactions;"));
     try std.testing.expect(testCount(&db, "SELECT COUNT(*) FROM rules;") > 0);
+}
+
+test "CAMT next to MT940: newest booking date and twin counts per account, day and amount" {
+    var db = try Db.init(":memory:");
+    defer db.close();
+    db.exec(
+        \\INSERT INTO transactions (id, date_year, date_month, date_day, description, amount_cents, currency, category, account, excluded, updated_at, source) VALUES
+        \\('a1', 2026, 11, 13, 'KARTE Baecker', -250, 'EUR', 0, 'comdirect', 0, 1, ''),
+        \\('a2', 2026, 11, 13, 'KARTE Baecker', -250, 'EUR', 0, 'comdirect', 0, 1, ''),
+        \\('a3', 2026, 11, 15, 'Abo', -999, 'EUR', 0, 'comdirect', 0, 1, ''),
+        \\('m1', 2026, 11, 16, 'Bar', -500, 'EUR', 0, 'comdirect', 0, 1, 'manual'),
+        \\('o1', 2026, 11, 20, 'Other bank', -100, 'EUR', 0, 'other', 0, 1, '');
+    ) catch return error.TestUnexpectedResult;
+    // Manual entries and other accounts don't move the start of a CAMT fetch.
+    try std.testing.expectEqual(@as(?u32, 20261115), db.latestBookingDate("comdirect"));
+    try std.testing.expectEqual(@as(?u32, null), db.latestBookingDate("nobody"));
+    // Two equal coffees on one day are two twins, not one.
+    try std.testing.expectEqual(@as(i64, 2), db.countSameBooking("comdirect", 2026, 11, 13, -250));
+    try std.testing.expectEqual(@as(i64, 0), db.countSameBooking("comdirect", 2026, 11, 14, -250));
+    try std.testing.expectEqual(@as(i64, 0), db.countSameBooking("comdirect", 2026, 11, 16, -500));
 }
