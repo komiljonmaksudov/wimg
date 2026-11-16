@@ -20,6 +20,7 @@ Plain words, real numbers, no marketing, no real bank data (amounts and merchant
 A note about a security bug stays out of anything public until the fix has shipped to every device, and never shows the exact steps to exploit it.
 
 ## Index
+- [2026-11-16 · Any error at sign-in deleted the saved PIN](2026-11-16-any-signin-error-deleted-the-pin.md)
 - [2026-11-15 · The squirrel's moment cancelled itself halfway](2026-11-15-moment-cancelled-by-its-own-mark.md)
 - [2026-11-15 · A white flash and the wrong bar on every "back"](2026-11-15-white-flash-on-back.md)
 - [2026-11-14 · One cash entry crashed the app on start: negative numbers were written as nothing](2026-11-14-negative-balance-crash.md)
