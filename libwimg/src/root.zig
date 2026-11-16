@@ -2302,6 +2302,81 @@ fn daysBefore(date: []const u8, n: i64, out: *[8]u8) ?[]const u8 {
     return w;
 }
 
+const SeenCode = struct { camt: bool, code: fints_mod.ResponseCode };
+
+/// General notes that never explain a missing statement: "contains warnings",
+/// "UPD outdated", TAN methods, "no TAN needed", "more data follows", app approval.
+fn isGeneralNote(code: []const u8) bool {
+    const general = [_][]const u8{ "3060", "3050", "3920", "3076", "3040", "3955", "3956" };
+    for (general) |g| if (std.mem.eql(u8, code, g)) return true;
+    return false;
+}
+
+/// The one code that says why a fetch got no statement: a real error (9xxx)
+/// first, then a specific note (3xxx), then any other non-success code.
+fn explainingCode(seen: []const SeenCode) ?*const SeenCode {
+    for (seen) |*c| if (c.code.isError()) return c;
+    for (seen) |*c| if (!c.code.isSuccess() and !isGeneralNote(c.code.codeSlice())) return c;
+    for (seen) |*c| if (!c.code.isSuccess()) return c;
+    return null;
+}
+
+/// {"status":"error","message":"No statement payload from bank (HKKAZ 3010: …)","codes":"HKKAZ 0020 …; HKCAZ 3060 …"}
+fn noStatementJson(seen: []const SeenCode, buf: []u8) []const u8 {
+    const fallback = "{\"status\":\"error\",\"message\":\"No statement payload from bank\"}";
+    var w = std.Io.Writer.fixed(buf);
+    w.writeAll("{\"status\":\"error\",\"message\":\"No statement payload from bank") catch return fallback;
+    if (explainingCode(seen)) |c| {
+        w.print(" ({s} {s}: ", .{ if (c.camt) "HKCAZ" else "HKKAZ", c.code.codeSlice() }) catch return fallback;
+        writeJsonEscaped(&w, c.code.textSlice()) catch return fallback;
+        w.writeAll(")") catch return fallback;
+    }
+    w.writeAll("\",\"codes\":\"") catch return fallback;
+    for (seen, 0..) |*c, i| {
+        if (i > 0) w.writeAll("; ") catch break;
+        w.print("{s} {s} ", .{ if (c.camt) "HKCAZ" else "HKKAZ", c.code.codeSlice() }) catch break;
+        writeJsonEscaped(&w, c.code.textSlice()) catch break;
+    }
+    w.writeAll("\"}") catch return fallback;
+    return w.buffered();
+}
+
+/// Bank texts are often ISO-8859-1: db's escaper keeps UTF-8 and writes lone high bytes as \u00XX.
+fn writeJsonEscaped(w: *std.Io.Writer, text: []const u8) !void {
+    const n = db_mod.jsonEscapeString(w.unusedCapacitySlice(), text) orelse return error.WriteFailed;
+    w.end += n;
+}
+
+fn testCode(code: []const u8, text: []const u8) fints_mod.ResponseCode {
+    var c: fints_mod.ResponseCode = undefined;
+    @memcpy(&c.code, code[0..4]);
+    c.reference_len = 0;
+    c.parameter_len = 0;
+    @memcpy(c.text[0..text.len], text);
+    c.text_len = @intCast(text.len);
+    return c;
+}
+
+test "no statement: the explaining code wins over general notes, all codes listed" {
+    const seen = [_]SeenCode{
+        .{ .camt = false, .code = testCode("0020", "Auftrag ausgef\xfchrt.") },
+        .{ .camt = false, .code = testCode("3060", "Bitte beachten Sie die enthaltenen Warnungen/Hinweise.") },
+        .{ .camt = false, .code = testCode("3010", "Keine Ums\xe4tze im Zeitraum.") },
+        .{ .camt = true, .code = testCode("3060", "Bitte beachten Sie die enthaltenen Warnungen/Hinweise.") },
+    };
+    var buf: [4096]u8 = undefined;
+    const out = noStatementJson(&seen, &buf);
+    try std.testing.expect(std.mem.indexOf(u8, out, "No statement payload from bank (HKKAZ 3010: Keine Ums\\u00e4tze im Zeitraum.)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "\"codes\":\"HKKAZ 0020 Auftrag ausgef\\u00fchrt.; HKKAZ 3060") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "; HKCAZ 3060 ") != null);
+    // A real error beats any note.
+    const with_error = [_]SeenCode{ seen[2], .{ .camt = true, .code = testCode("9010", "Abbruch") } };
+    try std.testing.expect(std.mem.indexOf(u8, noStatementJson(&with_error, &buf), "(HKCAZ 9010: Abbruch)") != null);
+    // Only general notes: the first non-success one is still named.
+    const only_general = [_]SeenCode{seen[1]};
+    try std.testing.expect(std.mem.indexOf(u8, noStatementJson(&only_general, &buf), "(HKKAZ 3060: ") != null);
+}
+
 fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     if (is_wasm) return null;
 
@@ -2528,6 +2603,10 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     var resp = fints_mod.ParsedResponse.init();
     const bank = banks_mod.findByBlz(&fints_session.blz);
     const account_name = if (bank) |b| b.nameSlice() else "FinTS";
+    // Every code of every answer in this fetch: when no statement comes back, the
+    // reason is often in an earlier answer (HKKAZ) than the last one (HKCAZ fallback).
+    var seen: [24]SeenCode = undefined;
+    var seen_count: usize = 0;
 
     while (true) {
         const msg_len = switch (fetch_mode) {
@@ -2565,6 +2644,11 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         resp = fints_mod.ParsedResponse.init();
         fints_mod.parseResponse(&fints_session, resp_buf[0..resp_len], &resp);
         fints_session.msg_num += 1;
+        for (resp.codes[0..resp.code_count]) |c| {
+            if (seen_count == seen.len) break;
+            seen[seen_count] = .{ .camt = fetch_mode == .camt, .code = c };
+            seen_count += 1;
+        }
 
         // TAN challenge requested for HKKAZ only when no statement payload was returned.
         if (fints_session.has_pending_tan and resp.mt940_len == 0 and resp.camt_len == 0) {
@@ -2724,60 +2808,8 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     if (!saw_mt940 and !saw_camt) {
         _ = sendDialogEnd(&fints_session, fints_session.tanSecFuncSlice(), &msg_buf, resp_buf);
         fints_session.clearPin();
-        var result_buf: [1024]u8 = undefined;
-        var pos: usize = 0;
-
-        const prefix = "{\"status\":\"error\",\"message\":\"No statement payload from bank";
-        if (prefix.len > result_buf.len) return makeLengthPrefixed("{\"status\":\"error\",\"message\":\"No statement payload from bank\"}");
-        @memcpy(result_buf[pos .. pos + prefix.len], prefix);
-        pos += prefix.len;
-
-        if (resp.code_count > 0) {
-            var selected_idx: usize = 0;
-            var found_non_success = false;
-            for (resp.codes[0..resp.code_count], 0..) |*c, i| {
-                if (!c.isSuccess()) {
-                    selected_idx = i;
-                    found_non_success = true;
-                    break;
-                }
-            }
-            if (!found_non_success) selected_idx = resp.code_count - 1;
-            const selected = resp.codes[selected_idx];
-
-            const middle = " (";
-            if (pos + middle.len <= result_buf.len) {
-                @memcpy(result_buf[pos .. pos + middle.len], middle);
-                pos += middle.len;
-            }
-
-            const code = selected.codeSlice();
-            if (pos + code.len <= result_buf.len) {
-                @memcpy(result_buf[pos .. pos + code.len], code);
-                pos += code.len;
-            }
-
-            const sep = ": ";
-            if (pos + sep.len <= result_buf.len) {
-                @memcpy(result_buf[pos .. pos + sep.len], sep);
-                pos += sep.len;
-            }
-
-            pos += db_mod.jsonEscapeString(result_buf[pos..], selected.textSlice()) orelse 0;
-
-            const close = ")";
-            if (pos + close.len <= result_buf.len) {
-                @memcpy(result_buf[pos .. pos + close.len], close);
-                pos += close.len;
-            }
-        }
-
-        const suffix = "\"}";
-        if (pos + suffix.len > result_buf.len) return makeLengthPrefixed("{\"status\":\"error\",\"message\":\"No statement payload from bank\"}");
-        @memcpy(result_buf[pos .. pos + suffix.len], suffix);
-        pos += suffix.len;
-
-        return makeLengthPrefixed(result_buf[0..pos]);
+        var result_buf: [4096]u8 = undefined;
+        return makeLengthPrefixed(noStatementJson(seen[0..seen_count], &result_buf));
     }
 
     if (!is_wasm) {

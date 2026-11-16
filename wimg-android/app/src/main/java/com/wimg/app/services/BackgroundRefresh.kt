@@ -388,6 +388,7 @@ object BackgroundRefresh {
         val message: String? = null,
         val tan_medium_required: Boolean? = null,
         val imported: Int? = null,
+        val codes: String? = null,
     )
 
     /**
@@ -472,7 +473,10 @@ object BackgroundRefresh {
                 if (!hasCredentials(context)) cancel(context)
                 return Outcome.AuthFailed(conn.name)
             }
-            if (fetch.status != "ok") return Outcome.Silent // don't spam on transient errors
+            if (fetch.status != "ok") {
+                fetch.codes?.let { android.util.Log.w("wimg-fints", "background fetch $from..$to: ${fetch.message} | $it") }
+                return Outcome.Silent // don't spam on transient errors
+            }
 
             val imported = fetch.imported ?: 0
             // Same fields the bank page shows as "Letzter Abruf".

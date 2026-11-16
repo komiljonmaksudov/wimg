@@ -120,6 +120,8 @@ private data class FintsResult(
     val tan_medium_required: Boolean? = null,
     val imported: Int? = null,
     val duplicates: Int? = null,
+    /** Every bank code of a fetch that got no statement (for the log, never shown). */
+    val codes: String? = null,
 )
 
 @Serializable
@@ -263,6 +265,8 @@ private object FintsJob {
         scope.launch {
             val result = runCatching { withFintsThread { decode(com.wimg.app.bridge.LibWimg.fintsFetch(fetchBody(range.first, range.second))) } }.getOrNull()
             running = false
+            // The bank's codes (no PIN, no data): `adb logcat -s wimg-fints` says why a fetch came back empty.
+            result?.codes?.let { android.util.Log.w("wimg-fints", "fetch ${range.first}..${range.second}: ${result.message} | $it") }
             when {
                 result == null -> Dock.error(__t("Abruf fehlgeschlagen"), bankText(null), __t("Erneut")) { fetch(context, connId, range, bankName, onDone) }
                 isAuthRejected(result) -> {
