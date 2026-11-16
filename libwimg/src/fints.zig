@@ -1049,24 +1049,18 @@ pub fn parseResponse(session: *FintsSession, data: []const u8, out: *ParsedRespo
         if (std.mem.startsWith(u8, segment, "HNHBK")) {
             // Extract dialog ID from HNHBK:1:3+SIZE+300+DIALOG_ID+MSG_NUM
             // Fields (after segment header): [0]=size, [1]=hbci_ver, [2]=dialog_id, [3]=msg_num
-            var field_idx: u8 = 0;
             var fpos: usize = 0;
             // Skip segment header (up to first +)
             while (fpos < segment.len and segment[fpos] != '+') : (fpos += 1) {}
             fpos += 1; // skip the +
-            var field_start = fpos;
-            while (fpos <= segment.len) : (fpos += 1) {
-                if (fpos == segment.len or segment[fpos] == '+' or segment[fpos] == '\'') {
-                    if (field_idx == 2) { // dialog_id
-                        const did = segment[field_start..fpos];
-                        const dlen = @min(did.len, out.dialog_id.len);
-                        @memcpy(out.dialog_id[0..dlen], did[0..dlen]);
-                        out.dialog_id_len = @intCast(dlen);
-                        break;
-                    }
-                    field_idx += 1;
-                    field_start = fpos + 1;
-                }
+            var scratch: [64]u8 = undefined;
+            var field_idx: u8 = 0;
+            while (field_idx < 2 and fpos <= segment.len) : (field_idx += 1) {
+                fpos = readElement(segment, fpos, &scratch).end + 1; // size, hbci version
+            }
+            if (fpos <= segment.len) {
+                const r = readElement(segment, fpos, &out.dialog_id);
+                out.dialog_id_len = @intCast(r.len);
             }
         } else if (std.mem.startsWith(u8, segment, "HNVSD")) {
             // Security envelope contains inner segments
@@ -1343,9 +1337,7 @@ fn writeEnvelopeWithNum(session: *const FintsSession, buf: []u8, inner: []const 
     header_buf[header_pos] = '+';
     header_pos += 1;
     // Dialog ID
-    const did = session.dialogIdSlice();
-    @memcpy(header_buf[header_pos .. header_pos + did.len], did);
-    header_pos += did.len;
+    header_pos += escapeFintsValue(header_buf[header_pos..], session.dialogIdSlice()) orelse return null;
     header_buf[header_pos] = '+';
     header_pos += 1;
     // Message number (python-fints renders this as plain numeric, not zero-padded)
@@ -1415,9 +1407,7 @@ fn writeSignatureHeader(buf: []u8, offset: usize, num: u16, session: *const Fint
     pos += part2a.len;
 
     // System ID (0 for sync, real ID after sync)
-    const sid = session.systemIdSlice();
-    @memcpy(buf[pos .. pos + sid.len], sid);
-    pos += sid.len;
+    pos += escapeFintsValue(buf[pos..], session.systemIdSlice()) orelse return null;
 
     var date_buf: [8]u8 = undefined;
     var time_buf: [6]u8 = undefined;
@@ -1525,9 +1515,7 @@ fn writeAuthEnvelope(session: *const FintsSession, sec_func: []const u8, buf: []
     vsk_pos += vsk_h2.len;
 
     // System ID in security_identification (0 for sync, real after sync)
-    const sid = session.systemIdSlice();
-    @memcpy(hnvsk_buf[vsk_pos .. vsk_pos + sid.len], sid);
-    vsk_pos += sid.len;
+    vsk_pos += escapeFintsValue(hnvsk_buf[vsk_pos..], session.systemIdSlice()) orelse return null;
 
     var date_buf: [8]u8 = undefined;
     var time_buf: [6]u8 = undefined;
@@ -1646,6 +1634,32 @@ const SegmentIterator = struct {
         return len;
     }
 };
+
+/// One data element from `start`: up to the next '+' or apostrophe that isn't
+/// escaped with '?', unescaped into `out`. Returns bytes written and end index.
+/// Bank ids are random: Comdirect's system id "vc+xyXO..." arrives as "vc?+xyXO...".
+fn readElement(segment: []const u8, start: usize, out: []u8) struct { len: usize, end: usize } {
+    var i = start;
+    var n: usize = 0;
+    while (i < segment.len) {
+        const c = segment[i];
+        if (c == '?' and i + 1 < segment.len) {
+            if (n < out.len) {
+                out[n] = segment[i + 1];
+                n += 1;
+            }
+            i += 2;
+            continue;
+        }
+        if (c == '+' or c == '\'') break;
+        if (n < out.len) {
+            out[n] = c;
+            n += 1;
+        }
+        i += 1;
+    }
+    return .{ .len = n, .end = i };
+}
 
 fn isEscaped(data: []const u8, pos: usize) bool {
     if (pos == 0) return false;
@@ -1922,12 +1936,8 @@ fn extractSystemId(segment: []const u8, out: *ParsedResponse) void {
     if (pos >= segment.len) return;
     pos += 1;
 
-    const start = pos;
-    while (pos < segment.len and segment[pos] != '+' and segment[pos] != '\'') : (pos += 1) {}
-    const id = segment[start..pos];
-    const len = @min(id.len, 32);
-    @memcpy(out.system_id[0..len], id[0..len]);
-    out.system_id_len = @intCast(len);
+    const r = readElement(segment, pos, &out.system_id);
+    out.system_id_len = @intCast(r.len);
 }
 
 fn extractTanChallenge(segment: []const u8, out: *ParsedResponse) void {
@@ -3103,4 +3113,20 @@ test "escapeFintsValue escapes all five syntax characters, @ included" {
     var buf: [64]u8 = undefined;
     const n = escapeFintsValue(&buf, "Max@Pixel+1:2'?").?;
     try std.testing.expectEqualStrings("Max?@Pixel?+1?:2?'??", buf[0..n]);
+}
+
+test "HISYN and HNHBK: ids with escaped characters are read whole and written escaped" {
+    var s = FintsSession.init("20041177", "https://x.de/f", "u", "p");
+    var resp = ParsedResponse.init();
+    // Comdirect, 2026-11-16: the system id contains '+', sent as "?+".
+    parseResponse(&s, "HNHBK:1:3+000000000200+300+Ps6?+xyXO+1'HISYN:40:4:5+vc?+xyXOn5KEBAACeOPWCFQWCCgQA'", &resp);
+    try std.testing.expectEqualStrings("vc+xyXOn5KEBAACeOPWCFQWCCgQA", s.systemIdSlice());
+    try std.testing.expectEqualStrings("Ps6+xyXO", s.dialogIdSlice());
+    // Written back escaped (HKIDN, HNSHK, HNHBK header), never raw.
+    var buf: [8192]u8 = undefined;
+    const n = buildAuthInit(&s, &buf) orelse return error.TestUnexpectedResult;
+    const msg = buf[0..n];
+    try std.testing.expect(std.mem.indexOf(u8, msg, "vc?+xyXOn5KEBAACeOPWCFQWCCgQA") != null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, ":vc+xyX") == null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, "+vc+xyX") == null);
 }
