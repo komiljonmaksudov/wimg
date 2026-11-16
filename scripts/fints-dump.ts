@@ -40,7 +40,7 @@ function arg(name: string, fallback: string): string {
 const blz = arg("blz", "20041177");
 const days = Number(arg("days", "60"));
 const until = Number(arg("until", "0"));
-const camt = process.argv.includes("--camt");
+const asCamt = process.argv.includes("--camt");
 const grep = arg("grep", "").toLowerCase();
 const outDir = arg("out", mkdtempSync(join(tmpdir(), "wimg-fints-")));
 const libPath = process.env.LIBWIMG ?? "libwimg/zig-out/lib/libwimg.dylib";
@@ -125,8 +125,8 @@ if (conn.tan_medium_required) {
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const to = new Date(Date.now() - until * 86400_000);
 const from = new Date(Date.now() - days * 86400_000);
-const fetchBody = { from: iso(from), to: iso(to), ...(camt ? { format: "camt" } : {}) };
-console.log(`fetching ${fetchBody.from} .. ${fetchBody.to} as ${camt ? "CAMT (HKCAZ)" : "MT940 (HKKAZ)"}`);
+const fetchBody = { from: iso(from), to: iso(to), ...(asCamt ? { format: "camt" } : {}) };
+console.log(`fetching ${fetchBody.from} .. ${fetchBody.to} as ${asCamt ? "CAMT (HKCAZ)" : "MT940 (HKKAZ)"}`);
 
 let res = call(lib.symbols.wimg_fints_fetch, fetchBody);
 while (res.status === "tan_required") {
