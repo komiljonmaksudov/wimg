@@ -102,6 +102,12 @@ class MainActivity : FragmentActivity() {
         if (BiometricLock.isLocked) {
             BiometricLock.authenticate(this)
         }
+        // Fresh transactions without a tap: when the last bank fetch is over 4 h old
+        // (after the first frame, so opening stays instant).
+        lifecycleScope.launch {
+            kotlinx.coroutines.delay(1_500)
+            if (!BiometricLock.isLocked) com.wimg.app.ui.screens.fetchOnOpen(applicationContext)
+        }
         // Pull what other devices changed while we were away, then stay live.
         // Failures stay quiet here (offline is normal); Settings shows the state.
         if (SyncService.isEnabled(this)) {

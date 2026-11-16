@@ -27,6 +27,28 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.ReceiptLong
+import androidx.compose.material.icons.outlined.Autorenew
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.AccountBalance
+import androidx.compose.material.icons.outlined.UploadFile
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.AccountBalanceWallet
+import androidx.compose.material.icons.outlined.Event
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Rule
+import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.NewReleases
+import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material.icons.outlined.PrivacyTip
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Search
@@ -103,6 +125,60 @@ private val QUICK = listOf(
     Quick.Uncategorized, Quick.IncomeOnly, Quick.Over100, Quick.Excluded,
 )
 
+/**
+ * Places and actions you can type to (search is the app's command line):
+ * "abrufen" fetches, "gehalt" opens Gehaltsmonat, "faq" the questions.
+ * [words] are extra keywords, German and English, without umlauts.
+ */
+private class SearchAction(val label: String, val sub: String?, val icon: androidx.compose.ui.graphics.vector.ImageVector, val words: String, val run: (NavController, Context) -> Unit)
+
+private fun norm(t: String) = t.lowercase().replace("ä", "a").replace("ö", "o").replace("ü", "u").replace("ß", "ss")
+
+private fun SearchAction.matches(q: String): Boolean {
+    val n = norm(q.trim())
+    if (n.length < 2) return false
+    val l = norm(label)
+    return l.contains(n) || (l.split(' ', '-', '·') + words.split(' ')).any { it.startsWith(n) }
+}
+
+@Composable
+private fun searchActions(hasBank: Boolean): List<SearchAction> {
+    val go = { route: String -> { nav: NavController, _: Context -> nav.navigate(route) } }
+    val O = androidx.compose.material.icons.Icons.Outlined
+    return listOfNotNull(
+        if (hasBank) SearchAction(L("Umsätze abrufen"), L("Von der Bank, mit gespeicherter PIN"), O.Refresh, "abrufen aktualisieren laden schnellabfrage fetch refresh sync bank neu", { nav, ctx -> nav.popBackStack(); if (!fetchFromSearch(ctx)) nav.navigate("fints") }) else null,
+        SearchAction(L("Umsatz von Hand"), L("Bargeld oder was die Bank nicht kennt"), O.Add, "hinzufugen neu manuell bar bargeld add manual cash", go("manual")),
+        SearchAction(L("Übersicht"), null, O.Home, "home start dashboard verfugbar", go("dashboard")),
+        SearchAction(L("Umsätze"), null, O.ReceiptLong, "liste transaktionen transactions buchungen", go("transactions")),
+        SearchAction(L("Wiederkehrend"), L("Abos und feste Kosten"), O.Autorenew, "abo abos fixkosten vertrage recurring subscriptions miete", go("recurring")),
+        SearchAction(L("Rückblick"), L("Monat oder Gehaltsmonat im Rückblick"), O.CalendarMonth, "ruckblick monat review sparquote", go("review")),
+        SearchAction(L("Bankverbindung"), null, O.AccountBalance, "bank banken fints comdirect sparkasse konto verbinden pin tan", go("fints")),
+        SearchAction(L("Import"), L("CSV-Datei deiner Bank"), O.UploadFile, "csv datei import hochladen", go("import")),
+        SearchAction(L("Einstellungen"), null, O.Settings, "settings optionen", go("settings")),
+        SearchAction(L("Konten"), L("Einstellungen"), O.AccountBalanceWallet, "konten accounts ausblenden umbenennen", go("settings/accounts")),
+        SearchAction(L("Gehaltsmonat"), L("Wann dein Monat beginnt"), O.Event, "gehalt zeitraum monat beginnt salary period payday", go("settings/period")),
+        SearchAction(L("Darstellung"), L("Hell, dunkel, Sprache"), O.Palette, "dunkel hell theme dark light sprache language farbe", go("settings/appearance")),
+        SearchAction(L("Mitteilungen"), L("Einstellungen"), O.Notifications, "benachrichtigungen mitteilungen notifications ruhezeit", go("settings/notifications")),
+        SearchAction(L("App-Sperre"), L("Fingerabdruck oder Geräte-PIN"), O.Lock, "sperre lock fingerabdruck biometrie face", go("settings/lock")),
+        SearchAction(L("Gelernte Regeln"), L("Kategorien, die wimg sich gemerkt hat"), O.Rule, "regeln kategorie rules lernen", go("settings/rules")),
+        SearchAction(L("Daten"), L("Export, Zurücksetzen"), O.Storage, "daten export backup loschen zurucksetzen csv data", go("settings/data")),
+        SearchAction(L("wimg Sync"), L("Geräte und Schlüssel"), O.Sync, "sync gerate schlussel verknupfen devices key", go("settings/sync")),
+        SearchAction(L("Über wimg"), null, O.Info, "uber about version", go("about")),
+        SearchAction(L("Neuigkeiten"), L("Was ist neu, Updates"), O.NewReleases, "neu update version changelog news", go("about/news")),
+        SearchAction(L("Häufige Fragen"), null, O.HelpOutline, "faq fragen hilfe help support", go("about/faq")),
+        SearchAction(L("Datenschutz"), null, O.PrivacyTip, "datenschutz privacy daten", go("about/privacy")),
+    )
+}
+
+/** Amount as typed: "12,99", "12.99", "1.234,56" all find 1234,56 / 12,99. */
+private fun amountMatches(tx: Transaction, q: String): Boolean {
+    if (q.none { it.isDigit() } || q.any { !it.isDigit() && it != ',' && it != '.' }) return false
+    val typed = if (q.contains(',')) q.replace(".", "").replace(',', '.') else q
+    val cents = Math.round(abs(tx.amount) * 100)
+    val plain = "%d.%02d".format(cents / 100, cents % 100)
+    return plain.startsWith(typed) || plain.contains(typed)
+}
+
 private const val RECENT_KEY = "wimg_search_recent"
 
 private fun loadRecent(ctx: Context): List<String> =
@@ -138,11 +214,23 @@ fun SearchScreen(selectedAccount: String?, navController: NavController, initial
 
     val q = query.trim()
     val active = q.isNotEmpty() || quick != null
-    val hits = remember(all, q, quick) {
-        if (!active) emptyList() else all.filter { tx ->
-            (q.isEmpty() || tx.description.contains(q, ignoreCase = true)) && (quick?.matches(tx) ?: true)
+    // Off the main thread (3,000+ rows per keystroke). Purpose, wimg's name and
+    // the amount. The result carries its query, so "Keine Treffer" never shows
+    // for an input that is still being searched.
+    val searched by androidx.compose.runtime.produceState<Pair<Any?, List<Transaction>>>(null to emptyList(), all, q, quick) {
+        val key = q to quick
+        value = key to withContext(Dispatchers.Default) {
+            if (!active) emptyList() else all.filter { tx ->
+                (q.isEmpty() || tx.description.contains(q, ignoreCase = true) || tx.displayTitle.contains(q, ignoreCase = true) || amountMatches(tx, q)) &&
+                    (quick?.matches(tx) ?: true)
+            }
         }
     }
+    val current = searched.first == (q to quick)
+    val hits = searched.second
+    val hasBank = remember { com.wimg.app.services.BankConnections.all(ctx).isNotEmpty() }
+    val allActions = searchActions(hasBank)
+    val actions = if (q.isEmpty()) emptyList() else allActions.filter { it.matches(q) }.take(4)
     val c = Wimg.colors
 
     Box(Modifier.fillMaxSize()) {
@@ -163,7 +251,12 @@ fun SearchScreen(selectedAccount: String?, navController: NavController, initial
             },
         ) {
             when {
-                !active -> StartView(recent, all, onRecent = { query = it; keyboard?.hide() }, quick = quick, onQuick = { quick = it; keyboard?.hide() })
+                !active -> StartView(recent, all, onRecent = { query = it; keyboard?.hide() }, quick = quick, onQuick = { quick = it; keyboard?.hide() },
+                    fetch = allActions.firstOrNull { hasBank }, onAction = { keyboard?.hide(); it.run(navController, ctx) })
+                hits.isEmpty() && actions.isNotEmpty() -> Column(Modifier.fillMaxSize()) {
+                    ActionList(actions) { keyboard?.hide(); it.run(navController, ctx) }
+                }
+                hits.isEmpty() && !current -> Box(Modifier.fillMaxSize())
                 hits.isEmpty() -> Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 24.dp)) {
                     Text(
                         if (q.isNotEmpty()) L("Keine Treffer für „%s“", q) else L("Keine Treffer"),
@@ -175,6 +268,7 @@ fun SearchScreen(selectedAccount: String?, navController: NavController, initial
                     )
                 }
                 else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 140.dp)) {
+                    if (actions.isNotEmpty()) item { ActionList(actions) { keyboard?.hide(); it.run(navController, ctx) } }
                     item {
                         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp)) {
                             Text(L("Neueste zuerst"), style = WimgType.chip, color = c.text2, modifier = Modifier.weight(1f))
@@ -259,9 +353,11 @@ fun SearchScreen(selectedAccount: String?, navController: NavController, initial
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun StartView(recent: List<String>, all: List<Transaction>, onRecent: (String) -> Unit, quick: Quick?, onQuick: (Quick?) -> Unit) {
+private fun StartView(recent: List<String>, all: List<Transaction>, onRecent: (String) -> Unit, quick: Quick?, onQuick: (Quick?) -> Unit, fetch: SearchAction?, onAction: (SearchAction) -> Unit) {
     val c = Wimg.colors
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        // The one action you want most often, without typing.
+        if (fetch != null) Box(Modifier.padding(top = 14.dp)) { ActionRow(fetch) { onAction(fetch) } }
         if (recent.isNotEmpty()) {
             Text(L("Zuletzt gesucht"), style = WimgType.chip, color = c.text2, modifier = Modifier.padding(top = 22.dp, bottom = 4.dp))
             recent.forEach { r ->
@@ -279,6 +375,34 @@ private fun StartView(recent: List<String>, all: List<Transaction>, onRecent: (S
         }
         Text(L("Schnell filtern"), style = WimgType.chip, color = c.text2, modifier = Modifier.padding(top = 22.dp, bottom = 10.dp))
         QuickChips(quick, onQuick)
+    }
+}
+
+/** "Aktionen" above the hits: places and actions whose name or keywords start with the input. */
+@Composable
+private fun ActionList(actions: List<SearchAction>, onPick: (SearchAction) -> Unit) {
+    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp)) {
+        Text(L("Aktionen"), style = WimgType.chip, color = Wimg.colors.text2, modifier = Modifier.padding(bottom = 4.dp))
+        actions.forEach { a -> ActionRow(a) { onPick(a) } }
+    }
+}
+
+@Composable
+private fun ActionRow(a: SearchAction, onClick: () -> Unit) {
+    val c = Wimg.colors
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(WimgShape.dockAction).clickable(onClick = onClick).padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(36.dp).clip(WimgShape.iconTile).background(c.neutralTint), contentAlignment = Alignment.Center) {
+            Icon(a.icon, contentDescription = null, tint = c.text, modifier = Modifier.size(19.dp))
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(a.label, style = WimgType.rowTitle, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (a.sub != null) Text(a.sub, style = WimgType.desc, color = c.text2, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = c.text3, modifier = Modifier.size(20.dp))
     }
 }
 

@@ -61,6 +61,7 @@ object BackgroundRefresh {
     private const val SALARY_NOTIFICATION_ID = 4713
     private const val SALARY_KEY = "wimg_salary_notified"
     private const val SETTINGS_PREFS = "wimg_settings"
+    private const val MORNING_KEY = "wimg_bg_morning_v1"
 
     /** Dedupe TAN notifications so a daily run on a TAN bank doesn't produce
      *  seven "TAN erforderlich" banners in a week. Mirrors iOS. */
@@ -135,18 +136,27 @@ object BackgroundRefresh {
             .setRequiresBatteryNotLow(true)
             .build()
 
-        val request = PeriodicWorkRequestBuilder<BackgroundRefreshWorker>(
-            1, TimeUnit.DAYS,
-            6, TimeUnit.HOURS, // flex: run in the last 6h of each interval
-        ).setConstraints(constraints).build()
+        // Every morning: the first run at the next 06:00, then every 24 h (Doze may
+        // move it a little). The first look of the day is fresh; on open the app
+        // fetches too when the last fetch is over 4 h old (FinTSScreen.fetchOnOpen).
+        val now = java.util.Calendar.getInstance()
+        val next = (now.clone() as java.util.Calendar).apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 6); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0)
+            if (!after(now)) add(java.util.Calendar.DAY_OF_YEAR, 1)
+        }
+        val request = PeriodicWorkRequestBuilder<BackgroundRefreshWorker>(1, TimeUnit.DAYS)
+            .setInitialDelay(next.timeInMillis - now.timeInMillis, TimeUnit.MILLISECONDS)
+            .setConstraints(constraints).build()
 
+        // A schedule from before the morning time keeps its old start: replace it once.
+        val prefs = context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE)
+        val moved = prefs.getBoolean(MORNING_KEY, false)
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             WORK_NAME,
-            // UPDATE so a changed interval or constraint takes effect without
-            // losing the existing schedule.
-            ExistingPeriodicWorkPolicy.UPDATE,
+            if (moved) ExistingPeriodicWorkPolicy.KEEP else ExistingPeriodicWorkPolicy.CANCEL_AND_REENQUEUE,
             request,
         )
+        if (!moved) prefs.edit().putBoolean(MORNING_KEY, true).apply()
     }
 
     /** Call when the user disables the toggle or clears their stored PIN. */

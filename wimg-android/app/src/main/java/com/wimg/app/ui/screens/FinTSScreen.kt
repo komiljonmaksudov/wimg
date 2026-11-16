@@ -253,6 +253,65 @@ private object FintsJob {
         }
     }
 
+    /**
+     * Fetch on open: when the newest fetch of a bank with a saved PIN is over 4 h
+     * old, sign in and load the last 14 days without opening anything. The bar
+     * shows "Umsätze laden" and then the new ones; a TAN becomes one quiet row
+     * ("Bank will eine TAN · Abrufen"), other errors stay in the log. Tried at
+     * most every 4 h, and only while "Im Hintergrund abrufen" is on.
+     */
+    fun onOpen(context: Context) {
+        if (running || !BackgroundRefresh.isEnabled(context)) return
+        val prefs = context.getSharedPreferences(OPEN_PREFS, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        if (now - prefs.getLong(OPEN_TRIED_KEY, 0) < OPEN_STALE_MS) return
+        val conn = BankConnections.all(context)
+            .filter { now - it.lastFetchAt > OPEN_STALE_MS && PinStore.get(context, it.id) != null }
+            .minByOrNull { it.lastFetchAt } ?: return
+        val saved = PinStore.get(context, conn.id) ?: return
+        prefs.edit().putLong(OPEN_TRIED_KEY, now).apply()
+        running = true
+        Dock.show(DockRow(DockKind.Sync, __t("Umsätze laden"), conn.name))
+        val tanRow = { Dock.show(DockRow(DockKind.Prompt, __t("Bank will eine TAN"), conn.name, __t("Abrufen"), { quick(context, conn) }, timeoutMs = 10_000)) }
+        scope.launch {
+            val r = runCatching {
+                withFintsThread {
+                    com.wimg.app.bridge.LibWimg.native {
+                        WimgJni.nativeSetHttpCallback(FintsHttpCallback())
+                        decode(WimgJni.nativeFintsConnect(connectBody(conn.blz, conn.kennung, saved)))
+                    }
+                }
+            }.getOrNull()
+            val medium = conn.tanMedium
+            val f = if (r?.status == "ok" && (r.tan_medium_required != true || medium != null)) runCatching {
+                withFintsThread {
+                    if (r.tan_medium_required == true) com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsSetTanMedium(mediumBody(medium!!)) }
+                    val (from, to) = rangeDays(14)
+                    decode(com.wimg.app.bridge.LibWimg.fintsFetch(fetchBody(from, to)))
+                }
+            }.getOrNull() else null
+            running = false
+            when {
+                r?.status == "tan_required" || f?.status == "tan_required" -> tanRow()
+                isAuthRejected(r) || isAuthRejected(f) -> {
+                    forgetPin(context, conn.id)
+                    Dock.error(__t("Anmeldung abgelehnt"), bankText(if (isAuthRejected(r)) r else f), __t("Neu anmelden")) {
+                        loginRequested = conn.id
+                        com.wimg.app.ui.components.NavRequest.route = bankRoute(conn.id)
+                    }
+                }
+                f != null && (f.imported != null || f.status == "ok") -> {
+                    val n = f.imported ?: 0
+                    BankConnections.recordFetch(context, conn.id, n)
+                    Changes.bump()
+                    if (n > 0) fetchedDock(n, null, conn.name) else Dock.dismiss()
+                }
+                // Not reachable, bank hiccup, no TAN device yet: quiet (the error is in the log).
+                else -> Dock.dismiss()
+            }
+        }
+    }
+
     private fun openPage(id: String, quick: Boolean = false) {
         com.wimg.app.ui.components.NavRequest.onTop = true
         com.wimg.app.ui.components.NavRequest.route = bankRoute(id, quick)
@@ -852,7 +911,7 @@ private fun BankDetail(b: BankInfo, conn: BankConnection, reload: Int, onOlder: 
             WimgGroup {
                 WimgRow(
                     L("Hintergrund-Abruf"),
-                    desc = if (hasPin) L("Täglich, letzte 14 Tage · Mitteilung bei neuen Umsätzen oder „TAN erforderlich“") else L("Braucht die gespeicherte PIN"),
+                    desc = if (hasPin) L("Jeden Morgen und beim Öffnen, letzte 14 Tage · Mitteilung bei neuen Umsätzen oder „TAN erforderlich“") else L("Braucht die gespeicherte PIN"),
                     trailing = { WimgToggle(bg && hasPin, { v -> if (hasPin) { bg = v; BackgroundRefresh.setEnabled(context, v) } }, label = L("Hintergrund-Abruf")) },
                 )
             }
@@ -920,3 +979,20 @@ internal suspend fun preloadBankCatalog() { BankCatalog.load() }
 
 /** ↻ on a bank card: Schnellabfrage without leaving Bankverbindungen. */
 internal fun quickRefreshFromList(context: Context, conn: com.wimg.app.services.BankConnection) = FintsJob.quick(context, conn)
+
+/** Fetch on open (MainActivity.onResume); see [FintsJob.onOpen]. */
+internal fun fetchOnOpen(context: Context) = FintsJob.onOpen(context)
+
+/** A bank fetch is running (the Übersicht's freshness line says so). */
+internal val fintsFetching: Boolean get() = FintsJob.running
+
+/** Search › "Umsätze abrufen": the bank fetched longest ago, quick with its saved PIN (or its page). */
+internal fun fetchFromSearch(context: Context): Boolean {
+    val conn = BankConnections.all(context).minByOrNull { it.lastFetchAt } ?: return false
+    FintsJob.quick(context, conn)
+    return true
+}
+
+private const val OPEN_PREFS = "wimg_settings"
+private const val OPEN_TRIED_KEY = "wimg_open_fetch_tried_at"
+private const val OPEN_STALE_MS = 4L * 60 * 60 * 1000

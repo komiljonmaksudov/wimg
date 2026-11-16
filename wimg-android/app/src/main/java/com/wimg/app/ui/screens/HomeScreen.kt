@@ -249,6 +249,7 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
         band = {
             if (period != null) {
                 PeriodBand(periods, period, prevPeriod, s, d, openRecurring)
+                if (period.current) FreshnessLine()
                 return@BandScreen
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -299,6 +300,7 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
                 if (isCurrent) BandStat(L("Sparquote"), quote?.let { "$it %" } ?: "–", Color.White, Modifier.weight(1f))
                 else BandStat(L("Ausgaben/Tag"), amountText(spent / daysCounted.coerceAtLeast(1), showPlus = false), Color.White, Modifier.weight(1f))
             }
+            if (isCurrent) FreshnessLine()
         },
     ) {
         LazyColumn(
@@ -958,6 +960,36 @@ internal fun noSpendDays(fromIso: String, daysPast: Int, spendDates: Set<String>
         if (iso !in spendDates) out += i
     }
     return out
+}
+
+/**
+ * How fresh the numbers are: "Stand heute, 06:12 · comdirect" from the newest
+ * bank fetch, "Umsätze werden geladen …" while one runs. Nothing without a bank.
+ */
+@Composable
+private fun FreshnessLine() {
+    val context = LocalContext.current
+    val fetching = fintsFetching
+    val conn = remember(com.wimg.app.ui.components.Changes.version, fetching) {
+        com.wimg.app.services.BankConnections.all(context).filter { it.lastFetchAt > 0 }.maxByOrNull { it.lastFetchAt }
+    }
+    val text = when {
+        fetching -> L("Umsätze werden geladen …")
+        conn == null -> return
+        else -> {
+            val at = Calendar.getInstance().apply { timeInMillis = conn.lastFetchAt }
+            val time = "%02d:%02d".format(at.get(Calendar.HOUR_OF_DAY), at.get(Calendar.MINUTE))
+            val day = com.wimg.app.ui.components.WimgDates.todayIso()
+            val iso = "%04d-%02d-%02d".format(at.get(Calendar.YEAR), at.get(Calendar.MONTH) + 1, at.get(Calendar.DAY_OF_MONTH))
+            val yesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }.let { "%04d-%02d-%02d".format(it.get(Calendar.YEAR), it.get(Calendar.MONTH) + 1, it.get(Calendar.DAY_OF_MONTH)) }
+            when (iso) {
+                day -> L("Stand heute, %s · %s", time, conn.name)
+                yesterday -> L("Stand gestern, %s · %s", time, conn.name)
+                else -> L("Stand %s · %s", com.wimg.app.ui.components.WimgDates.short(iso), conn.name)
+            }
+        }
+    }
+    Text(text, style = WimgType.desc, color = Wimg.colors.bandSub, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.padding(top = 12.dp))
 }
 
 /** A moment the squirrel plays once (prototype MOMENTS), with the line its bubble shows after. */

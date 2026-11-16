@@ -251,7 +251,7 @@ fun SettingsScreen(navController: NavController? = null) {
             RowDivider()
             WimgRow(
                 L("Schnellabfrage im Hintergrund"),
-                desc = if (hasPin) L("Einmal täglich, letzte 14 Tage · nur wenn die Bank keine TAN verlangt")
+                desc = if (hasPin) L("Jeden Morgen und beim Öffnen (wenn älter als 4 Std.), letzte 14 Tage · nur ohne TAN")
                 else L("Erst verfügbar, wenn die PIN für die Schnellabfrage gespeichert ist."),
                 trailing = {
                     WimgToggle(bgRefresh && hasPin, { v ->
