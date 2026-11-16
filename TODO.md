@@ -22,7 +22,7 @@ Open work only, grouped by area; finished work moves to [CHANGELOG.md](CHANGELOG
 - [ ] One import seam in libwimg: every source (FinTS, CSV, file import, later bunq/Fio) hands over a `Batch` (account, booked, pending, balance, twin rule) and one `import.apply(db, batch)` does duplicates/twins, pending, categories and balance. Plain data + functions, no plugin system. Sketch and reasons: `.claude/rules/banking-aggregators.md` (update 2026-11-16).
 - [ ] CAMT/MT940 file import next to CSV (parsers exist), on top of the seam: private, free, any bank with exports.
 - [ ] CAMT by default where the bank advertises HICAZS, MT940 as legacy fallback.
-- [ ] Enable Banking: ticket sent by the user (personal-use apps inside a public app, shared https redirect, non-commercial option). Decide after their answer; only as a labelled extra, Enable Banking sees bookings in transit.
+- [ ] Enable Banking: support ticket 452772778232 sent 2026-11-16 (personal-use apps inside a public app, shared https redirect, non-commercial option). Auto-reply: without an agreement, tickets are "processed in automated way and you may not hear back". If nothing comes back, ask sales (info@enablebanking.com, per their FAQ). Until a written yes: don't build. Only ever as a labelled extra, Enable Banking sees bookings in transit.
 - [ ] Direct bank connectors (bunq, Fio, comdirect REST) only on user demand; comdirect REST needs a TAN per session, FinTS doesn't.
 
 - [ ] Notification tap: not reproducible on the emulator anymore (foreground and background, 2026-11-15); confirm with a real notification on the phone.
