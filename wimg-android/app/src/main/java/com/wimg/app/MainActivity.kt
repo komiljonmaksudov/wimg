@@ -22,6 +22,11 @@ import com.wimg.app.ui.theme.WimgTheme
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Phones stay upright: band, sheet and bar are laid out for portrait, and in
+        // landscape the band filled the screen and the places menu ran under the
+        // camera. Tablets and foldables (600 dp+) still rotate; Android 16 ignores
+        // the lock there anyway.
+        if (resources.configuration.smallestScreenWidthDp < 600) requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         enableEdgeToEdge()
         // Belt and braces for vendor "force dark" modes (HyperOS): wimg themes itself.
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) window.decorView.isForceDarkAllowed = false
