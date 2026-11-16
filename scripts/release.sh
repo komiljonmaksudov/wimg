@@ -137,8 +137,11 @@ echo "Done! Created commit and tag v${NEW}."
 if [[ "$PUSH" == true ]]; then
   echo ""
   echo "Pushing..."
-  git push && git push origin "v${NEW}"
-  echo "Pushed! CI will build and deploy."
+  # Separate lines: in `a && b`, set -e ignores a failing `a`, and the script
+  # printed "Pushed!" after a push GitHub had refused (HTTP 400, 16 Nov 2026).
+  git push
+  git push origin "v${NEW}"
+  echo "Pushed! CI will build the release."
 else
   echo ""
   echo "To publish:"
