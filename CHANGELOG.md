@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.9.9 (2026-11-16)
+
+- fix: a new install speaks the phone's language, and Neuigkeiten lists 0.9.8
+- fix: first start goes straight to the chosen page, without Übersicht flashing or the bar jumping
+- refactor: remove the old Cloudflare sync Worker and the WASM build
+- docs: TODO lists the price-change notification and the squirrel leftovers
+
 ## v0.9.8 (2026-11-16)
 
 - docs: TODO keeps the import-seam sketch; Android section back
