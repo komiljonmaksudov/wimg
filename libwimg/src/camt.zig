@@ -296,8 +296,29 @@ fn extractTagText(haystack: []const u8, tag_name: []const u8) ?[]const u8 {
     return haystack[content_start..end_rel];
 }
 
-/// "YYYY-MM-DDTHH:MM" anywhere in a booking text (card payment timestamp).
+/// The payment day in a booking text: "YYYY-MM-DDTHH:MM" (Comdirect) or the
+/// German "DD.MM.YYYY" (many Sparkassen and Volksbanken: "14.11.2026, 15.24 Uhr").
+/// The caller only uses it for a pending entry without a date, within 30 days.
 fn paymentDateInText(text: []const u8) ?Date {
+    if (isoTimestampInText(text)) |d| return d;
+    if (text.len < 10) return null;
+    var j: usize = 0;
+    while (j + 10 <= text.len) : (j += 1) {
+        const t = text[j .. j + 10];
+        if (j > 0 and std.ascii.isDigit(text[j - 1])) continue;
+        if (t[2] != '.' or t[5] != '.') continue;
+        if (!(std.ascii.isDigit(t[0]) and std.ascii.isDigit(t[1]) and std.ascii.isDigit(t[3]) and std.ascii.isDigit(t[4]) and
+            std.ascii.isDigit(t[6]) and std.ascii.isDigit(t[7]) and std.ascii.isDigit(t[8]) and std.ascii.isDigit(t[9]))) continue;
+        if (j + 10 < text.len and std.ascii.isDigit(text[j + 10])) continue;
+        const day = std.fmt.parseInt(u8, t[0..2], 10) catch continue;
+        const month = std.fmt.parseInt(u8, t[3..5], 10) catch continue;
+        const year = std.fmt.parseInt(u16, t[6..10], 10) catch continue;
+        if (month >= 1 and month <= 12 and day >= 1 and day <= 31) return .{ .year = year, .month = month, .day = day };
+    }
+    return null;
+}
+
+fn isoTimestampInText(text: []const u8) ?Date {
     if (text.len < 16) return null;
     var i: usize = 0;
     while (i + 16 <= text.len) : (i += 1) {
@@ -514,4 +535,14 @@ test "pending without a date takes the payment day from its text, not the fetch 
     try std.testing.expectEqual(@as(u8, 15), out[1].date.day); // no time in the text: fetch day
     try std.testing.expectEqual(@as(u8, 15), out[2].date.day); // a date far back is not a payment time
     try std.testing.expectEqual(@as(u16, 2026), out[2].date.year);
+}
+
+test "pending payment day in the German form (Sparkasse/Volksbank card text)" {
+    const xml = "<Document><CreDtTm>2026-11-16T08:00:00</CreDtTm>" ++
+        "<Ntry><Amt Ccy=\"EUR\">12.50</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts><Cd>PDNG</Cd></Sts><NtryDtls><TxDtls><RmtInf><Ustrd>REWE SAGT DANKE Datum 14.11.2026, 15.24 Uhr</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry></Document>";
+    var out: [2]Transaction = undefined;
+    const r = parseCamtPending(xml, "Bank", &out);
+    try std.testing.expectEqual(@as(usize, 1), r.count);
+    try std.testing.expectEqual(@as(u8, 14), out[0].date.day);
+    try std.testing.expectEqual(@as(u8, 11), out[0].date.month);
 }

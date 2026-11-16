@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
@@ -84,12 +85,28 @@ private val Drawer = CubicBezierEasing(0.32f, 0.72f, 0f, 1f)
 @Composable
 internal fun ReviewOpener(title: String, cards: List<OpenerCard>, onDone: () -> Unit) {
     Dialog(onDismissRequest = onDone, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        val c = Wimg.colors
+        val bg = if (c.isDark) Color(0xFF111114) else Color(0xFFF3ECDD)
+        // Its own window: reach under the status and navigation bars in the opener's
+        // colour (they stayed black above and below the cards otherwise).
         (LocalView.current.parent as? DialogWindowProvider)?.window?.let { w ->
             w.setDimAmount(0f)
             w.setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT)
+            w.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(bg.toArgb()))
+            w.addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+            @Suppress("DEPRECATION") run {
+                w.statusBarColor = android.graphics.Color.TRANSPARENT
+                w.navigationBarColor = android.graphics.Color.TRANSPARENT
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) w.isNavigationBarContrastEnforced = false
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                w.attributes = w.attributes.apply { layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES }
+            }
+            androidx.core.view.WindowCompat.getInsetsController(w, w.decorView).apply {
+                isAppearanceLightStatusBars = !c.isDark
+                isAppearanceLightNavigationBars = !c.isDark
+            }
         }
-        val c = Wimg.colors
-        val bg = if (c.isDark) Color(0xFF111114) else Color(0xFFF3ECDD)
         val ink = if (c.isDark) Color(0xFFF2F2F3) else Color(0xFF1A1A1A)
         val sub = if (c.isDark) Color(0xFF9A9BA0) else Color(0xFF6B6A66)
         var i by remember { mutableIntStateOf(0) }
