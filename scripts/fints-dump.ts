@@ -20,6 +20,7 @@
  * --camt      fetch booked statements as CAMT (HKCAZ) instead of MT940 (HKKAZ)
  *
  * Credentials: FINTS_USER / FINTS_PIN env vars, or prompted (PIN is not echoed).
+ * FINTS_SYSTEM_ID: reuse the system id a previous run printed (no new one).
  * Raw bank responses (contain personal data!) are written 0600 to --out
  * (default: a fresh dir under os.tmpdir()). Requests (which hold the PIN) are
  * never written anywhere.
@@ -110,8 +111,10 @@ lib.symbols.wimg_init(Buffer.from(join(outDir, "scratch.db") + "\0") as any);
 lib.symbols.wimg_set_http_callback(http.ptr as any);
 
 console.log("connecting…");
-const conn = call(lib.symbols.wimg_fints_connect, { blz, user, pin, product: PRODUCT_ID });
-console.log("connect:", conn.status, conn.message ?? "");
+// FINTS_SYSTEM_ID: sign in with a system id kept from an earlier run (no HKSYN).
+const keptId = process.env.FINTS_SYSTEM_ID;
+const conn = call(lib.symbols.wimg_fints_connect, { blz, user, pin, product: PRODUCT_ID, ...(keptId ? { system_id: keptId } : {}) });
+console.log("connect:", conn.status, conn.message ?? "", conn.system_id ? `system_id=${conn.system_id}` : "");
 if (conn.status !== "ok") process.exit(1);
 
 if (conn.tan_medium_required) {

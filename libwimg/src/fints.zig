@@ -590,6 +590,17 @@ fn writeAnonAuthEnvelope(session: *const FintsSession, buf: []u8, inner: []const
 /// Build synchronization dialog init (sec_func=999, HKSYN to get system_id).
 /// Used as first step in connect — fetches BPD and system_id.
 pub fn buildSyncInit(session: *const FintsSession, buf: []u8) ?usize {
+    return buildFirstDialog(session, buf, true);
+}
+
+/// The first dialog with the system id from an earlier sync (python-fints keeps
+/// it too): BPD, UPD and TAN methods as usual, but no HKSYN, so the bank hands
+/// out no new id. Fewer fresh ids, fewer chances for one with '+' in it.
+pub fn buildBpdInit(session: *const FintsSession, buf: []u8) ?usize {
+    return buildFirstDialog(session, buf, false);
+}
+
+fn buildFirstDialog(session: *const FintsSession, buf: []u8, new_id: bool) ?usize {
     var inner_buf: [4096]u8 = undefined;
     var inner_pos: usize = 0;
 
@@ -599,8 +610,8 @@ pub fn buildSyncInit(session: *const FintsSession, buf: []u8) ?usize {
     // HNSHK — sec_func=999 (one-step, allowed for sync only)
     inner_pos += writeSignatureHeader(&inner_buf, inner_pos, 2, session, sec_ref, "999") orelse return null;
 
-    // HKIDN — Identification (system_id=0 for sync)
-    inner_pos += writeHkidn(&inner_buf, inner_pos, 3, &session.blz, session.userIdSlice(), "0", "1") orelse return null;
+    // HKIDN — Identification (system_id=0 when asking for a new one)
+    inner_pos += writeHkidn(&inner_buf, inner_pos, 3, &session.blz, session.userIdSlice(), if (new_id) "0" else session.systemIdSlice(), "1") orelse return null;
 
     // HKVVB — BPD request
     inner_pos += writeSegment(&inner_buf, inner_pos, "HKVVB", 4, 3, &.{
@@ -618,6 +629,12 @@ pub fn buildSyncInit(session: *const FintsSession, buf: []u8) ?usize {
         session.productIdSlice(),
         "5.0.0", // python-fints product version
     }) orelse return null;
+
+    if (!new_id) {
+        // HNSHA — Signature footer (contains PIN)
+        inner_pos += writeSignatureFooter(&inner_buf, inner_pos, 5, sec_ref, session.pinSlice(), "") orelse return null;
+        return writeAuthEnvelope(session, "999", buf, inner_buf[0..inner_pos], 5);
+    }
 
     // HKSYN — Synchronization (mode 0 = new system ID)
     inner_pos += writeSegment(&inner_buf, inner_pos, "HKSYN", 5, 3, &.{
@@ -3174,4 +3191,21 @@ test "a login with special characters is escaped in every header" {
     const msg = buf[0..n];
     try std.testing.expect(std.mem.indexOf(u8, msg, "max?@mail.de") != null);
     try std.testing.expect(std.mem.indexOf(u8, msg, "max@mail.de") == null);
+}
+
+test "first dialog with a kept system id: no HKSYN, the id in HKIDN and the signature" {
+    var s = FintsSession.init("20041177", "https://x.de/f", "u", "p");
+    const id = "vc+xyXOn5KEBAACeOPWCFQWCCgQA";
+    @memcpy(s.system_id[0..id.len], id);
+    s.system_id_len = id.len;
+    var buf: [8192]u8 = undefined;
+    const n = buildBpdInit(&s, &buf) orelse return error.TestUnexpectedResult;
+    const msg = buf[0..n];
+    try std.testing.expect(std.mem.indexOf(u8, msg, "HKSYN") == null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, "HKIDN:3:2+280:20041177+u+vc?+xyXOn5KEBAACeOPWCFQWCCgQA+1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, "HNSHA:5:2+") != null);
+    // Without a kept id: HKSYN asks for one, system id 0.
+    var t = FintsSession.init("20041177", "https://x.de/f", "u", "p");
+    const m = buildSyncInit(&t, &buf) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..m], "HKSYN:5:3+0") != null);
 }

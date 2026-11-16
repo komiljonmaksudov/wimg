@@ -15,7 +15,7 @@ Open work only, grouped by area; finished work moves to [CHANGELOG.md](CHANGELOG
 - [x] `isEscaped` counts the run of '?' (2026-11-16).
 - [x] Kunden-ID escaped in HNSHK/HNVSK key names and the fallback account (2026-11-16).
 - [ ] Encode outgoing text as ISO-8859-1 like python-fints (we send UTF-8): matters for names/TAN media with umlauts.
-- [ ] Keep the system id per connection instead of a fresh one each connect (python-fints, hbci4java do).
+- [x] System id kept per connection (`BankConnection.systemId`, connect without HKSYN, fresh sync if the bank refuses it) (2026-11-16). Not yet tried against a bank.
 - [x] `_debug_*` fields gone from the connect JSON (2026-11-16).
 
 ## Android

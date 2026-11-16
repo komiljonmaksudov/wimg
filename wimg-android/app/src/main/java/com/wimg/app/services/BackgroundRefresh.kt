@@ -399,6 +399,7 @@ object BackgroundRefresh {
         val tan_medium_required: Boolean? = null,
         val imported: Int? = null,
         val codes: String? = null,
+        val system_id: String? = null,
     )
 
     /**
@@ -441,9 +442,11 @@ object BackgroundRefresh {
         return try {
             val connect = withFintsThread {
                 val input =
-                    kotlinx.serialization.json.buildJsonObject { put("blz", blz); put("user", kennung); put("pin", pin); put("product", PRODUCT_ID) }.toString()
+                    kotlinx.serialization.json.buildJsonObject { put("blz", blz); put("user", kennung); put("pin", pin); put("product", PRODUCT_ID); conn.systemId?.let { put("system_id", it) } }.toString()
                 com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsConnect(input) }?.let { json.decodeFromString<FintsResult>(it) }
             } ?: return Outcome.Silent
+            // Keep the bank's system id for the next sign-in.
+            if (connect.status == "ok") connect.system_id?.takeIf { it.length > 1 && it != conn.systemId }?.let { BankConnections.setSystemId(context, conn.id, it) }
 
             when (connect.status) {
                 "tan_required" -> return Outcome.TanRequired(conn.name)

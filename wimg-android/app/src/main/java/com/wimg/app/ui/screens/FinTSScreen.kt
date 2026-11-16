@@ -122,6 +122,8 @@ private data class FintsResult(
     val duplicates: Int? = null,
     /** Every bank code of a fetch that got no statement (for the log, never shown). */
     val codes: String? = null,
+    /** Connect: the bank's system id for this login, to keep. */
+    val system_id: String? = null,
 )
 
 @Serializable
@@ -150,8 +152,21 @@ private const val PRODUCT = "F7C4049477F6136957A46EC28"
 
 // Request bodies built as JSON objects, so a PIN or login with quotes or
 // backslashes can't break the request.
-private fun connectBody(blz: String, user: String, pin: String) =
-    buildJsonObject { put("blz", blz); put("user", user); put("pin", pin); put("product", PRODUCT) }.toString()
+private fun connectBody(blz: String, user: String, pin: String, systemId: String? = null) =
+    buildJsonObject { put("blz", blz); put("user", user); put("pin", pin); put("product", PRODUCT); if (systemId != null) put("system_id", systemId) }.toString()
+
+/**
+ * Sign in with the system id kept for this login, and keep the one the bank
+ * answers with (a new one only on the first sign-in or when the bank refused
+ * the old one). Call on the FinTS thread, inside LibWimg.native.
+ */
+private fun connectKeepingId(context: Context, blz: String, user: String, pin: String): FintsResult? {
+    val id = BankConnections.idFor(blz, user.trim())
+    val kept = BankConnections.get(context, id)?.systemId
+    val r = decode(WimgJni.nativeFintsConnect(connectBody(blz, user, pin, kept)))
+    if (r?.status == "ok") r.system_id?.takeIf { it.length > 1 && it != kept }?.let { BankConnections.setSystemId(context, id, it) }
+    return r
+}
 private fun tanBody(tan: String) = buildJsonObject { put("tan", tan) }.toString()
 private fun fetchBody(from: String, to: String, camt: Boolean = false) = buildJsonObject { put("from", from); put("to", to); if (camt) put("format", "camt") }.toString()
 
@@ -233,7 +248,7 @@ private object FintsJob {
                 withFintsThread {
                     com.wimg.app.bridge.LibWimg.native {
                         WimgJni.nativeSetHttpCallback(FintsHttpCallback())
-                        decode(WimgJni.nativeFintsConnect(connectBody(conn.blz, conn.kennung, saved)))
+                        connectKeepingId(context, conn.blz, conn.kennung, saved)
                     }
                 }
             }.getOrNull()
@@ -292,7 +307,7 @@ private object FintsJob {
                 withFintsThread {
                     com.wimg.app.bridge.LibWimg.native {
                         WimgJni.nativeSetHttpCallback(FintsHttpCallback())
-                        decode(WimgJni.nativeFintsConnect(connectBody(conn.blz, conn.kennung, saved)))
+                        connectKeepingId(context, conn.blz, conn.kennung, saved)
                     }
                 }
             }.getOrNull()
@@ -512,7 +527,7 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
         busy = true; error = null
         Dock.show(DockRow(DockKind.Sync, __t("Anmelden"), b.name))
         scope.launch {
-            val r = runCatching { withFintsThread { decode(com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsConnect(connectBody(b.blz, kennung, saved)) }) } }.getOrNull()
+            val r = runCatching { withFintsThread { com.wimg.app.bridge.LibWimg.native { connectKeepingId(context, b.blz, kennung, saved) } } }.getOrNull()
             busy = false
             when (r?.status) {
                 "ok" -> afterLogin(r, quick = true)
@@ -550,7 +565,7 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
         busy = true
         Dock.show(DockRow(DockKind.Sync, __t("Anmelden"), b.name))
         scope.launch {
-            val r = runCatching { withFintsThread { decode(com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsConnect(connectBody(b.blz, kennung, saved)) }) } }.getOrNull()
+            val r = runCatching { withFintsThread { com.wimg.app.bridge.LibWimg.native { connectKeepingId(context, b.blz, kennung, saved) } } }.getOrNull()
             busy = false
             Dock.dismiss()
             when {
@@ -572,7 +587,7 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
         val old = connId?.let { BankConnections.get(context, it) }
         if (old != null && old.id != id) BankConnections.remove(context, old.id)
         val existing = BankConnections.get(context, id)
-        BankConnections.put(context, BankConnection(id, b.blz, kennung.trim(), b.name, existing?.tanMedium ?: old?.tanMedium, existing?.lastFetchAt ?: 0, existing?.lastFetchNew ?: 0))
+        BankConnections.put(context, BankConnection(id, b.blz, kennung.trim(), b.name, existing?.tanMedium ?: old?.tanMedium, existing?.lastFetchAt ?: 0, existing?.lastFetchNew ?: 0, camt = existing?.camt ?: false, systemId = existing?.systemId))
         if (rememberPin) PinStore.set(context, id, pin) else PinStore.clear(context, id)
         connId = id
     }
@@ -581,7 +596,7 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
         val b = bank ?: return
         busy = true; error = null
         scope.launch {
-            val r = runCatching { withFintsThread { decode(com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsConnect(connectBody(b.blz, kennung.trim(), pin)) }) } }.getOrNull()
+            val r = runCatching { withFintsThread { com.wimg.app.bridge.LibWimg.native { connectKeepingId(context, b.blz, kennung.trim(), pin) } } }.getOrNull()
             busy = false
             when (r?.status) {
                 "ok" -> {

@@ -25,6 +25,11 @@ data class BankConnection(
      * answered 9900 from 2026-11-16); switches back the same way.
      */
     val camt: Boolean = false,
+    /**
+     * The FinTS system id the bank gave this login. Kept so a sign-in asks for no
+     * new one (python-fints does the same); null until the first sign-in.
+     */
+    val systemId: String? = null,
 )
 
 /** The bank logins on this device, newest last. */
@@ -59,6 +64,13 @@ object BankConnections {
     }
 
     fun get(context: Context, id: String): BankConnection? = all(context).firstOrNull { it.id == id }
+
+    /** Keep the bank's system id for this login (see [BankConnection.systemId]). */
+    @Synchronized
+    fun setSystemId(context: Context, id: String, systemId: String) {
+        val c = get(context, id) ?: return
+        if (c.systemId != systemId) put(context, c.copy(systemId = systemId))
+    }
 
     /** Remember which statement format works for this bank (see [BankConnection.camt]). */
     @Synchronized

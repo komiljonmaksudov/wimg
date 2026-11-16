@@ -2011,53 +2011,74 @@ fn wimg_fints_connect(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         });
     }
 
-    // Step 1: Sync dialog (sec_func=999, HKSYN to get system_id)
+    // Step 1: First dialog (sec_func=999): BPD, UPD, TAN methods. With the system
+    // id the app kept from an earlier sync it asks for no new one (no HKSYN); if
+    // the bank refuses that id, once more with a fresh sync.
     var msg_buf: [8192]u8 = undefined;
     var resp_buf: [65536]u8 = undefined;
-
-    const sync_len = fints_mod.buildSyncInit(&fints_session, &msg_buf) orelse {
-        setError("wimg_fints_connect: failed to build sync init", .{});
-        return null;
-    };
-
-    const sync_resp_len = fints_http_mod.sendFintsMessage(
-        std.heap.page_allocator,
-        fints_session.urlSlice(),
-        msg_buf[0..sync_len],
-        &resp_buf,
-    ) catch {
-        setError("wimg_fints_connect: sync HTTP request failed", .{});
-        return null;
-    };
-
+    const kept_id = jsonExtractString(json, "\"system_id\"") orelse "";
+    var use_kept = kept_id.len > 1 and kept_id.len <= fints_session.system_id.len;
     var sync_resp = fints_mod.ParsedResponse.init();
-    fints_mod.parseResponse(&fints_session, resp_buf[0..sync_resp_len], &sync_resp);
-    selectTanSecFuncFromSync(&sync_resp, &fints_session);
-    fints_session.msg_num += 1;
+    var attempt: u8 = 0;
+    while (true) : (attempt += 1) {
+        if (attempt > 0) {
+            fints_session = fints_mod.FintsSession.init(blz, bank.urlSlice(), user, pin);
+            @memcpy(fints_session.product_id[0..prod_len], product[0..prod_len]);
+            fints_session.product_id_len = @intCast(prod_len);
+        }
+        if (use_kept) {
+            @memcpy(fints_session.system_id[0..kept_id.len], kept_id);
+            fints_session.system_id_len = @intCast(kept_id.len);
+        }
+        const sync_len = (if (use_kept) fints_mod.buildBpdInit(&fints_session, &msg_buf) else fints_mod.buildSyncInit(&fints_session, &msg_buf)) orelse {
+            setError("wimg_fints_connect: failed to build sync init", .{});
+            return null;
+        };
 
-    // Debug: log what parseResponse extracted (native uses stderr, visible in Xcode console)
-    if (!is_wasm) {
-        dbg.print("[FinTS Zig] sync resp_len={d}, codes={d}, has_tan={}\n", .{
-            sync_resp_len,
-            sync_resp.code_count,
-            fints_session.has_pending_tan,
-        });
-        dbg.print("[FinTS Zig] dialog_id='{s}' (len={d})\n", .{
-            fints_session.dialogIdSlice(),
-            fints_session.dialog_id_len,
-        });
-        dbg.print("[FinTS Zig] system_id='{s}' (len={d})\n", .{
-            fints_session.systemIdSlice(),
-            fints_session.system_id_len,
-        });
-        // First 200 bytes of response to see HNHBK
-        const preview_len = @min(sync_resp_len, 200);
-        dbg.print("[FinTS Zig] resp[0..{d}]='{s}'\n", .{ preview_len, resp_buf[0..preview_len] });
+        const sync_resp_len = fints_http_mod.sendFintsMessage(
+            std.heap.page_allocator,
+            fints_session.urlSlice(),
+            msg_buf[0..sync_len],
+            &resp_buf,
+        ) catch {
+            setError("wimg_fints_connect: sync HTTP request failed", .{});
+            return null;
+        };
+
+        sync_resp = fints_mod.ParsedResponse.init();
+        fints_mod.parseResponse(&fints_session, resp_buf[0..sync_resp_len], &sync_resp);
+        selectTanSecFuncFromSync(&sync_resp, &fints_session);
+        fints_session.msg_num += 1;
+
+        if (!is_wasm) {
+            dbg.print("[FinTS Zig] sync ({s}) resp_len={d}, codes={d}, has_tan={}\n", .{
+                if (use_kept) "kept system id" else "new system id",
+                sync_resp_len,
+                sync_resp.code_count,
+                fints_session.has_pending_tan,
+            });
+            dbg.print("[FinTS Zig] dialog_id='{s}' (len={d})\n", .{
+                fints_session.dialogIdSlice(),
+                fints_session.dialog_id_len,
+            });
+            dbg.print("[FinTS Zig] system_id='{s}' (len={d})\n", .{
+                fints_session.systemIdSlice(),
+                fints_session.system_id_len,
+            });
+            for (sync_resp.codes[0..sync_resp.code_count]) |*c| {
+                dbg.print("[FinTS Zig] sync code: {s} '{s}'\n", .{ c.codeSlice(), c.textSlice() });
+            }
+        }
+
+        // Close the first dialog with its security function (999), whatever TAN method comes later.
+        _ = sendDialogEnd(&fints_session, "999", &msg_buf, &resp_buf);
+
+        if (sync_resp.hasError() and use_kept and attempt == 0 and !isLoginRejected(&sync_resp)) {
+            use_kept = false;
+            continue;
+        }
+        break;
     }
-
-    // End sync dialog and reset for next dialog
-    // Close sync dialog using sync security function (999), independent of later TAN method.
-    _ = sendDialogEnd(&fints_session, "999", &msg_buf, &resp_buf);
 
     // Check sync result
     if (sync_resp.hasError()) {
@@ -2067,7 +2088,14 @@ fn wimg_fints_connect(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     }
 
     // Return status with tan_medium_required flag so UI knows if picker is needed
-    const debug_json = if (fints_session.tan_medium_required) "{\"status\":\"ok\",\"tan_medium_required\":true}" else "{\"status\":\"ok\",\"tan_medium_required\":false}";
+    // The system id goes back to the app, to be kept for the next sign-in.
+    var ok_buf: [256]u8 = undefined;
+    var sid_esc: [96]u8 = undefined;
+    const sid_len = db_mod.jsonEscapeString(&sid_esc, fints_session.systemIdSlice()) orelse 0;
+    const debug_json = std.fmt.bufPrint(&ok_buf, "{{\"status\":\"ok\",\"tan_medium_required\":{},\"system_id\":\"{s}\"}}", .{
+        fints_session.tan_medium_required,
+        sid_esc[0..sid_len],
+    }) catch "{\"status\":\"ok\"}";
 
     // Reset dialog state for fetch (keeps system_id, PIN, product_id)
     fints_session.resetDialog();
