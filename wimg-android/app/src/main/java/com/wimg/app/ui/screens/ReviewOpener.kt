@@ -99,8 +99,13 @@ internal fun ReviewOpener(title: String, cards: List<OpenerCard>, onDone: () -> 
                 w.navigationBarColor = android.graphics.Color.TRANSPARENT
             }
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) w.isNavigationBarContrastEnforced = false
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                w.attributes = w.attributes.apply { layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES }
+            // A dialog window keeps clear of the status bar by default (the band of the
+            // page behind showed through, black): lay it out over the whole screen.
+            // The cards pad themselves away from the bars (windowInsetsPadding).
+            w.addFlags(android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+            w.attributes = w.attributes.apply {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) setFitInsetsTypes(0)
             }
             androidx.core.view.WindowCompat.getInsetsController(w, w.decorView).apply {
                 isAppearanceLightStatusBars = !c.isDark
