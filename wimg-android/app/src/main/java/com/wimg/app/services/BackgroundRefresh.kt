@@ -459,8 +459,8 @@ object BackgroundRefresh {
                 }
             }
 
-            // Restore the saved TAN medium if the bank insists on one.
-            if (connect.tan_medium_required == true) {
+            // Restore the saved TAN medium; libwimg sends it whenever the bank wants names.
+            run {
                 conn.tanMedium?.let { medium ->
                     withFintsThread { com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsSetTanMedium(kotlinx.serialization.json.buildJsonObject { put("name", medium) }.toString()) } }
                 }

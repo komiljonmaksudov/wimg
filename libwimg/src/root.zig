@@ -2935,7 +2935,19 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     if (!saw_mt940 and !saw_camt) {
         // Before HKEND overwrites msg_buf: what we asked for, for the log.
         var preview_buf: [1024]u8 = undefined;
-        const preview = requestPreview(msg_buf[0..last_request_len], &preview_buf);
+        var preview_len = requestPreview(msg_buf[0..last_request_len], &preview_buf).len;
+        // The TAN method the bank announced and what we made of it (no PIN, no names).
+        const method = fints_mod.findTanMethod(&fints_session, fints_session.tanSecFuncSlice());
+        if (std.fmt.bufPrint(preview_buf[preview_len..], "| tan: sec_func={s} hktan=v{d} descr={d} media={d} decoupled={} medium_known={} medium_required={}", .{
+            fints_session.tanSecFuncSlice(),
+            fints_session.hitan_version,
+            fints_session.tan_description_required,
+            fints_session.tan_supported_media_number,
+            if (method) |m| m.decoupled else false,
+            fints_session.tan_medium_name_len > 0,
+            fints_session.tan_medium_required,
+        })) |t| preview_len += t.len else |_| {}
+        const preview = preview_buf[0..preview_len];
         _ = sendDialogEnd(&fints_session, fints_session.tanSecFuncSlice(), &msg_buf, resp_buf);
         fints_session.clearPin();
         var result_buf: [4096]u8 = undefined;

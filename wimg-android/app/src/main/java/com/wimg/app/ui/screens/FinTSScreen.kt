@@ -233,6 +233,9 @@ private object FintsJob {
                         // No saved TAN device: the page asks for one.
                         val medium = conn.tanMedium ?: run { Dock.dismiss(); openPage(conn.id, quick = true); return@launch }
                         withFintsThread { com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsSetTanMedium(mediumBody(medium)) } }
+                    } else conn.tanMedium?.let { m ->
+                        // Known device: libwimg sends it whenever the bank wants names.
+                        withFintsThread { com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsSetTanMedium(mediumBody(m)) } }
                     }
                     BackgroundRefresh.enqueue(context)
                     fetch(context, conn.id, range, conn.name, retried = retried)
@@ -285,7 +288,7 @@ private object FintsJob {
             val medium = conn.tanMedium
             val f = if (r?.status == "ok" && (r.tan_medium_required != true || medium != null)) runCatching {
                 withFintsThread {
-                    if (r.tan_medium_required == true) com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsSetTanMedium(mediumBody(medium!!)) }
+                    if (medium != null) com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsSetTanMedium(mediumBody(medium)) }
                     val (from, to) = rangeDays(14)
                     decode(com.wimg.app.bridge.LibWimg.fintsFetch(fetchBody(from, to)))
                 }
@@ -455,6 +458,10 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
 
     /** After login or TAN: pick the TAN medium first if the bank wants one. */
     fun afterLogin(r: FintsResult, quick: Boolean) {
+        if (r.tan_medium_required != true) connId?.let { BankConnections.get(context, it)?.tanMedium }?.let { m ->
+            // Known device: libwimg sends it whenever the bank wants names.
+            scope.launch { withFintsThread { com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsSetTanMedium(mediumBody(m)) } } }
+        }
         if (r.tan_medium_required == true) {
             val saved = connId?.let { BankConnections.get(context, it)?.tanMedium }
             if (saved != null) {

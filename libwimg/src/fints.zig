@@ -390,7 +390,10 @@ fn writeHktanProcess4V6Like(session: *const FintsSession, buf: []u8, offset: usi
     pos += 1;
 
     // de11 tan_medium_name: python-fints sends this for process 4 when required.
-    if (session.tan_medium_name_len > 0 or session.tan_medium_required) {
+    // A known medium goes along whenever the bank says the name is a must
+    // (description_required 2), even if its BPD lists one medium or app approval:
+    // Comdirect, 2026-11-16, answered HKKAZ without it with 9050/9900.
+    if (session.tan_medium_required or (session.tan_medium_name_len > 0 and session.tan_description_required == 2)) {
         buf[pos] = '+';
         pos += 1;
         if (session.tan_medium_name_len > 0) {
