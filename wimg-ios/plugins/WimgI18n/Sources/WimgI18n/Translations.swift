@@ -1149,6 +1149,8 @@ internal let translations: [String: String] = [
     "Tipp oben den Betrag ein.": "Type the amount at the top.",
     "Beschreibung fehlt": "Description missing",
     "Wofür war das? Zum Beispiel „Wochenmarkt“.": "What was it for? For example “farmers' market”.",
+    "Die Bank hat gerade ein Problem": "The bank has a problem right now",
+    "%s meldet einen internen Fehler. Versuch es später noch einmal.": "%s reports an internal error. Try again later.",
     "Von den Einnahmen sind %s übrig geblieben.": "%s of your income was left over.",
     "Sparquote %d %%.": "Savings rate %d %%.",
     "Sparquote %d %%, höher als im %s.": "Savings rate %d %%, higher than in %s.",

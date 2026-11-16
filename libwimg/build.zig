@@ -299,6 +299,26 @@ pub fn build(b: *std.Build) void {
     });
     const run_crypto_tests = b.addRunArtifact(crypto_tests);
     test_step.dependOn(&run_crypto_tests.step);
+
+    // root.zig (the C ABI and its FinTS error handling) has tests too; it was
+    // never in this step, so they didn't run.
+    const root_options = b.addOptions();
+    root_options.addOption(bool, "compact", false);
+    const root_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/root.zig"),
+            .target = b.resolveTargetQuery(.{}),
+            .optimize = optimize,
+        }),
+    });
+    root_tests.root_module.addOptions("config", root_options);
+    root_tests.root_module.addCSourceFile(.{
+        .file = b.path("vendor/sqlite3.c"),
+        .flags = native_sqlite_flags,
+    });
+    root_tests.root_module.link_libc = true;
+    const run_root_tests = b.addRunArtifact(root_tests);
+    test_step.dependOn(&run_root_tests.step);
 }
 
 /// Detect Apple SDK via xcrun and configure include/framework/library paths.

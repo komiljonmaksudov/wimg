@@ -259,7 +259,7 @@ private object FintsJob {
     }
     var lastRange: Pair<String, String>? = null
 
-    fun fetch(context: Context, connId: String, range: Pair<String, String>, bankName: String, onDone: (FintsResult?) -> Unit = {}) {
+    fun fetch(context: Context, connId: String, range: Pair<String, String>, bankName: String, retried: Boolean = false, onDone: (FintsResult?) -> Unit = {}) {
         if (running) return
         running = true
         lastRange = range
@@ -267,8 +267,16 @@ private object FintsJob {
         scope.launch {
             val result = runCatching { withFintsThread { decode(com.wimg.app.bridge.LibWimg.fintsFetch(fetchBody(range.first, range.second))) } }.getOrNull()
             running = false
+            // 3905 "Bitte senden Sie die Anfrage erneut": the bank's own hiccup. Once more after a moment.
+            val bankAsksAgain = result?.message?.startsWith("Bank asks to try again") == true
+            if (bankAsksAgain && !retried) {
+                kotlinx.coroutines.delay(3_000)
+                fetch(context, connId, range, bankName, retried = true, onDone = onDone)
+                return@launch
+            }
             when {
-                result == null -> Dock.error(__t("Abruf fehlgeschlagen"), bankText(null), __t("Erneut")) { fetch(context, connId, range, bankName, onDone) }
+                result == null -> Dock.error(__t("Abruf fehlgeschlagen"), bankText(null), __t("Erneut")) { fetch(context, connId, range, bankName, onDone = onDone) }
+                bankAsksAgain -> Dock.error(__t("Die Bank hat gerade ein Problem"), __t("%s meldet einen internen Fehler. Versuch es später noch einmal.").format(bankName), __t("Erneut")) { fetch(context, connId, range, bankName, onDone = onDone) }
                 isAuthRejected(result) -> {
                     forgetPin(context, connId)
                     Dock.error(__t("Anmeldung abgelehnt"), bankText(result), __t("Neu anmelden")) {

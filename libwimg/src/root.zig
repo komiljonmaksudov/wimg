@@ -2062,7 +2062,8 @@ fn wimg_fints_connect(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     // Check sync result
     if (sync_resp.hasError()) {
         fints_session.clearPin();
-        return makeLengthPrefixed("{\"status\":\"error\",\"message\":\"Sync failed\"}");
+        var err_buf: [4096]u8 = undefined;
+        return makeLengthPrefixed(stepFailureJson("Sync failed", "Synchronisierung", &sync_resp, &err_buf));
     }
 
     // Return status with tan_medium_required flag so UI knows if picker is needed
@@ -2363,21 +2364,32 @@ fn isLoginRejected(resp: *const fints_mod.ParsedResponse) bool {
 }
 
 fn containsIgnoreCase(hay: []const u8, needle: []const u8) bool {
-    return std.ascii.indexOfIgnoreCase(hay, needle) != null;
+    if (needle.len == 0 or needle.len > hay.len) return needle.len == 0;
+    var i: usize = 0;
+    while (i + needle.len <= hay.len) : (i += 1) {
+        if (std.ascii.eqlIgnoreCase(hay[i .. i + needle.len], needle)) return true;
+    }
+    return false;
 }
 
 /// Sign-in failed: "Authentication failed" only when the bank refused the login
 /// (the app then forgets the PIN); otherwise a plain bank error with its codes.
 fn authFailureJson(resp: *const fints_mod.ParsedResponse, buf: []u8) []const u8 {
+    return stepFailureJson("Bank refused the request", "Anmeldung", resp, buf);
+}
+
+/// A failed dialog step: "Authentication failed" if the bank refused the login,
+/// else [what] with the step's explaining code; all codes listed either way.
+fn stepFailureJson(comptime what: []const u8, step: []const u8, resp: *const fints_mod.ParsedResponse, buf: []u8) []const u8 {
     var seen: [24]SeenCode = undefined;
     var n: usize = 0;
     for (resp.codes[0..resp.code_count]) |c| {
         if (n == seen.len) break;
-        seen[n] = .{ .step = "Anmeldung", .code = c };
+        seen[n] = .{ .step = step, .code = c };
         n += 1;
     }
     if (isLoginRejected(resp)) return bankErrorJson("Authentication failed", seen[0..n], buf);
-    return bankErrorJson("Bank refused the request", seen[0..n], buf);
+    return bankErrorJson(what, seen[0..n], buf);
 }
 
 fn writeJsonEscaped(w: *std.Io.Writer, text: []const u8) !void {
@@ -2662,6 +2674,10 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     // reason is often in an earlier answer (HKKAZ) than the last one (HKCAZ fallback).
     var seen: [24]SeenCode = undefined;
     var seen_count: usize = 0;
+    // 3905 "Bitte senden Sie die Anfrage erneut": the bank had a problem of its own
+    // (Comdirect, 2026-11-16: with 9900 "Interner Fehler"). Ask again later, and
+    // don't try the CAMT form, which Comdirect then rejects with a misleading 3010.
+    var bank_asks_resend = false;
 
     while (true) {
         const msg_len = switch (fetch_mode) {
@@ -2703,6 +2719,9 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
             if (seen_count == seen.len) break;
             seen[seen_count] = .{ .step = if (fetch_mode == .camt) "HKCAZ" else "HKKAZ", .code = c };
             seen_count += 1;
+        }
+        for (resp.codes[0..resp.code_count]) |*c| {
+            if (std.mem.eql(u8, c.codeSlice(), "3905")) bank_asks_resend = true;
         }
 
         // TAN challenge requested for HKKAZ only when no statement payload was returned.
@@ -2843,7 +2862,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
 
         const next_touchdown = extractTouchdownToken(&resp, &touchdown_buf);
         if (next_touchdown.len == 0) {
-            if (fetch_mode == .mt940 and !saw_mt940 and fints_session.supports_camt) {
+            if (fetch_mode == .mt940 and !saw_mt940 and fints_session.supports_camt and !bank_asks_resend) {
                 fetch_mode = .camt;
                 used_camt_fallback = true;
                 touchdown = "";
@@ -2864,6 +2883,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         _ = sendDialogEnd(&fints_session, fints_session.tanSecFuncSlice(), &msg_buf, resp_buf);
         fints_session.clearPin();
         var result_buf: [4096]u8 = undefined;
+        if (bank_asks_resend) return makeLengthPrefixed(bankErrorJson("Bank asks to try again", seen[0..seen_count], &result_buf));
         return makeLengthPrefixed(noStatementJson(seen[0..seen_count], &result_buf));
     }
 
@@ -3192,6 +3212,7 @@ test "extractTouchdownToken parses token from localized text fallback" {
     var resp = fints_mod.ParsedResponse.init();
     resp.code_count = 1;
     @memcpy(resp.codes[0].code[0..4], "3040");
+    resp.codes[0].parameter_len = 0;
     const text = "Weitere Daten folgen, Aufsetzpunkt: ABCD-01";
     @memcpy(resp.codes[0].text[0..text.len], text);
     resp.codes[0].text_len = @intCast(text.len);
@@ -3205,6 +3226,7 @@ test "extractTouchdownToken ignores non-token text" {
     var resp = fints_mod.ParsedResponse.init();
     resp.code_count = 1;
     @memcpy(resp.codes[0].code[0..4], "3040");
+    resp.codes[0].parameter_len = 0;
     const text = "Weitere Daten folgen";
     @memcpy(resp.codes[0].text[0..text.len], text);
     resp.codes[0].text_len = @intCast(text.len);
@@ -3222,6 +3244,7 @@ test "selectTanSecFuncFromSync maps photoTAN label to 902" {
     var resp = fints_mod.ParsedResponse.init();
     resp.code_count = 1;
     @memcpy(resp.codes[0].code[0..4], "3920");
+    resp.codes[0].parameter_len = 0;
     const txt = "Verfuegbare TAN-Verfahren?: photoTAN.";
     @memcpy(resp.codes[0].text[0..txt.len], txt);
     resp.codes[0].text_len = @intCast(txt.len);

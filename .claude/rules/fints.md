@@ -123,6 +123,17 @@ Audience: engineers touching `libwimg/src/fints.zig`, `root.zig`, `mt940.zig`, `
   `CreDtTm` date. CAMT answers can exceed 64 KB: the fetch response buffer is
   192 KB (static), the base64 buffers 256 KB.
 
+## Bank-side hiccups (Comdirect, 2026-11-16)
+
+- HKKAZ answered `9050 Die Nachricht enthaelt Fehler` + `3905 Bitte senden Sie die
+  Anfrage erneut` + `9900 Interner Fehler aufgetreten` for a request that worked the
+  day before: the bank's own problem. With 3905 wimg skips the CAMT fallback (Comdirect
+  answers that with a misleading `3010 Kontonummer ist ungültig`) and the app retries
+  once after 3 s, then says "Die Bank hat gerade ein Problem".
+- Only a refused login (9340, 9910, 993x, 994x, or a text naming PIN/Kennung/gesperrt)
+  makes the app forget the stored PIN. Every bank error is logged with all codes:
+  `adb logcat -s wimg-fints`.
+
 ## CAMT Fallback
 
 - `camt.zig` parser: Ntry extraction, multi-Ustrd concatenation, Amt Ccy parsing.

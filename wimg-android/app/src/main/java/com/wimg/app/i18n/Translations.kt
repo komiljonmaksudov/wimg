@@ -1155,6 +1155,8 @@ private val translations: Map<String, String> = mapOf(
     "Tipp oben den Betrag ein." to "Type the amount at the top.",
     "Beschreibung fehlt" to "Description missing",
     "Wofür war das? Zum Beispiel „Wochenmarkt“." to "What was it for? For example “farmers' market”.",
+    "Die Bank hat gerade ein Problem" to "The bank has a problem right now",
+    "%s meldet einen internen Fehler. Versuch es später noch einmal." to "%s reports an internal error. Try again later.",
     "Von den Einnahmen sind %s übrig geblieben." to "%s of your income was left over.",
     "Sparquote %d %%." to "Savings rate %d %%.",
     "Sparquote %d %%, höher als im %s." to "Savings rate %d %%, higher than in %s.",
