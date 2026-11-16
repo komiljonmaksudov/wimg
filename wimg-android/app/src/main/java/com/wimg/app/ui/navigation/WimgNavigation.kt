@@ -51,6 +51,7 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -101,18 +102,29 @@ fun WimgNavigation() {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("wimg", 0)
     var onboardingDone by remember { mutableStateOf(prefs.getBoolean(ONBOARDING_KEY, false)) }
-
-    // Where the first start said to go next ("fints", "import", …).
+    // Where the first start said to go next ("fints", "import", "dashboard", …).
     var afterOnboarding by remember { mutableStateOf<String?>(null) }
-    if (!onboardingDone) {
-        OnboardingScreen(onComplete = { next ->
-            prefs.edit().putBoolean(ONBOARDING_KEY, true).apply()
-            afterOnboarding = next.takeIf { it != "dashboard" }
-            onboardingDone = true
-        })
-        return
+    // Onboarding stays on top until that page is on screen and its bar has
+    // settled. Without the cover, Übersicht flashed for a frame (the app starts
+    // there) and the bar morphed from its place bar to "Zurück".
+    var covering by remember { mutableStateOf(!onboardingDone) }
+    Box(Modifier.fillMaxSize()) {
+        if (onboardingDone) {
+            WimgMain(afterOnboarding, onArrived = { afterOnboarding = null; covering = false })
+        }
+        if (covering) {
+            OnboardingScreen(onComplete = { next ->
+                prefs.edit().putBoolean(ONBOARDING_KEY, true).apply()
+                afterOnboarding = next
+                onboardingDone = true
+            })
+        }
     }
+}
 
+@Composable
+private fun WimgMain(afterOnboarding: String?, onArrived: () -> Unit) {
+    val context = LocalContext.current
     val navController = rememberNavController()
     LaunchedEffect(com.wimg.app.ui.components.NavRequest.route) {
         val req = com.wimg.app.ui.components.NavRequest
@@ -122,7 +134,18 @@ fun WimgNavigation() {
         }
     }
     LaunchedEffect(afterOnboarding) {
-        afterOnboarding?.let { navController.navigate(it); afterOnboarding = null }
+        val target = afterOnboarding ?: return@LaunchedEffect
+        if (target != "dashboard") navController.navigate(target)
+        // Wait until the page is the current one, then for the bar: Übersicht's
+        // bar first shows for a frame and glides (≤ 270 ms) to the page's own.
+        // Never cover longer than a second, whatever happens.
+        kotlinx.coroutines.withTimeoutOrNull(1000) {
+            androidx.compose.runtime.snapshotFlow { navController.currentBackStackEntry?.destination?.route }
+                .first { it == target }
+        }
+        if (target == "dashboard") repeat(2) { androidx.compose.runtime.withFrameNanos { } }
+        else kotlinx.coroutines.delay(300)
+        onArrived()
     }
     var selectedAccount by remember { mutableStateOf<String?>(null) }
     // Load the other places in the background, so their first visit isn't empty.

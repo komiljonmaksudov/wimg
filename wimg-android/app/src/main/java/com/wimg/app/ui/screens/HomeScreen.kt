@@ -141,7 +141,16 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
     // The key the data is cached under, also on the first frame: with the
     // calendar key in Gehaltsmonat mode the page started empty (white) and
     // filled a frame later.
-    var data by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<HomeData>(if (period != null) homePeriodKey(period.from, selectedAccount) else homeKey(year, month, selectedAccount, compare))) }
+    // With nothing cached (first start, cold start) load once right away, like
+    // Rückblick: the first frame drew the full layout with 0,00 € and the period
+    // ring, then switched to "Noch keine Umsätze" and the bar jumped narrower.
+    var data by remember {
+        val key = if (period != null) homePeriodKey(period.from, selectedAccount) else homeKey(year, month, selectedAccount, compare)
+        mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<HomeData>(key) ?: runCatching {
+            (if (period != null) loadHomeRange(period, prevPeriod, selectedAccount) else loadHome(year, month, selectedAccount, compare))
+                .also { com.wimg.app.ui.components.ScreenCache.put(key, it) }
+        }.getOrNull())
+    }
     var pickerOpen by remember { mutableStateOf(false) }
     var pickingAccount by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
