@@ -50,7 +50,7 @@ More detail: [docs/privacy-deep-dive.md](docs/privacy-deep-dive.md).
 | Android  | `wimg.apk` from [GitHub Releases](https://github.com/komiljonmaksudov/wimg/releases) (arm64, Android 8.0+). Google Play is coming. |
 | iOS      | Beta via [TestFlight](https://testflight.apple.com/join/v5FhHpt5). |
 
-Each release also attaches `libwimg.xcframework.zip` and the sync server binary (`wimg-sync-linux-x86_64`). There is no web app.
+Each release also attaches `libwimg.xcframework.zip`. There is no web app.
 
 ## Build
 
