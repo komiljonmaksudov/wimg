@@ -259,7 +259,7 @@ object LocaleState {
 
     /** The stored choice ("de", "en" or "system"), resolved to "de" or "en". */
     fun stored(context: android.content.Context): String =
-        when (val s = context.getSharedPreferences("wimg", 0).getString("wimg_locale", "de") ?: "de") {
+        when (val s = context.getSharedPreferences("wimg", 0).getString("wimg_locale", "system") ?: "system") {
             "system" -> if (java.util.Locale.getDefault().language == "de") "de" else "en"
             else -> s
         }

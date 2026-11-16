@@ -133,6 +133,20 @@ private class Release(val version: String, val dateIso: String, val notes: List<
 
 private val RELEASES = listOf(
     Release(
+        "0.9.8", "2026-11-16",
+        listOf(
+            NoteKind.New to "Neues Aussehen: eine schwebende Leiste, neue Übersicht, Umsätze und Einstellungen.",
+            NoteKind.New to "Gehaltsmonat: Ein Monat kann von Gehalt zu Gehalt laufen.",
+            NoteKind.New to "Umsätze von Hand eintragen, bearbeiten und löschen.",
+            NoteKind.New to "Der Rückblick öffnet zum Monatsende mit Karten und lässt sich jederzeit wieder abspielen.",
+            NoteKind.New to "Mehrere Bankverbindungen, vorgemerkte Umsätze und frische Umsätze beim Öffnen.",
+            NoteKind.New to "Die Suche findet auch Beträge und Aktionen.",
+            NoteKind.Better to "Bankabruf zuverlässiger: Klappt MT940 nicht, holt wimg die Umsätze still per CAMT.",
+            NoteKind.Better to "Die gespeicherte Bank-PIN ist mit dem Android Keystore verschlüsselt.",
+            NoteKind.Fixed to "Eine Störung bei der Bank löscht die gespeicherte PIN nicht mehr.",
+        ),
+    ),
+    Release(
         "0.9.7", "2026-11-11",
         listOf(
             NoteKind.Better to "Banken mit Freigabe in der Banking-App (pushTAN) funktionieren.",

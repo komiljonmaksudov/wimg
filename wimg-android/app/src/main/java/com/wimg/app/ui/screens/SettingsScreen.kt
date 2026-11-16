@@ -333,7 +333,7 @@ private fun SyncStatusValue(on: Boolean) {
 }
 
 @Composable
-private fun languageLabel(context: Context): String = when (context.getSharedPreferences("wimg", 0).getString("wimg_locale", "de")) {
+private fun languageLabel(context: Context): String = when (context.getSharedPreferences("wimg", 0).getString("wimg_locale", "system")) {
     "en" -> "English"
     "system" -> L("Systemsprache")
     else -> "Deutsch"
@@ -348,7 +348,7 @@ fun SettingsAppearanceScreen(navController: NavController?) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("wimg", 0)
     var theme by remember { mutableIntStateOf(prefs.getInt("wimg_theme", -1)) }
-    var choice by remember { mutableStateOf(prefs.getString("wimg_locale", "de") ?: "de") }
+    var choice by remember { mutableStateOf(prefs.getString("wimg_locale", "system") ?: "system") }
     BarContribution(null, null, {}, DetailBarSpec(onBack = { navController?.popBackStack() }, actionLabel = null, actionIcon = null, onAction = {}, backLabel = L("Einstellungen")))
 
     SettingsPage(L("Einstellungen"), L("Design und Sprache")) {
