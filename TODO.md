@@ -28,3 +28,7 @@ Open work only, grouped by area; finished work moves to [CHANGELOG.md](CHANGELOG
 
 ## Android
 - [ ] Notification tap: not reproducible on the emulator anymore (foreground and background, 2026-11-15); confirm with a real notification on the phone.
+- [ ] Price-change notification: the last unbuilt part of Phase 6.9 v2. Recurring already knows the higher price (`price_change`, shown in Wiederkehrend, Home and the squirrel moment); `BackgroundRefresh` doesn't notify it yet. Needs its own toggle under Einstellungen › Mitteilungen.
+- [ ] Squirrel: dim the band in the evening for "Tag ohne Ausgaben".
+- [ ] Squirrel: animate the ring days during a moment.
+- [ ] Decision (user): should a period ending in minus get Rückblick cards (only the true ones, without "left over")?
