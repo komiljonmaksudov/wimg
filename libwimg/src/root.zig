@@ -2714,6 +2714,10 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     // Banks that advertise only CAMT (HICAZS, no HIKAZS) must not be sent HKKAZ at all:
     // Atruvia (Volks-/Raiffeisenbanken) dropped MT940. Unknown BPD keeps MT940 first.
     var fetch_mode: FetchMode = if (!fints_session.supports_mt940 and fints_session.supports_camt) .camt else .mt940;
+    // {"format":"camt"}: booked statements as CAMT (short IBAN:BIC account), e.g.
+    // when the bank's MT940 side fails (Comdirect, 2026-11-16: HKKAZ 9900).
+    const camt_short = std.mem.eql(u8, jsonExtractString(json, "\"format\"") orelse "", "camt");
+    if (camt_short and fints_session.supports_camt) fetch_mode = .camt;
     var used_camt_fallback = false;
     var page_count: u8 = 0;
     var touchdown_buf: [128]u8 = undefined;
@@ -2734,7 +2738,10 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     while (true) {
         const msg_len = switch (fetch_mode) {
             .mt940 => fints_mod.buildFetchStatements(&fints_session, from, to, touchdown, &msg_buf),
-            .camt => fints_mod.buildFetchStatementsCamt(&fints_session, from, to, touchdown, &msg_buf),
+            .camt => if (camt_short)
+                fints_mod.buildFetchStatementsCamtShort(&fints_session, from, to, touchdown, &msg_buf)
+            else
+                fints_mod.buildFetchStatementsCamt(&fints_session, from, to, touchdown, &msg_buf),
         } orelse {
             setError("wimg_fints_fetch: failed to build fetch request", .{});
             fints_session.clearPin();

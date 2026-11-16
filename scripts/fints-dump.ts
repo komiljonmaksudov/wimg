@@ -14,7 +14,10 @@
  *
  * Run:
  *     LIBWIMG=/tmp/wimg-native/lib/libwimg.dylib bun scripts/fints-dump.ts \
- *         [--blz 20041177] [--days 60] [--grep "Union Investment"]
+ *         [--blz 20041177] [--days 60] [--until 0] [--camt] [--grep "Union Investment"]
+ *
+ * --until N   end the period N days ago (default: today)
+ * --camt      fetch booked statements as CAMT (HKCAZ) instead of MT940 (HKKAZ)
  *
  * Credentials: FINTS_USER / FINTS_PIN env vars, or prompted (PIN is not echoed).
  * Raw bank responses (contain personal data!) are written 0600 to --out
@@ -36,6 +39,8 @@ function arg(name: string, fallback: string): string {
 
 const blz = arg("blz", "20041177");
 const days = Number(arg("days", "60"));
+const until = Number(arg("until", "0"));
+const camt = process.argv.includes("--camt");
 const grep = arg("grep", "").toLowerCase();
 const outDir = arg("out", mkdtempSync(join(tmpdir(), "wimg-fints-")));
 const libPath = process.env.LIBWIMG ?? "libwimg/zig-out/lib/libwimg.dylib";
@@ -118,10 +123,12 @@ if (conn.tan_medium_required) {
 }
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
-const to = new Date();
+const to = new Date(Date.now() - until * 86400_000);
 const from = new Date(Date.now() - days * 86400_000);
+const fetchBody = { from: iso(from), to: iso(to), ...(camt ? { format: "camt" } : {}) };
+console.log(`fetching ${fetchBody.from} .. ${fetchBody.to} as ${camt ? "CAMT (HKCAZ)" : "MT940 (HKKAZ)"}`);
 
-let res = call(lib.symbols.wimg_fints_fetch, { from: iso(from), to: iso(to) });
+let res = call(lib.symbols.wimg_fints_fetch, fetchBody);
 while (res.status === "tan_required") {
 	console.log("\nTAN required:", res.challenge ?? "");
 	if (res.phototan) {
@@ -134,7 +141,7 @@ while (res.status === "tan_required") {
 	const t = call(lib.symbols.wimg_fints_send_tan, { tan });
 	console.log("send_tan:", t.status, t.message ?? "");
 	if (t.status === "error") process.exit(1);
-	res = t.status === "tan_required" ? t : call(lib.symbols.wimg_fints_fetch, { from: iso(from), to: iso(to) });
+	res = t.status === "tan_required" ? t : call(lib.symbols.wimg_fints_fetch, fetchBody);
 }
 console.log("fetch:", res.status, res.message ?? "");
 

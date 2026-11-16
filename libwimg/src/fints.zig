@@ -785,6 +785,12 @@ pub fn buildFetchStatementsCamt(session: *const FintsSession, from: []const u8, 
     return buildCamtRequest(session, from, to, touchdown, buf, false);
 }
 
+/// HKCAZ for booked statements with the short KTI1 (IBAN:BIC, python-fints form),
+/// which Comdirect accepts where the long form gets "3010 Kontonummer ungueltig".
+pub fn buildFetchStatementsCamtShort(session: *const FintsSession, from: []const u8, to: []const u8, touchdown: []const u8, buf: []u8) ?usize {
+    return buildCamtRequest(session, from, to, touchdown, buf, true);
+}
+
 /// HKCAZ only to read the bank's not-yet-booked entries (HICAZ DE 4), for
 /// banks whose MT940 answer has no pending part (Comdirect). Short KTI1.
 pub fn buildPendingCamt(session: *const FintsSession, from: []const u8, to: []const u8, buf: []u8) ?usize {
