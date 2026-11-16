@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.TrendingDown
 import androidx.compose.material.icons.automirrored.outlined.TrendingUp
 import androidx.compose.material.icons.automirrored.outlined.Undo
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.AttachMoney
 import androidx.compose.material.icons.outlined.LocalOffer
 import androidx.compose.material.icons.outlined.Refresh
@@ -223,7 +224,10 @@ fun ReviewScreen(selectedAccount: String?, navController: NavController? = null)
     // the Sparquote is at least the one before; never without something true to say.
     val context = androidx.compose.ui.platform.LocalContext.current
     val openerLabel = if (period != null) com.wimg.app.ui.components.PeriodLabels.short(period) else months[month - 1]
-    val cards = data?.takeIf { loadedKey == cacheKey }?.let { openerCards(it, openerLabel, if (period != null) null else months[pm - 1], periods?.isSalary == true) }.orEmpty()
+    // Cards from what is on screen (cached data counts, so the row below doesn't
+    // pop in late); the automatic opener waits for the fresh load.
+    val shownCards = data?.let { openerCards(it, openerLabel, if (period != null) null else months[pm - 1], periods?.isSalary == true) }.orEmpty()
+    val cards = if (loadedKey == cacheKey) shownCards else emptyList()
     var openerFor by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(loadedKey) {
         if (loadedKey != cacheKey || cards.isEmpty()) return@LaunchedEffect
@@ -241,7 +245,7 @@ fun ReviewScreen(selectedAccount: String?, navController: NavController? = null)
             openerFor = cacheKey
         }
     }
-    if (openerFor == cacheKey && cards.isNotEmpty()) ReviewOpener(L("Rückblick %s", openerLabel), cards) { openerFor = null }
+    if (openerFor == cacheKey && shownCards.isNotEmpty()) ReviewOpener(L("Rückblick %s", openerLabel), shownCards) { openerFor = null }
 
     val c = Wimg.colors
     val d = data
@@ -285,6 +289,25 @@ fun ReviewScreen(selectedAccount: String?, navController: NavController? = null)
     ) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = barClearance())) {
             if (s == null || s.tx_count == 0) return@Column
+            // The opener plays by itself once per closed period; from here any time.
+            val closedNow = if (period != null) !period.current else !isCurrent
+            if (closedNow && shownCards.isNotEmpty()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 12.dp).clip(WimgShape.group).background(c.card)
+                        .border(1.dp, c.line, WimgShape.group)
+                        .clickable(onClickLabel = L("Rückblick als Karten ansehen")) { openerFor = cacheKey }
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                ) {
+                    com.wimg.app.ui.components.Squirrel(com.wimg.app.ui.components.SquirrelPose.VOLL, 40.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(if (shownCards.size == 1) L("Dein Rückblick als Karte") else L("Dein Rückblick in %d Karten", shownCards.size), style = WimgType.rowTitle, color = c.text)
+                        Text(L("Was gut lief, kurz zum Durchtippen"), style = WimgType.desc, color = c.text2)
+                    }
+                    androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = c.text3)
+                }
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Stat(L("Einnahmen"), amountText(income), c.pos, Modifier.weight(1f))
                 Stat(L("Ausgaben"), amountText(-expenses), c.text, Modifier.weight(1.15f))
