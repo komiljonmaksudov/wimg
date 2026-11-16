@@ -187,6 +187,8 @@ private fun forgetPin(context: Context, id: String) {
 fun bankRoute(id: String, quick: Boolean = false) = "fints/" + android.net.Uri.encode(id) + if (quick) "?quick=1" else ""
 
 private fun decode(r: String?): FintsResult? = r?.let { runCatching { json.decodeFromString<FintsResult>(it) }.getOrNull() }
+    // Every bank error with all its codes (no PIN, no data): `adb logcat -s wimg-fints`.
+    ?.also { if (it.status == "error") android.util.Log.w("wimg-fints", "${it.message} | ${it.codes ?: "-"}") }
 
 /**
  * The statement fetch, kept outside any screen so it keeps running (and its
@@ -265,8 +267,6 @@ private object FintsJob {
         scope.launch {
             val result = runCatching { withFintsThread { decode(com.wimg.app.bridge.LibWimg.fintsFetch(fetchBody(range.first, range.second))) } }.getOrNull()
             running = false
-            // The bank's codes (no PIN, no data): `adb logcat -s wimg-fints` says why a fetch came back empty.
-            result?.codes?.let { android.util.Log.w("wimg-fints", "fetch ${range.first}..${range.second}: ${result.message} | $it") }
             when {
                 result == null -> Dock.error(__t("Abruf fehlgeschlagen"), bankText(null), __t("Erneut")) { fetch(context, connId, range, bankName, onDone) }
                 isAuthRejected(result) -> {

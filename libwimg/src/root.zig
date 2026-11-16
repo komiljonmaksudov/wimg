@@ -2302,7 +2302,7 @@ fn daysBefore(date: []const u8, n: i64, out: *[8]u8) ?[]const u8 {
     return w;
 }
 
-const SeenCode = struct { camt: bool, code: fints_mod.ResponseCode };
+const SeenCode = struct { step: []const u8, code: fints_mod.ResponseCode };
 
 /// General notes that never explain a missing statement: "contains warnings",
 /// "UPD outdated", TAN methods, "no TAN needed", "more data follows", app approval.
@@ -2323,18 +2323,23 @@ fn explainingCode(seen: []const SeenCode) ?*const SeenCode {
 
 /// {"status":"error","message":"No statement payload from bank (HKKAZ 3010: …)","codes":"HKKAZ 0020 …; HKCAZ 3060 …"}
 fn noStatementJson(seen: []const SeenCode, buf: []u8) []const u8 {
-    const fallback = "{\"status\":\"error\",\"message\":\"No statement payload from bank\"}";
+    return bankErrorJson("No statement payload from bank", seen, buf);
+}
+
+/// An error answer naming the code that explains it, plus every code (for the log).
+fn bankErrorJson(comptime what: []const u8, seen: []const SeenCode, buf: []u8) []const u8 {
+    const fallback = "{\"status\":\"error\",\"message\":\"" ++ what ++ "\"}";
     var w = std.Io.Writer.fixed(buf);
-    w.writeAll("{\"status\":\"error\",\"message\":\"No statement payload from bank") catch return fallback;
+    w.writeAll("{\"status\":\"error\",\"message\":\"" ++ what) catch return fallback;
     if (explainingCode(seen)) |c| {
-        w.print(" ({s} {s}: ", .{ if (c.camt) "HKCAZ" else "HKKAZ", c.code.codeSlice() }) catch return fallback;
+        w.print(" ({s} {s}: ", .{ c.step, c.code.codeSlice() }) catch return fallback;
         writeJsonEscaped(&w, c.code.textSlice()) catch return fallback;
         w.writeAll(")") catch return fallback;
     }
     w.writeAll("\",\"codes\":\"") catch return fallback;
     for (seen, 0..) |*c, i| {
         if (i > 0) w.writeAll("; ") catch break;
-        w.print("{s} {s} ", .{ if (c.camt) "HKCAZ" else "HKKAZ", c.code.codeSlice() }) catch break;
+        w.print("{s} {s} ", .{ c.step, c.code.codeSlice() }) catch break;
         writeJsonEscaped(&w, c.code.textSlice()) catch break;
     }
     w.writeAll("\"}") catch return fallback;
@@ -2342,6 +2347,39 @@ fn noStatementJson(seen: []const SeenCode, buf: []u8) []const u8 {
 }
 
 /// Bank texts are often ISO-8859-1: db's escaper keeps UTF-8 and writes lone high bytes as \u00XX.
+/// The bank refused the login itself (wrong or blocked PIN, blocked access), as
+/// opposed to any other error at sign-in (dialog aborted, maintenance, message
+/// error). Only this may make the app forget the stored PIN.
+fn isLoginRejected(resp: *const fints_mod.ParsedResponse) bool {
+    const pin_codes = [_][]const u8{ "9340", "9910", "9930", "9931", "9932", "9933", "9934", "9935", "9936", "9941", "9942", "9943" };
+    for (resp.codes[0..resp.code_count]) |*c| {
+        for (pin_codes) |pc| if (std.mem.eql(u8, c.codeSlice(), pc)) return true;
+        if (c.isError()) {
+            const t = c.textSlice();
+            if (containsIgnoreCase(t, "PIN") or containsIgnoreCase(t, "Kennung") or containsIgnoreCase(t, "gesperrt") or containsIgnoreCase(t, "Anmeldename")) return true;
+        }
+    }
+    return false;
+}
+
+fn containsIgnoreCase(hay: []const u8, needle: []const u8) bool {
+    return std.ascii.indexOfIgnoreCase(hay, needle) != null;
+}
+
+/// Sign-in failed: "Authentication failed" only when the bank refused the login
+/// (the app then forgets the PIN); otherwise a plain bank error with its codes.
+fn authFailureJson(resp: *const fints_mod.ParsedResponse, buf: []u8) []const u8 {
+    var seen: [24]SeenCode = undefined;
+    var n: usize = 0;
+    for (resp.codes[0..resp.code_count]) |c| {
+        if (n == seen.len) break;
+        seen[n] = .{ .step = "Anmeldung", .code = c };
+        n += 1;
+    }
+    if (isLoginRejected(resp)) return bankErrorJson("Authentication failed", seen[0..n], buf);
+    return bankErrorJson("Bank refused the request", seen[0..n], buf);
+}
+
 fn writeJsonEscaped(w: *std.Io.Writer, text: []const u8) !void {
     const n = db_mod.jsonEscapeString(w.unusedCapacitySlice(), text) orelse return error.WriteFailed;
     w.end += n;
@@ -2359,10 +2397,10 @@ fn testCode(code: []const u8, text: []const u8) fints_mod.ResponseCode {
 
 test "no statement: the explaining code wins over general notes, all codes listed" {
     const seen = [_]SeenCode{
-        .{ .camt = false, .code = testCode("0020", "Auftrag ausgef\xfchrt.") },
-        .{ .camt = false, .code = testCode("3060", "Bitte beachten Sie die enthaltenen Warnungen/Hinweise.") },
-        .{ .camt = false, .code = testCode("3010", "Keine Ums\xe4tze im Zeitraum.") },
-        .{ .camt = true, .code = testCode("3060", "Bitte beachten Sie die enthaltenen Warnungen/Hinweise.") },
+        .{ .step = "HKKAZ", .code = testCode("0020", "Auftrag ausgef\xfchrt.") },
+        .{ .step = "HKKAZ", .code = testCode("3060", "Bitte beachten Sie die enthaltenen Warnungen/Hinweise.") },
+        .{ .step = "HKKAZ", .code = testCode("3010", "Keine Ums\xe4tze im Zeitraum.") },
+        .{ .step = "HKCAZ", .code = testCode("3060", "Bitte beachten Sie die enthaltenen Warnungen/Hinweise.") },
     };
     var buf: [4096]u8 = undefined;
     const out = noStatementJson(&seen, &buf);
@@ -2370,11 +2408,26 @@ test "no statement: the explaining code wins over general notes, all codes liste
     try std.testing.expect(std.mem.indexOf(u8, out, "\"codes\":\"HKKAZ 0020 Auftrag ausgef\\u00fchrt.; HKKAZ 3060") != null);
     try std.testing.expect(std.mem.indexOf(u8, out, "; HKCAZ 3060 ") != null);
     // A real error beats any note.
-    const with_error = [_]SeenCode{ seen[2], .{ .camt = true, .code = testCode("9010", "Abbruch") } };
+    const with_error = [_]SeenCode{ seen[2], .{ .step = "HKCAZ", .code = testCode("9010", "Abbruch") } };
     try std.testing.expect(std.mem.indexOf(u8, noStatementJson(&with_error, &buf), "(HKCAZ 9010: Abbruch)") != null);
     // Only general notes: the first non-success one is still named.
     const only_general = [_]SeenCode{seen[1]};
     try std.testing.expect(std.mem.indexOf(u8, noStatementJson(&only_general, &buf), "(HKKAZ 3060: ") != null);
+}
+
+test "sign-in: only a refused login counts as a wrong PIN" {
+    var buf: [4096]u8 = undefined;
+    var resp = fints_mod.ParsedResponse.init();
+    resp.codes[0] = testCode("9800", "Dialog abgebrochen");
+    resp.codes[1] = testCode("9050", "Die Nachricht enth\xe4lt Fehler.");
+    resp.code_count = 2;
+    try std.testing.expect(!isLoginRejected(&resp));
+    try std.testing.expect(std.mem.startsWith(u8, authFailureJson(&resp, &buf), "{\"status\":\"error\",\"message\":\"Bank refused the request (Anmeldung 9800: Dialog abgebrochen)"));
+    resp.codes[1] = testCode("9931", "Anmeldename oder PIN ist falsch.");
+    try std.testing.expect(isLoginRejected(&resp));
+    try std.testing.expect(std.mem.startsWith(u8, authFailureJson(&resp, &buf), "{\"status\":\"error\",\"message\":\"Authentication failed"));
+    resp.codes[1] = testCode("9999", "Zugang gesperrt");
+    try std.testing.expect(isLoginRejected(&resp));
 }
 
 fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
@@ -2520,11 +2573,13 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                     // Continue normal flow from successful retry.
                 } else {
                     fints_session.clearPin();
-                    return makeLengthPrefixed("{\"status\":\"error\",\"message\":\"Authentication failed\"}");
+                    var err_buf: [4096]u8 = undefined;
+                    return makeLengthPrefixed(authFailureJson(&auth_resp, &err_buf));
                 }
             } else {
                 fints_session.clearPin();
-                return makeLengthPrefixed("{\"status\":\"error\",\"message\":\"Authentication failed\"}");
+                var err_buf: [4096]u8 = undefined;
+                return makeLengthPrefixed(authFailureJson(&auth_resp, &err_buf));
             }
         }
 
@@ -2646,7 +2701,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         fints_session.msg_num += 1;
         for (resp.codes[0..resp.code_count]) |c| {
             if (seen_count == seen.len) break;
-            seen[seen_count] = .{ .camt = fetch_mode == .camt, .code = c };
+            seen[seen_count] = .{ .step = if (fetch_mode == .camt) "HKCAZ" else "HKKAZ", .code = c };
             seen_count += 1;
         }
 
