@@ -83,6 +83,7 @@ import com.wimg.app.ui.components.BarPanel
 import com.wimg.app.ui.components.Changes
 import com.wimg.app.ui.components.DetailBarSpec
 import com.wimg.app.ui.components.Dock
+import com.wimg.app.ui.components.DockError
 import com.wimg.app.ui.components.DockKind
 import com.wimg.app.ui.components.DockRow
 import com.wimg.app.ui.components.QuietLine
@@ -613,8 +614,8 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
                     Spacer(Modifier.width(12.dp))
                     WimgToggle(rememberPin, { rememberPin = it }, label = L("PIN merken"))
                 }
-                if (error != null) ErrorBox(error!!)
-                else Notice(L("Mehrere falsche PIN-Eingaben können dein Bankkonto sperren."))
+                DockError(error, L("Meldung der Bank"))
+                QuietLine(L("Mehrere falsche PIN-Eingaben können dein Bankkonto sperren."), Modifier.padding(top = 18.dp), icon = Icons.Outlined.WarningAmber)
             }
             Step.Medium -> FormPage {
                 Text(L("Deine Bank möchte wissen, auf welches Gerät die TAN kommt."), style = WimgType.body, color = c.text2, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp))
@@ -635,7 +636,7 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
                         })
                     }
                 }
-                if (error != null) ErrorBox(error!!)
+                DockError(error, L("Meldung der Bank"))
             }
             Step.Tan -> TanPage(bank?.name ?: "", tan, tanInput, { tanInput = it }, busy, error, onAutoCheck = { if (!busy) sendTan() })
             Step.Range -> FormPage {
@@ -690,29 +691,6 @@ private fun Field(label: String, value: String, onChange: (String) -> Unit, secr
         },
         modifier = Modifier.fillMaxWidth().clip(WimgShape.group).background(c.card).border(1.dp, c.line, WimgShape.group).padding(horizontal = 16.dp, vertical = 18.dp),
     )
-}
-
-@Composable
-private fun Notice(text: String) {
-    val c = Wimg.colors
-    Row(Modifier.padding(top = 18.dp).fillMaxWidth().clip(WimgShape.group).background(c.warnBg).padding(16.dp)) {
-        Icon(Icons.Outlined.WarningAmber, contentDescription = null, tint = c.warn, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.width(12.dp))
-        Text(text, style = WimgType.body, color = c.text)
-    }
-}
-
-@Composable
-private fun ErrorBox(text: String) {
-    val c = Wimg.colors
-    Row(Modifier.padding(top = 18.dp).fillMaxWidth().clip(WimgShape.group).background(c.dangerBg).padding(16.dp)) {
-        Icon(Icons.Outlined.ErrorOutline, contentDescription = null, tint = c.danger, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.width(12.dp))
-        Column {
-            Text(L("Meldung der Bank"), style = WimgType.desc, color = c.text2)
-            Text(text, style = WimgType.body, color = c.text)
-        }
-    }
 }
 
 @Composable
@@ -791,7 +769,7 @@ private fun TanPage(bankName: String, tan: FintsResult?, input: String, onInput:
                 Text(challenge, style = WimgType.mono, color = c.text, modifier = Modifier.padding(top = 4.dp))
             }
         }
-        if (error != null) ErrorBox(error)
+        DockError(error, L("Meldung der Bank"))
     }
 }
 

@@ -480,6 +480,15 @@ data class DockRow(
     val icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
 )
 
+/**
+ * An error goes to the floating bar, once each time it appears, never as a
+ * box under the fields: the bar is where the page's actions and answers are.
+ */
+@Composable
+fun DockError(error: String?, title: String? = null) {
+    LaunchedEffect(error) { if (error != null) { if (title != null) Dock.error(title, error) else Dock.error(error) } }
+}
+
 object Dock {
     var row by mutableStateOf<DockRow?>(null)
         private set

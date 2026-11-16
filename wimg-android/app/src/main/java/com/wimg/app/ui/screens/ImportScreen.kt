@@ -53,6 +53,7 @@ import androidx.navigation.NavController
 import com.wimg.app.bridge.LibWimg
 import com.wimg.app.i18n.L
 import com.wimg.app.i18n.__t
+import com.wimg.app.ui.components.DockError
 import com.wimg.app.models.ImportResult
 import com.wimg.app.models.Transaction
 import com.wimg.app.ui.components.BandScreen
@@ -217,7 +218,7 @@ fun ImportScreen(navController: NavController) {
                             }
                         }
                     }
-                    if (error != null) ImportError(error!!)
+                    DockError(error)
                 }
                 ImportStep.Preview -> if (p != null) {
                     val src = SOURCES.firstOrNull { it.format == p.format }
@@ -255,7 +256,7 @@ fun ImportScreen(navController: NavController) {
                         }
                         HorizontalDivider(thickness = 1.dp, color = c.line)
                     }
-                    if (error != null) ImportError(error!!)
+                    DockError(error)
                 }
                 ImportStep.Done -> {
                     val r = result
@@ -298,12 +299,3 @@ private fun StatCard(label: String, value: String, modifier: Modifier, small: Bo
     }
 }
 
-@Composable
-private fun ImportError(text: String) {
-    val c = Wimg.colors
-    Row(Modifier.padding(top = 16.dp).fillMaxWidth().clip(WimgShape.group).background(c.dangerBg).padding(16.dp)) {
-        Icon(Icons.Outlined.ErrorOutline, contentDescription = null, tint = c.danger, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.width(12.dp))
-        Text(text, style = WimgType.body, color = c.text)
-    }
-}
