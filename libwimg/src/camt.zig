@@ -146,6 +146,15 @@ fn parseEntry(entry: []const u8, account: []const u8, out_txn: *Transaction, pen
         ustrd
     else
         (extractTagText(entry, "AddtlNtryInf") orelse "CAMT Buchung");
+    // A pending card payment without any date (Comdirect) got the report's date,
+    // i.e. the day of the fetch. Its text carries the moment of payment
+    // ("…Wuppertal DE 2026-11-14T15:24:15"): use that day when it is plausible
+    // (not after the report, at most 30 days before it).
+    if (pending and date_block == null) {
+        if (paymentDateInText(desc)) |paid| {
+            if (dateOrdinal(paid) <= dateOrdinal(out_txn.date) and dateOrdinal(out_txn.date) - dateOrdinal(paid) <= 30) out_txn.date = paid;
+        }
+    }
     const desc_trimmed = std.mem.trim(u8, desc, " \t\r\n");
     const desc_effective = if (desc_trimmed.len > 0) desc_trimmed else "CAMT Buchung";
     // Strip NUL and other C0 control bytes (see mt940.zig finalizeTxnDescription
@@ -285,6 +294,35 @@ fn extractTagText(haystack: []const u8, tag_name: []const u8) ?[]const u8 {
 
     const end_rel = std.mem.indexOfPos(u8, haystack, content_start, close) orelse return null;
     return haystack[content_start..end_rel];
+}
+
+/// "YYYY-MM-DDTHH:MM" anywhere in a booking text (card payment timestamp).
+fn paymentDateInText(text: []const u8) ?Date {
+    if (text.len < 16) return null;
+    var i: usize = 0;
+    while (i + 16 <= text.len) : (i += 1) {
+        const t = text[i .. i + 16];
+        if (t[4] == '-' and t[7] == '-' and t[10] == 'T' and t[13] == ':' and
+            std.ascii.isDigit(t[0]) and std.ascii.isDigit(t[3]) and std.ascii.isDigit(t[5]) and
+            std.ascii.isDigit(t[8]) and std.ascii.isDigit(t[9]) and std.ascii.isDigit(t[11]) and std.ascii.isDigit(t[14]))
+        {
+            const d = parseIsoDate(t[0..10]) orelse continue;
+            if (d.month >= 1 and d.month <= 12 and d.day >= 1 and d.day <= 31) return d;
+        }
+    }
+    return null;
+}
+
+/// Days since a fixed epoch, for comparing and subtracting dates.
+fn dateOrdinal(d: Date) i64 {
+    // Days from civil (Howard Hinnant), proleptic Gregorian.
+    const y: i64 = @as(i64, d.year) - @as(i64, if (d.month <= 2) 1 else 0);
+    const era = @divFloor(y, 400);
+    const yoe = y - era * 400;
+    const m: i64 = d.month;
+    const doy = @divFloor(153 * (if (m > 2) m - 3 else m + 9) + 2, 5) + @as(i64, d.day) - 1;
+    const doe = yoe * 365 + @divFloor(yoe, 4) - @divFloor(yoe, 100) + doy;
+    return era * 146097 + doe;
 }
 
 fn parseIsoDate(raw: []const u8) ?Date {
@@ -462,4 +500,18 @@ test "value-dated CAMT takes ValDt like MT940, BookgDt when there is none" {
     const booked = parseCamt(xml, "Bank", &out);
     try std.testing.expectEqual(@as(usize, 2), booked.count);
     try std.testing.expectEqual(@as(u8, 16), out[0].date.day);
+}
+
+test "pending without a date takes the payment day from its text, not the fetch day" {
+    const xml = "<Document><CreDtTm>2026-11-15T09:12:00</CreDtTm>" ++
+        "<Ntry><Amt Ccy=\"EUR\">4.02</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts><Cd>PDNG</Cd></Sts><NtryDtls><TxDtls><RmtInf><Ustrd>Netto Marken-Discount Wuppertal DE</Ustrd><Ustrd>2026-11-14T15:24:15</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry>" ++
+        "<Ntry><Amt Ccy=\"EUR\">9.99</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts><Cd>PDNG</Cd></Sts><NtryDtls><TxDtls><RmtInf><Ustrd>Lastschrift ohne Zeit</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry>" ++
+        "<Ntry><Amt Ccy=\"EUR\">1.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts><Cd>PDNG</Cd></Sts><NtryDtls><TxDtls><RmtInf><Ustrd>Vertrag 2025-01-01T00:00 Referenz</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry></Document>";
+    var out: [4]Transaction = undefined;
+    const r = parseCamtPending(xml, "Bank", &out);
+    try std.testing.expectEqual(@as(usize, 3), r.count);
+    try std.testing.expectEqual(@as(u8, 14), out[0].date.day); // paid on the 14th
+    try std.testing.expectEqual(@as(u8, 15), out[1].date.day); // no time in the text: fetch day
+    try std.testing.expectEqual(@as(u8, 15), out[2].date.day); // a date far back is not a payment time
+    try std.testing.expectEqual(@as(u16, 2026), out[2].date.year);
 }
