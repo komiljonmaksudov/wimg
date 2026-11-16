@@ -2418,10 +2418,13 @@ fn extractEnvelopeContent(segment: []const u8) ?[]const u8 {
 // ============================================================
 
 /// Escape FinTS special characters: ? before +, :, ', ?
+/// FinTS syntax characters are escaped with '?': + : ' ? and @ (which starts a
+/// binary field "@len@"; unescaped, a name with '@' makes the bank answer
+/// 9130 "kein Binaerfeld gefunden").
 fn escapeFintsValue(buf: []u8, value: []const u8) ?usize {
     var pos: usize = 0;
     for (value) |c| {
-        if (c == '?' or c == '+' or c == ':' or c == '\'') {
+        if (c == '?' or c == '+' or c == ':' or c == '\'' or c == '@') {
             if (pos + 2 > buf.len) return null;
             buf[pos] = '?';
             pos += 1;
@@ -3094,4 +3097,10 @@ test "the pending-only HKCAZ sends the account as IBAN:BIC" {
     // The regular CAMT request keeps the long form.
     const m = buildFetchStatementsCamt(&s, "20261015", "20261114", "", &buf) orelse return error.TestUnexpectedResult;
     try std.testing.expect(std.mem.indexOf(u8, buf[0..m], "HKCAZ:3:1+DE12100500001234567890:BELADEBEXXX:1234567890::280:10050000+") != null);
+}
+
+test "escapeFintsValue escapes all five syntax characters, @ included" {
+    var buf: [64]u8 = undefined;
+    const n = escapeFintsValue(&buf, "Max@Pixel+1:2'?").?;
+    try std.testing.expectEqualStrings("Max?@Pixel?+1?:2?'??", buf[0..n]);
 }
