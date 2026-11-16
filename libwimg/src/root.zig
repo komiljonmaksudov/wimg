@@ -2067,11 +2067,7 @@ fn wimg_fints_connect(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     }
 
     // Return status with tan_medium_required flag so UI knows if picker is needed
-    var debug_buf: [512]u8 = undefined;
-    const did = fints_session.dialogIdSlice();
-    const sid = fints_session.systemIdSlice();
-    const tan_med_req = if (fints_session.tan_medium_required) "true" else "false";
-    const debug_json = std.fmt.bufPrint(&debug_buf, "{{\"status\":\"ok\",\"tan_medium_required\":{s},\"_debug_dialog_id\":\"{s}\",\"_debug_system_id\":\"{s}\",\"_debug_did_len\":{d},\"_debug_sid_len\":{d}}}", .{ tan_med_req, did, sid, did.len, sid.len }) catch return makeLengthPrefixed("{\"status\":\"ok\"}");
+    const debug_json = if (fints_session.tan_medium_required) "{\"status\":\"ok\",\"tan_medium_required\":true}" else "{\"status\":\"ok\",\"tan_medium_required\":false}";
 
     // Reset dialog state for fetch (keeps system_id, PIN, product_id)
     fints_session.resetDialog();
@@ -2217,14 +2213,14 @@ fn wimg_fints_send_tan(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                 fints_session.decoupled = true; // keep polling with process S
                 if (!fints_session.automated_polling_allowed) {
                     const result_json = std.fmt.bufPrint(&result_buf, "{{\"status\":\"tan_required\",\"challenge\":\"{s}\",\"decoupled\":{}}}", .{
-                        challenge,
+                        jsonEscChallenge(challenge),
                         true,
                     }) catch return makeLengthPrefixed("{\"status\":\"tan_required\",\"decoupled\":true}");
                     return makeLengthPrefixed(result_json);
                 }
                 if (poll_count >= max_polls or waited_secs >= max_wait_per_call) {
                     const result_json = std.fmt.bufPrint(&result_buf, "{{\"status\":\"tan_required\",\"challenge\":\"{s}\",\"decoupled\":{}}}", .{
-                        challenge,
+                        jsonEscChallenge(challenge),
                         true,
                     }) catch return makeLengthPrefixed("{\"status\":\"tan_required\",\"decoupled\":true}");
                     return makeLengthPrefixed(result_json);
@@ -2249,14 +2245,14 @@ fn wimg_fints_send_tan(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                 var b64_buf: [12288]u8 = undefined;
                 const b64_data = b64_encoder.encode(&b64_buf, normalized_hhduc);
                 const result_json = std.fmt.bufPrint(&result_buf, "{{\"status\":\"tan_required\",\"challenge\":\"{s}\",\"phototan\":\"{s}\",\"decoupled\":{}}}", .{
-                    challenge,
+                    jsonEscChallenge(challenge),
                     b64_data,
                     fints_session.decoupled,
                 }) catch return makeLengthPrefixed("{\"status\":\"tan_required\"}");
                 return makeLengthPrefixed(result_json);
             }
             const result_json = std.fmt.bufPrint(&result_buf, "{{\"status\":\"tan_required\",\"challenge\":\"{s}\",\"decoupled\":{}}}", .{
-                challenge,
+                jsonEscChallenge(challenge),
                 fints_session.decoupled,
             }) catch return makeLengthPrefixed("{\"status\":\"tan_required\"}");
             return makeLengthPrefixed(result_json);
@@ -2428,6 +2424,15 @@ fn stepFailureJson(comptime what: []const u8, step: []const u8, resp: *const fin
     }
     if (isLoginRejected(resp)) return bankErrorJson("Authentication failed", seen[0..n], buf);
     return bankErrorJson(what, seen[0..n], buf);
+}
+
+/// The bank's challenge text for the app's JSON: quotes, line breaks and
+/// ISO-8859-1 bytes escaped (raw, they made the answer unreadable and the app
+/// said "Bank nicht erreichbar"). FinTS runs on one thread, so one buffer.
+var chal_json_buf: [1100]u8 = undefined;
+fn jsonEscChallenge(text: []const u8) []const u8 {
+    const n = db_mod.jsonEscapeString(&chal_json_buf, text) orelse 0;
+    return chal_json_buf[0..n];
 }
 
 fn writeJsonEscaped(w: *std.Io.Writer, text: []const u8) !void {
@@ -2681,7 +2686,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                     var b64_buf: [12288]u8 = undefined;
                     const b64_data = b64_encoder.encode(&b64_buf, normalized_hhduc);
                     const result_json = std.fmt.bufPrint(&result_buf, "{{\"status\":\"tan_required\",\"challenge\":\"{s}\",\"phototan\":\"{s}\",\"decoupled\":{}}}", .{
-                        challenge,
+                        jsonEscChallenge(challenge),
                         b64_data,
                         fints_session.decoupled,
                     }) catch return null;
@@ -2689,7 +2694,7 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                 }
 
                 const result_json = std.fmt.bufPrint(&result_buf, "{{\"status\":\"tan_required\",\"challenge\":\"{s}\",\"decoupled\":{}}}", .{
-                    challenge,
+                    jsonEscChallenge(challenge),
                     fints_session.decoupled,
                 }) catch return null;
                 return makeLengthPrefixed(result_json);
@@ -2813,14 +2818,14 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                     var b64_buf: [12288]u8 = undefined;
                     const b64_data = b64_encoder.encode(&b64_buf, normalized_hhduc);
                     const result_json = std.fmt.bufPrint(&result_buf, "{{\"status\":\"tan_required\",\"challenge\":\"{s}\",\"phototan\":\"{s}\",\"decoupled\":{}}}", .{
-                        challenge,
+                        jsonEscChallenge(challenge),
                         b64_data,
                         fints_session.decoupled,
                     }) catch return null;
                     return makeLengthPrefixed(result_json);
                 }
                 const result_json = std.fmt.bufPrint(&result_buf, "{{\"status\":\"tan_required\",\"challenge\":\"{s}\",\"decoupled\":{}}}", .{
-                    challenge,
+                    jsonEscChallenge(challenge),
                     fints_session.decoupled,
                 }) catch return null;
                 return makeLengthPrefixed(result_json);
@@ -3364,4 +3369,8 @@ test "daysBefore crosses months, years and leap days" {
     try std.testing.expectEqualStrings("20251202", daysBefore("20260101", 30, &b).?);
     try std.testing.expectEqualStrings("20240229", daysBefore("20240301", 1, &b).?);
     try std.testing.expect(daysBefore("2026-11", 1, &b) == null);
+}
+
+test "challenge text is JSON-escaped for the app" {
+    try std.testing.expectEqualStrings("Bitte \\\"Freigabe\\\" \\nf\\u00fcr 50 EUR", jsonEscChallenge("Bitte \"Freigabe\" \nf\xfcr 50 EUR"));
 }

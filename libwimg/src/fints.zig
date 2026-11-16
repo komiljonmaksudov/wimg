@@ -61,7 +61,7 @@ pub const FintsSession = struct {
     challenge_len: u16,
     challenge_hhduc: [8192]u8, // photoTAN PNG image (Base64 or binary)
     challenge_hhduc_len: u16,
-    challenge_ref: [32]u8,
+    challenge_ref: [40]u8, // task reference, unescaped (FinTS: up to 35)
     challenge_ref_len: u8,
 
     has_pending_tan: bool,
@@ -270,7 +270,7 @@ pub const ParsedResponse = struct {
     challenge_len: u16,
     challenge_hhduc: [8192]u8, // photoTAN image data
     challenge_hhduc_len: u16,
-    challenge_ref: [32]u8,
+    challenge_ref: [40]u8, // task reference, unescaped (FinTS: up to 35)
     challenge_ref_len: u8,
     has_tan_request: bool,
     decoupled: bool,
@@ -713,9 +713,7 @@ pub fn buildFetchStatements(session: *const FintsSession, from: []const u8, to: 
         @memcpy(acct_buf[acct_pos .. acct_pos + ktv.len], ktv);
         acct_pos += ktv.len;
     } else {
-        const uid = session.userIdSlice();
-        @memcpy(acct_buf[acct_pos .. acct_pos + uid.len], uid);
-        acct_pos += uid.len;
+        acct_pos += escapeFintsValue(acct_buf[acct_pos..], session.userIdSlice()) orelse return null;
         const acct_suffix = ":0:280:";
         @memcpy(acct_buf[acct_pos .. acct_pos + acct_suffix.len], acct_suffix);
         acct_pos += acct_suffix.len;
@@ -925,7 +923,7 @@ pub fn parseHitab(segment: []const u8, out_media: []TanMedium) u8 {
     while (pos < segment.len and count < out_media.len) {
         // Find end of this field
         var field_end = pos;
-        while (field_end < segment.len and segment[field_end] != '+' and segment[field_end] != '\'') : (field_end += 1) {}
+        while (field_end < segment.len and !((segment[field_end] == '+' or segment[field_end] == '\'') and !isEscaped(segment, field_end))) : (field_end += 1) {}
 
         const field = segment[pos..field_end];
 
@@ -947,7 +945,7 @@ pub fn parseHitab(segment: []const u8, out_media: []TanMedium) u8 {
             var best_name: ?[]const u8 = null;
             var cp: usize = 0;
             while (cp <= field.len) : (cp += 1) {
-                if (cp == field.len or field[cp] == ':') {
+                if (cp == field.len or (field[cp] == ':' and !isEscaped(field, cp))) {
                     const tok = field[tok_start..cp];
                     if (tok_idx == 0) {
                         // media_class (A=all, L=list, M=mobile, P=pushTAN, etc.)
@@ -975,9 +973,8 @@ pub fn parseHitab(segment: []const u8, out_media: []TanMedium) u8 {
             }
 
             if (best_name) |name| {
-                const n_len = @min(name.len, media.name.len);
-                @memcpy(media.name[0..n_len], name[0..n_len]);
-                media.name_len = @intCast(n_len);
+                // Unescaped here; escapeFintsValue escapes it again in HKTAN.
+                media.name_len = @intCast(unescapeInto(&media.name, name));
                 out_media[count] = media;
                 count += 1;
             }
@@ -1439,9 +1436,8 @@ fn writeSignatureHeader(buf: []u8, offset: usize, num: u16, session: *const Fint
     pos += 1;
 
     // user_id
-    const uid = session.userIdSlice();
-    @memcpy(buf[pos .. pos + uid.len], uid);
-    pos += uid.len;
+    // Kunden-ID in the key name, escaped (a login like "max@mail.de" has '@').
+    pos += escapeFintsValue(buf[pos..], session.userIdSlice()) orelse return null;
 
     // :S:0:0'
     const part3 = ":S:0:0'";
@@ -1556,9 +1552,8 @@ fn writeAuthEnvelope(session: *const FintsSession, sec_func: []const u8, buf: []
     vsk_pos += 1;
 
     // user_id
-    const uid = session.userIdSlice();
-    @memcpy(hnvsk_buf[vsk_pos .. vsk_pos + uid.len], uid);
-    vsk_pos += uid.len;
+    const uid_len = escapeFintsValue(hnvsk_buf[vsk_pos..], session.userIdSlice()) orelse return null;
+    vsk_pos += uid_len;
 
     const vsk_suffix = ":V:0:0+0'";
     @memcpy(hnvsk_buf[vsk_pos .. vsk_pos + vsk_suffix.len], vsk_suffix);
@@ -1667,9 +1662,26 @@ fn readElement(segment: []const u8, start: usize, out: []u8) struct { len: usize
     return .{ .len = n, .end = i };
 }
 
+/// The byte at `pos` is escaped when an odd number of '?' stands right before
+/// it: "??+" is an escaped '?' followed by a real '+'.
 fn isEscaped(data: []const u8, pos: usize) bool {
-    if (pos == 0) return false;
-    return data[pos - 1] == '?';
+    var n: usize = 0;
+    var i = pos;
+    while (i > 0 and data[i - 1] == '?') : (i -= 1) n += 1;
+    return n % 2 == 1;
+}
+
+/// A delimited FinTS value without its '?' escapes.
+fn unescapeInto(out: []u8, raw: []const u8) usize {
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < raw.len and n < out.len) {
+        if (raw[i] == '?' and i + 1 < raw.len) i += 1;
+        out[n] = raw[i];
+        n += 1;
+        i += 1;
+    }
+    return n;
 }
 
 /// Version from a segment header "NAME:number:version[:ref]".
@@ -2022,15 +2034,11 @@ fn extractTanChallenge(segment: []const u8, out: *ParsedResponse) void {
                 out.decoupled = true;
             }
         } else if (field_num == ref_field_num) {
-            // Challenge reference
-            const ref_len = @min(field.len, 32);
-            @memcpy(out.challenge_ref[0..ref_len], field[0..ref_len]);
-            out.challenge_ref_len = @intCast(ref_len);
+            // Task reference, unescaped (written back escaped by writeSegment).
+            out.challenge_ref_len = @intCast(unescapeInto(&out.challenge_ref, field));
         } else if (field_num == challenge_field_num) {
-            // Challenge text
-            const chal_len = @min(field.len, 512);
-            @memcpy(out.challenge[0..chal_len], field[0..chal_len]);
-            out.challenge_len = @intCast(chal_len);
+            // Challenge text, unescaped (shown to the user).
+            out.challenge_len = @intCast(unescapeInto(&out.challenge, field));
         } else if (field_num == hhduc_field_num) {
             // Challenge HHDUC — photoTAN image data
             // May be prefixed with @len@ binary marker
@@ -3135,4 +3143,35 @@ test "HISYN and HNHBK: ids with escaped characters are read whole and written es
     try std.testing.expect(std.mem.indexOf(u8, msg, "vc?+xyXOn5KEBAACeOPWCFQWCCgQA") != null);
     try std.testing.expect(std.mem.indexOf(u8, msg, ":vc+xyX") == null);
     try std.testing.expect(std.mem.indexOf(u8, msg, "+vc+xyX") == null);
+}
+
+test "isEscaped counts the run of '?': ??+ is a real '+'" {
+    try std.testing.expect(isEscaped("a?+", 2));
+    try std.testing.expect(!isEscaped("a??+", 3));
+    try std.testing.expect(isEscaped("a???+", 4));
+    try std.testing.expect(!isEscaped("+", 0));
+}
+
+test "HITAN: task reference and challenge are kept unescaped" {
+    var s = FintsSession.init("20041177", "https://x.de/f", "u", "p");
+    var resp = ParsedResponse.init();
+    parseResponse(&s, "HITAN:5:6:4+4++Ref?+12?:ab+Bitte TAN f?:r 50?,00 EUR eingeben'", &resp);
+    try std.testing.expectEqualStrings("Ref+12:ab", resp.challenge_ref[0..resp.challenge_ref_len]);
+    try std.testing.expectEqualStrings("Bitte TAN f:r 50,00 EUR eingeben", resp.challenge[0..resp.challenge_len]);
+}
+
+test "HITAB: a medium name with escaped characters is read whole" {
+    var media: [4]TanMedium = undefined;
+    const n = parseHitab("HITAB:5:4:3+0+M:1:::::::::::Handy?: Max?+Pixel::::::'", &media);
+    try std.testing.expectEqual(@as(u8, 1), n);
+    try std.testing.expectEqualStrings("Handy: Max+Pixel", media[0].name[0..media[0].name_len]);
+}
+
+test "a login with special characters is escaped in every header" {
+    var s = FintsSession.init("20041177", "https://x.de/f", "max@mail.de", "p");
+    var buf: [8192]u8 = undefined;
+    const n = buildAuthInit(&s, &buf) orelse return error.TestUnexpectedResult;
+    const msg = buf[0..n];
+    try std.testing.expect(std.mem.indexOf(u8, msg, "max?@mail.de") != null);
+    try std.testing.expect(std.mem.indexOf(u8, msg, "max@mail.de") == null);
 }
