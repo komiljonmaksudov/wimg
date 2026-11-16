@@ -2476,6 +2476,11 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
 
     // If we have an active dialog (post-TAN), skip auth init and go straight to HKKAZ
     if (!fints_session.has_active_dialog) {
+        // The PIN is wiped after every finished or failed fetch. A sign-in without
+        // it is a broken message (Comdirect: 9130 "kein Binaerfeld", 9110): never send one.
+        if (fints_session.pin_len == 0) {
+            return makeLengthPrefixed("{\"status\":\"error\",\"message\":\"PIN missing in session, please reconnect\"}");
+        }
         // Step 1: Open a new authenticated dialog for HKKAZ
         fints_session.resetDialog();
 

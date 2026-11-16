@@ -213,7 +213,7 @@ private object FintsJob {
      * fetches the last 90 days without leaving the page. The bank's page opens
      * only when the bank wants something from the user (TAN, TAN device, login).
      */
-    fun quick(context: Context, conn: com.wimg.app.services.BankConnection) {
+    fun quick(context: Context, conn: com.wimg.app.services.BankConnection, range: Pair<String, String> = rangeDays(90), retried: Boolean = false) {
         if (running) return
         val saved = PinStore.get(context, conn.id) ?: run { openPage(conn.id, quick = true); return }
         Dock.show(DockRow(DockKind.Sync, __t("Anmelden"), conn.name))
@@ -227,7 +227,7 @@ private object FintsJob {
                 }
             }.getOrNull()
             when {
-                r == null -> Dock.error(__t("Schnellabfrage fehlgeschlagen"), bankText(null), __t("Erneut")) { quick(context, conn) }
+                r == null -> Dock.error(__t("Schnellabfrage fehlgeschlagen"), bankText(null), __t("Erneut")) { quick(context, conn, range) }
                 r.status == "ok" -> {
                     if (r.tan_medium_required == true) {
                         // No saved TAN device: the page asks for one.
@@ -235,7 +235,7 @@ private object FintsJob {
                         withFintsThread { com.wimg.app.bridge.LibWimg.native { WimgJni.nativeFintsSetTanMedium(mediumBody(medium)) } }
                     }
                     BackgroundRefresh.enqueue(context)
-                    fetch(context, conn.id, rangeDays(90), conn.name)
+                    fetch(context, conn.id, range, conn.name, retried = retried)
                 }
                 r.status == "tan_required" -> {
                     Dock.dismiss()
@@ -312,6 +312,17 @@ private object FintsJob {
         }
     }
 
+    /**
+     * Try a fetch again. libwimg forgets the PIN after every fetch, so a retry
+     * signs in again with the saved PIN (like ↻); without one, the bank's page
+     * opens for the login.
+     */
+    private fun again(context: Context, connId: String, range: Pair<String, String>, bankName: String, retried: Boolean = false) {
+        val conn = BankConnections.get(context, connId)
+        if (conn != null && PinStore.get(context, connId) != null) quick(context, conn, range, retried)
+        else { Dock.dismiss(); openPage(connId) }
+    }
+
     private fun openPage(id: String, quick: Boolean = false) {
         com.wimg.app.ui.components.NavRequest.onTop = true
         com.wimg.app.ui.components.NavRequest.route = bankRoute(id, quick)
@@ -330,12 +341,12 @@ private object FintsJob {
             val bankAsksAgain = result?.message?.startsWith("Bank asks to try again") == true
             if (bankAsksAgain && !retried) {
                 kotlinx.coroutines.delay(3_000)
-                fetch(context, connId, range, bankName, retried = true, onDone = onDone)
+                again(context, connId, range, bankName, retried = true)
                 return@launch
             }
             when {
-                result == null -> Dock.error(__t("Abruf fehlgeschlagen"), bankText(null), __t("Erneut")) { fetch(context, connId, range, bankName, onDone = onDone) }
-                bankAsksAgain -> Dock.error(__t("Die Bank hat gerade ein Problem"), __t("%s meldet einen internen Fehler. Versuch es später noch einmal.").format(bankName), __t("Erneut")) { fetch(context, connId, range, bankName, onDone = onDone) }
+                result == null -> Dock.error(__t("Abruf fehlgeschlagen"), bankText(null), __t("Erneut")) { again(context, connId, range, bankName) }
+                bankAsksAgain -> Dock.error(__t("Die Bank hat gerade ein Problem"), __t("%s meldet einen internen Fehler. Versuch es später noch einmal.").format(bankName), __t("Erneut")) { again(context, connId, range, bankName) }
                 isAuthRejected(result) -> {
                     forgetPin(context, connId)
                     Dock.error(__t("Anmeldung abgelehnt"), bankText(result), __t("Neu anmelden")) {
