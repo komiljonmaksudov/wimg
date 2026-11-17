@@ -18,6 +18,7 @@ pub const CsvFormat = enum(u8) {
     comdirect = 1,
     trade_republic = 2,
     scalable_capital = 3,
+    revolut = 4,
 
     pub fn name(self: CsvFormat) []const u8 {
         return switch (self) {
@@ -25,6 +26,7 @@ pub const CsvFormat = enum(u8) {
             .comdirect => "comdirect",
             .trade_republic => "trade_republic",
             .scalable_capital => "scalable_capital",
+            .revolut => "revolut",
         };
     }
 };
@@ -38,6 +40,12 @@ pub fn detectCsvFormat(data: []const u8) CsvFormat {
     // Comdirect: German, semicolons, starts with "Buchungstag" or metadata rows
     if (containsAscii(header, "Buchungstag") or containsAscii(header, "Umsatz in EUR")) {
         return .comdirect;
+    }
+
+    // Revolut (personal account statement, "Excel" export that is CSV):
+    // Type,Product,Started Date,Completed Date,Description,Amount,Fee,Currency,State,Balance
+    if (containsAscii(header, "Started Date") or containsAscii(header, "Startdatum")) {
+        return .revolut;
     }
 
     // Trade Republic: "Date","Type","Description" pattern (comma-separated)
@@ -74,6 +82,10 @@ pub fn parseCsv(
         .comdirect => parseComdirectCsv(data, out_txns, out_result),
         .trade_republic => parseTradeRepublicCsv(data, out_txns, out_result),
         .scalable_capital => parseScalableCapitalCsv(data, out_txns, out_result),
+        .revolut => {
+            var cursor = ParseCursor{ .format = .revolut };
+            parseRevolutBatch(data, &cursor, out_txns, out_result);
+        },
         .unknown => {
             // Try Comdirect as default
             parseComdirectCsv(data, out_txns, out_result);
@@ -91,6 +103,8 @@ pub const ParseCursor = struct {
     byte_offset: usize = 0,
     format: CsvFormat = .unknown,
     header_found: bool = false,
+    /// Revolut: where its columns are, read from the header line.
+    revolut: RevolutCols = .{},
 };
 
 /// Parse CSV in batches. Caller loops until cursor.byte_offset >= data.len.
@@ -111,6 +125,7 @@ pub fn parseCsvBatch(
         .comdirect => parseComdirectBatch(data, cursor, out_txns, out_result),
         .trade_republic => parseTRBatch(data, cursor, out_txns, out_result),
         .scalable_capital => parseScalableBatch(data, cursor, out_txns, out_result),
+        .revolut => parseRevolutBatch(data, cursor, out_txns, out_result),
         .unknown => parseComdirectBatch(data, cursor, out_txns, out_result),
     }
 }
@@ -420,6 +435,131 @@ fn parseTradeRepublicLine(line: []const u8) ?Transaction {
 
     txn.id = computeHash(date, description_raw, amount, txn.accountSlice());
     return txn;
+}
+
+// ============================================================
+// Revolut Parser
+// ============================================================
+
+/// Column positions in a Revolut statement, found by name in the header so the
+/// German export (Startdatum, Betrag, …) works like the English one. The
+/// defaults are the English order.
+pub const RevolutCols = struct {
+    sep: u8 = ',',
+    product: u8 = 1,
+    started: u8 = 2,
+    desc: u8 = 4,
+    amount: u8 = 5,
+    fee: u8 = 6,
+    currency: u8 = 7,
+    state: u8 = 8,
+};
+
+fn revolutHeader(line: []const u8) RevolutCols {
+    var cols = RevolutCols{};
+    cols.sep = if (std.mem.indexOfScalar(u8, line, ';') != null) ';' else ',';
+    var fields: [10][]const u8 = undefined;
+    const n = splitCsvFields(line, cols.sep, &fields);
+    for (fields[0..n], 0..) |raw, i| {
+        const f = trim(raw);
+        const idx: u8 = @intCast(i);
+        if (eqAny(f, &.{ "Product", "Produkt" })) cols.product = idx;
+        if (eqAny(f, &.{ "Started Date", "Startdatum", "Beginndatum" })) cols.started = idx;
+        if (eqAny(f, &.{ "Description", "Beschreibung" })) cols.desc = idx;
+        if (eqAny(f, &.{ "Amount", "Betrag" })) cols.amount = idx;
+        if (eqAny(f, &.{ "Fee", "Gebühr", "Gebuehr" })) cols.fee = idx;
+        if (eqAny(f, &.{ "Currency", "Währung", "Waehrung" })) cols.currency = idx;
+        if (eqAny(f, &.{ "State", "Status" })) cols.state = idx;
+    }
+    return cols;
+}
+
+fn eqAny(s: []const u8, names: []const []const u8) bool {
+    for (names) |n| if (std.ascii.eqlIgnoreCase(s, n)) return true;
+    return false;
+}
+
+const RevolutRow = union(enum) { txn: Transaction, skip, bad };
+
+/// One row. Skipped, not counted as errors: anything not completed (PENDING,
+/// REVERTED, DECLINED), Savings pockets (their moves mirror the current
+/// account) and other currencies (wimg sums in euros). The date is when it was
+/// paid ("Started Date"); the completed date can be days later. Fee included.
+fn parseRevolutLine(line: []const u8, cols: RevolutCols) RevolutRow {
+    var f: [10][]const u8 = undefined;
+    const n = splitCsvFields(line, cols.sep, &f);
+    const need = @max(@max(cols.started, cols.amount), @max(cols.desc, cols.currency));
+    if (n <= need) return .bad;
+    if (cols.state < n) {
+        const st = trim(f[cols.state]);
+        if (!eqAny(st, &.{ "COMPLETED", "ABGESCHLOSSEN" })) return .skip;
+    }
+    if (cols.product < n) {
+        const pr = trim(f[cols.product]);
+        if (pr.len > 0 and !eqAny(pr, &.{ "Current", "Aktuell", "Girokonto" })) return .skip;
+    }
+    if (!std.mem.eql(u8, trim(f[cols.currency]), "EUR")) return .skip;
+
+    const date = parseIsoDate(trim(f[cols.started])) orelse return .bad;
+    const amount = revolutAmount(trim(f[cols.amount])) orelse return .bad;
+    const fee = if (cols.fee < n) revolutAmount(trim(f[cols.fee])) orelse 0 else 0;
+    const total = amount - fee;
+    const desc = trim(f[cols.desc]);
+
+    var txn: Transaction = undefined;
+    txn.date = date;
+    txn.amount_cents = total;
+    txn.currency = "EUR".*;
+    txn.category = .uncategorized;
+    setAccount(&txn, "revolut");
+    txn.description_len = @intCast(toUtf8(&txn.description, desc));
+    txn.id = computeHash(date, desc, total, txn.accountSlice());
+    return .{ .txn = txn };
+}
+
+/// "-12.50" (English export) or "-12,50" (German).
+fn revolutAmount(s: []const u8) ?i64 {
+    if (std.mem.indexOfScalar(u8, s, ',') != null and std.mem.indexOfScalar(u8, s, '.') == null) return parseGermanAmount(s);
+    return parseEnglishAmount(s);
+}
+
+fn parseRevolutBatch(
+    data: []const u8,
+    cursor: *ParseCursor,
+    out_txns: []Transaction,
+    out_result: *ImportResult,
+) void {
+    out_result.* = .{ .total_rows = 0, .imported = 0, .skipped_duplicates = 0, .errors = 0 };
+    var pos = cursor.byte_offset;
+    var txn_idx: u32 = 0;
+    while (pos < data.len) {
+        const line_start = pos;
+        while (pos < data.len and data[pos] != '\n') : (pos += 1) {}
+        const line_end = pos;
+        if (pos < data.len) pos += 1;
+        const line = std.mem.trimEnd(u8, data[line_start..line_end], "\r");
+        if (line.len == 0) continue;
+        if (!cursor.header_found) {
+            cursor.revolut = revolutHeader(line);
+            cursor.header_found = true;
+            continue;
+        }
+        if (txn_idx >= out_txns.len) {
+            cursor.byte_offset = line_start;
+            return;
+        }
+        out_result.total_rows += 1;
+        switch (parseRevolutLine(line, cursor.revolut)) {
+            .txn => |t| {
+                out_txns[txn_idx] = t;
+                txn_idx += 1;
+                out_result.imported += 1;
+            },
+            .skip => {},
+            .bad => out_result.errors += 1,
+        }
+    }
+    cursor.byte_offset = data.len;
 }
 
 // ============================================================
@@ -1614,4 +1754,36 @@ test "parseCsvBatch: empty data" {
     parseCsvBatch("", &cursor, &txns, &batch_result);
     try std.testing.expectEqual(@as(u32, 0), batch_result.imported);
     try std.testing.expectEqual(cursor.byte_offset, 0);
+}
+
+test "revolut: English statement, only completed EUR current-account rows, fee included, paid date" {
+    const csv =
+        "Type,Product,Started Date,Completed Date,Description,Amount,Fee,Currency,State,Balance\n" ++
+        "CARD_PAYMENT,Current,2026-11-13 18:04:11,2026-11-15 09:00:02,Musterladen,-12.50,0.00,EUR,COMPLETED,487.50\n" ++
+        "TOPUP,Current,2026-11-01 08:00:00,2026-11-01 08:00:01,Payment from Max Muster,500.00,0.00,EUR,COMPLETED,500.00\n" ++
+        "ATM,Current,2026-11-14 10:00:00,2026-11-14 10:00:01,Geldautomat,-50.00,1.00,EUR,COMPLETED,436.50\n" ++
+        "CARD_PAYMENT,Current,2026-11-16 12:00:00,,Musterkiosk,-3.20,0.00,EUR,PENDING,\n" ++
+        "TRANSFER,Savings,2026-11-02 08:00:00,2026-11-02 08:00:00,To Pocket,100.00,0.00,EUR,COMPLETED,100.00\n" ++
+        "CARD_PAYMENT,Current,2026-11-03 08:00:00,2026-11-03 08:00:00,Coffee London,-4.10,0.00,GBP,COMPLETED,10.00\n";
+    try std.testing.expectEqual(CsvFormat.revolut, detectCsvFormat(csv));
+    var txns: [10]Transaction = undefined;
+    var result: ImportResult = undefined;
+    try std.testing.expectEqual(CsvFormat.revolut, parseCsv(csv, &txns, &result));
+    try std.testing.expectEqual(@as(u32, 3), result.imported);
+    try std.testing.expectEqual(@as(u32, 0), result.errors);
+    try std.testing.expectEqual(@as(i64, -1250), txns[0].amount_cents);
+    try std.testing.expectEqual(@as(u8, 13), txns[0].date.day); // started, not completed
+    try std.testing.expectEqualStrings("revolut", txns[0].accountSlice());
+    try std.testing.expectEqual(@as(i64, -5100), txns[2].amount_cents); // 50 + 1 fee
+}
+
+test "revolut: German header and comma amounts" {
+    const csv =
+        "Typ;Produkt;Startdatum;Abschlussdatum;Beschreibung;Betrag;Gebühr;Währung;Status;Saldo\n" ++
+        "Kartenzahlung;Aktuell;2026-11-13 18:04:11;2026-11-15 09:00:02;Musterladen;-12,50;0,00;EUR;ABGESCHLOSSEN;487,50\n";
+    var txns: [4]Transaction = undefined;
+    var result: ImportResult = undefined;
+    try std.testing.expectEqual(CsvFormat.revolut, parseCsv(csv, &txns, &result));
+    try std.testing.expectEqual(@as(u32, 1), result.imported);
+    try std.testing.expectEqual(@as(i64, -1250), txns[0].amount_cents);
 }

@@ -3358,6 +3358,7 @@ fn accountInfoForFormat(format: parser.CsvFormat) AccountInfo {
         .comdirect => .{ .id = "comdirect", .name = "Comdirect", .color = "#f5a623" },
         .trade_republic => .{ .id = "trade_republic", .name = "Trade Republic", .color = "#1a1a2e" },
         .scalable_capital => .{ .id = "scalable_capital", .name = "Scalable Capital", .color = "#6c5ce7" },
+        .revolut => .{ .id = "revolut", .name = "Revolut", .color = "#191c1f" },
         .unknown => .{ .id = "unknown", .name = "Unbekannt", .color = "#4361ee" },
     };
 }

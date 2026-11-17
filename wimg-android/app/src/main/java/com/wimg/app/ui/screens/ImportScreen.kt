@@ -88,6 +88,10 @@ private val SOURCES = listOf(
         "scalable_capital", "Scalable", "Verrechnungskonto",
         listOf("Bei Scalable Capital im Browser anmelden.", "Unter Transaktionen die Umsätze als CSV exportieren.", "Die Datei hier auswählen. Sie bleibt auf deinem Gerät."),
     ),
+    Source(
+        "revolut", "Revolut", "Konto (CSV)",
+        listOf("In der Revolut-App das Konto öffnen, dann ⋯ und „Kontoauszug“.", "„Excel“ wählen (das ist eine CSV-Datei) und den Zeitraum.", "Die Datei hier auswählen. Sie bleibt auf deinem Gerät."),
+    ),
     // Any bank: statement files (libwimg import.zig), for banks FinTS can't reach
     // or anyone who'd rather not type a PIN into an app.
     Source(
@@ -139,7 +143,7 @@ fun ImportScreen(navController: NavController) {
                 }.getOrNull()
             }
             busy = false
-            if (p == null) error = __t("wimg erkennt diese Datei nicht. Unterstützt sind Kontoauszüge als MT940 oder CAMT und CSV-Exporte von Comdirect, Trade Republic und Scalable.")
+            if (p == null) error = __t("wimg erkennt diese Datei nicht. Unterstützt sind Kontoauszüge als MT940 oder CAMT und CSV-Exporte von Comdirect, Trade Republic, Scalable und Revolut.")
             else { picked = p; step = ImportStep.Preview }
         }
     }
