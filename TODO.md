@@ -31,7 +31,7 @@ Open work only, grouped by area; finished work moves to [CHANGELOG.md](CHANGELOG
 - [x] Price-change notification (2026-11-17, `BackgroundRefresh.notifyPriceRise`, switch "Preis gestiegen", on by default). Runs recurring detection after a background import first.
 - [ ] Recurring detection only runs on "Erneut erkennen", the demo and the background job: after an in-app fetch a new price isn't seen until then. Run it after every import (libwimg or the shell).
 - [ ] Merchant names: card payments show raw bank text ("PAYSEND, Dublin IE Karte Nr. …", "KD.1210843747 WIR SAGEN"). Clean them up in libwimg `booking.zig` once the user sends full payment references.
-- [ ] Squirrel: dim the band in the evening for "Tag ohne Ausgaben".
-- [ ] Squirrel: animate the ring days during a moment.
+- [x] Squirrel: the band dims to evening and today's stitch is sewn in during "Tag ohne Ausgaben" (2026-11-17).
+- [x] Squirrel: "Gehalt ist da" refills the ring (2026-11-17). Moments on a cold start still play behind the launch animation.
 - [x] Minus periods get the Rückblick cards that are true (quiet days, a caught price), decided by the user 2026-11-17.
 - [ ] On the Poco: Monat widget at 2×2 (compact layout) and an empty account keeping the switch (both fixed 2026-11-17, not seen on a phone yet).
