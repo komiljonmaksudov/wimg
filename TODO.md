@@ -27,6 +27,13 @@ Open work only, grouped by area; finished work moves to [CHANGELOG.md](CHANGELOG
 - [ ] Direct bank connectors (bunq, Fio, comdirect REST) only on user demand; comdirect REST needs a TAN per session, FinTS doesn't.
 
 ## Android
+- [ ] Filter panel on Umsätze, option A from brief 19 (`~/Desktop/wimg-redesign/export/36-Filter-Panel/`, boards 02–04, 07–09; decided 2026-11-17):
+  - four rows Art · Konto · Zeitraum · Kategorie, each with its current value on the right (light background when not "Alle"); a row opens a short list in the same panel, with a back arrow;
+  - Kategorie lists only the categories in the period, sorted by spending, with the amount, then "Mehr (n)"; Zeitraum stacked vertically (no cut-off row);
+  - closed panel: small tags under the sum in the band, a count on the filter button;
+  - filtered "Summe der Treffer" is the total and stands still while scrolling; it rolls once only when the data changes;
+  - without a filter, keep the bank balance following the scroll (the balance on the topmost row's day);
+  - left out for now: the sticky "November bis hier" line (day totals already orient), options B and C.
 - [ ] Notification tap: not reproducible on the emulator anymore (foreground and background, 2026-11-15); confirm with a real notification on the phone.
 - [x] Price-change notification (2026-11-17, `BackgroundRefresh.notifyPriceRise`, switch "Preis gestiegen", on by default). Runs recurring detection after a background import first.
 - [x] Recurring detection runs in libwimg after every fetch or CSV import that added bookings (2026-11-17).
