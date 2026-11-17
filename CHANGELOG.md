@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.9.12 (2026-11-18)
+
+- docs: Neuigkeiten for 0.9.12 and 0.9.9–0.9.11, Play "What's new" for the next update
+- fix: a tap on a panel's empty part no longer closes it, the Design switch shows the chosen mode, and uncategorized bookings say "Unkategorisiert" ("Sonstiges" is the real Other category, as on iOS)
+- feat: calmer filter on Umsätze: four rows with their value, short lists for type, account, period and category (only what occurs, by spending), and the sum holds still while scrolling
+- fix: changing a booking's category also moves the merchant's other uncategorized bookings, with one undo
+- docs: TODO, the GitHub APK key exists
+- fix: make-apk-key.sh uses Android Studio's Java when there is no system Java
+- fix: make-apk-key.sh checks only the active GitHub account
+- docs: Revolut in the store descriptions and tester notes
+- fix: the GitHub APK is a release build with its own permanent key, so updates install over the last one
+- docs: TODO, Play test updates and the GitHub APK decision
+- fix: rules are learned from the merchant, never from a booking word like BELASTUNG; bad learned rules are undone on start
+- feat: import Revolut CSV statements (completed EUR current-account rows, fee included, paid date)
+- fix: bank search puts ING and other common banks first, and the button says "Ich nutze wimg schon" (tester feedback)
+- docs: TODO, the calmer filter panel (brief 19, option A)
+- fix: the amount at the top switches instead of rolling when values come fast (scrolling)
+- fix: text breaks cleanly (balanced headings, dates and amounts stay together), and the rolling amount no longer shows two minus signs or stray dots
+- docs: plainer Play description, with statement files and price notices
+- feat: import bank statement files (MT940, CAMT) from any bank, into the same account as the bank connection
+- refactor: plain std.debug.print on iOS too, now that Zig 0.17.1 builds it
+- fix: pending card payments show the merchant without the payment time
+- fix: a bank fetch or CSV import updates fixed costs and their prices right away
+- feat: link previews for the website (Open Graph image with demo data)
+- docs: closed test log for the Play production form
+
 ## v0.9.11 (2026-11-17)
 
 - Version bump

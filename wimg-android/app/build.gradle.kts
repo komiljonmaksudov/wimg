@@ -18,7 +18,7 @@ android {
         // CI passes its run counter (-PwimgVersionCode); not a timestamp, which
         // would reach Play's 2,100,000,000 limit in 2036.
         versionCode = (project.findProperty("wimgVersionCode") as String?)?.toInt() ?: 1
-        versionName = "0.9.11"
+        versionName = "0.9.12"
         manifestPlaceholders["appLabel"] = "wimg"
 
         ndk {
