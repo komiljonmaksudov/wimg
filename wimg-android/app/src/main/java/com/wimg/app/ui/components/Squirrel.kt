@@ -310,16 +310,23 @@ fun SquirrelRing(
                 val a0 = -90f + i * 360f / n + 1.6f
                 val sweep = 360f / n - 3.2f
                 val past = i < dayIndex
-                val ns = past && (i + 1) in noSpendDays
-                val col = when { !past -> color; ns -> SQ.st.copy(alpha = 0.25f); else -> Color.White.copy(alpha = 0.12f) }
+                // Today's stitch while Tag ohne Ausgaben plays (and after: it stays).
+                val sewing = i == dayIndex && frame.stitch > 0f
+                val ns = (past && (i + 1) in noSpendDays) || sewing
+                // Gehalt ist da: the new period fills clockwise up to [refill].
+                val unfilled = frame.refill < 1f && (i + 1).toFloat() > frame.refill * n + 0.001f
+                val col = when { unfilled -> Color.White.copy(alpha = 0.12f); sewing -> SQ.st.copy(alpha = 0.25f * frame.stitch); !past -> color; ns -> SQ.st.copy(alpha = 0.25f); else -> Color.White.copy(alpha = 0.12f) }
                 drawArc(col, a0, sweep, false, Offset(c - r, c - r), Size(2 * r, 2 * r), style = Stroke(w))
                 if (ns) {
+                    val k = if (sewing) frame.stitch else 1f
                     val m = Math.toRadians((a0 + sweep / 2).toDouble())
                     val mx = c + r * kotlin.math.cos(m).toFloat(); val my = c + r * kotlin.math.sin(m).toFloat()
                     translate(mx, my) {
                         rotate((a0 + sweep / 2), pivot = Offset.Zero) {
-                            drawLine(SQ.st, Offset(-3.4f, -3.4f), Offset(3.4f, 3.4f), 2.4f, StrokeCap.Round)
-                            drawLine(SQ.st, Offset(-3.4f, 3.4f), Offset(3.4f, -3.4f), 2.4f, StrokeCap.Round)
+                            // Sewn in: first one stitch, then the second (k 0..1).
+                            val a = (k * 2f).coerceAtMost(1f) * 3.4f; val b = ((k * 2f) - 1f).coerceIn(0f, 1f) * 3.4f
+                            if (a > 0f) drawLine(SQ.st, Offset(-3.4f, -3.4f), Offset(-3.4f + 2 * a, -3.4f + 2 * a), 2.4f, StrokeCap.Round)
+                            if (b > 0f) drawLine(SQ.st, Offset(-3.4f, 3.4f), Offset(-3.4f + 2 * b, 3.4f - 2 * b), 2.4f, StrokeCap.Round)
                         }
                     }
                 }
@@ -354,12 +361,16 @@ data class SquirrelFrame(
     val z: Float = 0f,
     /** Price-rise ghost: opacity, x offset, price flipped to the new one (0..1), caught (0..1). */
     val gop: Float = 0f, val gx: Float = -30f, val gprice: Float = 0f, val gcaught: Float = 0f,
+    /** Ring: share of the period drawn as days left (Gehalt ist da fills it from 0), today's cross stitch (0..1). */
+    val refill: Float = 1f, val stitch: Float = 0f,
+    /** Evening light in the band (Tag ohne Ausgaben), 0..1; read through [BandDusk]. */
+    val dusk: Float = 0f,
 )
 
 /** Between two frames: numbers ease, the drawn pose switches at the middle (prototype mix()). */
 fun lerp(a: SquirrelFrame, b: SquirrelFrame, t: Float): SquirrelFrame {
     fun m(x: Float, y: Float) = x + (y - x) * t
-    return SquirrelFrame(if (t < 0.5f) a.pose else b.pose, m(a.sx, b.sx), m(a.sy, b.sy), m(a.dx, b.dx), m(a.dy, b.dy), m(a.rot, b.rot), m(a.z, b.z), m(a.gop, b.gop), m(a.gx, b.gx), m(a.gprice, b.gprice), m(a.gcaught, b.gcaught))
+    return SquirrelFrame(if (t < 0.5f) a.pose else b.pose, m(a.sx, b.sx), m(a.sy, b.sy), m(a.dx, b.dx), m(a.dy, b.dy), m(a.rot, b.rot), m(a.z, b.z), m(a.gop, b.gop), m(a.gx, b.gx), m(a.gprice, b.gprice), m(a.gcaught, b.gcaught), m(a.refill, b.refill), m(a.stitch, b.stitch), m(a.dusk, b.dusk))
 }
 
 class MomentStep(val ms: Int, val ease: androidx.compose.animation.core.Easing, val to: (SquirrelFrame) -> SquirrelFrame)
@@ -369,20 +380,26 @@ private val Drawer = androidx.compose.animation.core.CubicBezierEasing(0.32f, 0.
 private val InOut = androidx.compose.animation.core.CubicBezierEasing(0.77f, 0f, 0.175f, 1f)
 
 /** The five moments of the band. [from] is where it starts, the last step is where it rests. */
-enum class SquirrelMoment(val from: SquirrelPose, val steps: List<MomentStep>) {
-    /** Gehalt ist da: hops out of the empty pocket into the payday pose. */
+enum class SquirrelMoment(val from: SquirrelPose, val steps: List<MomentStep>, private val startRefill: Float = 1f) {
+    /**
+     * Gehalt ist da: hops out of the empty pocket into the payday pose while the
+     * ring fills clockwise to a full new period (brief 17, moment 1).
+     */
     GEHALT(SquirrelPose.LEER, listOf(
         MomentStep(220, Out) { it.copy(pose = SquirrelPose.LEER, sy = 1.04f, sx = 0.98f, dy = -2f) },
-        MomentStep(260, Out) { it.copy(pose = SquirrelPose.GEHALT, sy = 0.94f, sx = 1.05f, dy = 2f) },
-        MomentStep(280, Drawer) { it.copy(pose = SquirrelPose.GEHALT, sy = 1f, sx = 1f, dy = 0f) },
-        MomentStep(240, InOut) { it.copy(pose = SquirrelPose.GEHALT, rot = 0f) },
-    )),
-    /** Tag ohne Ausgaben (after 20:00): yawns with its paws up and falls asleep, a "z" appears. */
+        MomentStep(260, Out) { it.copy(pose = SquirrelPose.GEHALT, sy = 0.94f, sx = 1.05f, dy = 2f, refill = 0.3f) },
+        MomentStep(320, Drawer) { it.copy(pose = SquirrelPose.GEHALT, sy = 1f, sx = 1f, dy = 0f, refill = 0.9f) },
+        MomentStep(240, InOut) { it.copy(pose = SquirrelPose.GEHALT, rot = 0f, refill = 1f) },
+    ), startRefill = 0f),
+    /**
+     * Tag ohne Ausgaben (after 20:00): the band dims to evening, the squirrel yawns
+     * and falls asleep, today's cross stitch is sewn into the ring, a "z" appears.
+     */
     NO_SPEND(SquirrelPose.NORMAL, listOf(
-        MomentStep(260, InOut) { it.copy(pose = SquirrelPose.NORMAL) },
-        MomentStep(260, Out) { it.copy(pose = SquirrelPose.YAWN, sy = 1.05f, sx = 0.98f) },
-        MomentStep(290, Drawer) { it.copy(pose = SquirrelPose.SLEEP, sy = 0.97f, sx = 1.02f) },
-        MomentStep(280, Out) { it.copy(pose = SquirrelPose.SLEEP, sy = 0.98f, sx = 1f, z = 1f) },
+        MomentStep(260, InOut) { it.copy(pose = SquirrelPose.NORMAL, dusk = 0.4f) },
+        MomentStep(260, Out) { it.copy(pose = SquirrelPose.YAWN, sy = 1.05f, sx = 0.98f, dusk = 0.75f) },
+        MomentStep(290, Drawer) { it.copy(pose = SquirrelPose.SLEEP, sy = 0.97f, sx = 1.02f, dusk = 1f, stitch = 0.6f) },
+        MomentStep(280, Out) { it.copy(pose = SquirrelPose.SLEEP, sy = 0.98f, sx = 1f, z = 1f, stitch = 1f) },
     )),
     /** Preiserhöhung: the price-tag ghost floats in, the tag flips, the squirrel leans over and catches it. */
     PRICE(SquirrelPose.NORMAL, listOf(
@@ -404,11 +421,14 @@ enum class SquirrelMoment(val from: SquirrelPose, val steps: List<MomentStep>) {
         MomentStep(280, Drawer) { it.copy(pose = SquirrelPose.LEER, sy = 0.94f, sx = 1.04f, dy = 0f) },
         MomentStep(280, Out) { it.copy(pose = SquirrelPose.LEER, sy = 1.02f, sx = 0.99f) },
         MomentStep(240, InOut) { it.copy(pose = SquirrelPose.LEER, sy = 1f, sx = 1f) },
-    )),
+    ));
+
+    /** Where the moment starts: [from], with the ring empty for Gehalt ist da. */
+    fun startFrame(): SquirrelFrame = SquirrelFrame(from, refill = startRefill)
 }
 
 /** The frame the moment ends on (also what "Weniger Bewegung" shows straight away). */
-fun SquirrelMoment.endFrame(): SquirrelFrame = steps.fold(SquirrelFrame(from)) { f, st -> st.to(f) }
+fun SquirrelMoment.endFrame(): SquirrelFrame = steps.fold(startFrame()) { f, st -> st.to(f) }
 
 /** Price-rise ghost with its price tag (prototype ghostSVG), at ring coordinates. */
 private fun DrawScope.ghost(measurer: androidx.compose.ui.text.TextMeasurer, x: Float, y: Float, op: Float, gprice: Float, caught: Float, prices: Pair<String, String>) {

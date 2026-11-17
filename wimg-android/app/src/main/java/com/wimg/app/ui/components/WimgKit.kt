@@ -72,6 +72,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -299,6 +300,17 @@ fun Modifier.pressable(enabled: Boolean = true, role: Role = Role.Button, label:
  * sheet with 20 dp top corners below it. Marks the status bar as "over band" so
  * its icons turn light while this screen is shown.
  */
+/**
+ * Evening light over the band (0..1): set by the squirrel's "Tag ohne Ausgaben"
+ * moment on Übersicht and reset when it leaves. A blue-night tint over the band's
+ * background only; text and sheet keep their colours.
+ */
+object BandDusk {
+    var amount by androidx.compose.runtime.mutableFloatStateOf(0f)
+}
+
+private val DuskTint = Color(0xFF0E1A33)
+
 @Composable
 fun BandScreen(
     band: @Composable ColumnScope.() -> Unit,
@@ -310,7 +322,10 @@ fun BandScreen(
         onDispose { StatusBarState.leave() }
     }
     val c = Wimg.colors
-    Column(modifier.fillMaxSize().background(c.band)) {
+    Column(
+        modifier.fillMaxSize().background(c.band)
+            .drawBehind { BandDusk.amount.takeIf { it > 0f }?.let { drawRect(DuskTint.copy(alpha = 0.6f * it)) } },
+    ) {
         Column(
             Modifier.fillMaxWidth().statusBarsPadding().padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 22.dp),
             content = band,
@@ -649,12 +664,21 @@ fun BarChip(
             modifier = Modifier.weight(1f, fill = false),
             label = "chipLabel",
         ) { (l, i) ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                if (i != null) Icon(i, contentDescription = null, tint = fg, modifier = Modifier.size(if (l.isEmpty()) 20.dp else 18.dp))
-                if (l.isNotEmpty()) Text(l, style = WimgType.chip, color = fg, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+            // A label that doesn't fit is left out, never cut to "…": with an icon
+            // the chip shows just the icon (dark while active says enough). The
+            // English place names are longer and squeezed the period to "…".
+            androidx.compose.foundation.layout.BoxWithConstraints {
+                val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+                val textW = if (l.isEmpty()) 0.dp else with(density) { measurer.measure(l, WimgType.chip, maxLines = 1, softWrap = false).size.width.toDp() }
+                val fits = i == null || textW + 18.dp + 7.dp <= maxWidth
+                val shown = if (fits) l else ""
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    if (i != null) Icon(i, contentDescription = null, tint = fg, modifier = Modifier.size(if (shown.isEmpty()) 20.dp else 18.dp))
+                    if (shown.isNotEmpty()) Text(shown, style = WimgType.chip, color = fg, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
         if (unfold) Icon(Icons.Outlined.UnfoldMore, contentDescription = null, tint = if (active) c.inkText else c.text2, modifier = Modifier.size(15.dp))

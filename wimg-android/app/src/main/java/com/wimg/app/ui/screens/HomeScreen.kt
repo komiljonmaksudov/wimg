@@ -284,7 +284,7 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
                     val count = s?.tx_count ?: 0
                     Text(
                         if (isCurrent) L("%d Umsätze bis %s", count, dayMonth(now.get(Calendar.DAY_OF_MONTH), month, shortMonths))
-                        else L("%d Umsätze", count),
+                        else if (count == 1) L("1 Umsatz") else L("%d Umsätze", count),
                         style = WimgType.desc,
                         color = Wimg.colors.bandSub,
                     )
@@ -775,7 +775,7 @@ private fun PeriodBand(
                 color = amountColor, modifier = Modifier.padding(top = 2.dp),
             )
             val sub = when {
-                !p.current -> L("%d Umsätze", s?.tx_count ?: 0)
+                !p.current -> (s?.tx_count ?: 0).let { if (it == 1) L("1 Umsatz") else L("%d Umsätze", it) }
                 overdue -> L("Der Zeitraum läuft weiter, bis das Gehalt da ist.")
                 periods.isSalary && daysIn == 1 && p.early_days > 0 -> L("Gehaltsmonat beginnt heute · %d Tage früher", p.early_days)
                 periods.isSalary && daysIn == 1 -> L("Gehaltsmonat beginnt heute · bis ~%s", L2.dotted(p.to))
@@ -1075,7 +1075,7 @@ internal fun pendingMoment(
 /** Plays [m] frame by frame (prototype timings); with animations off it shows the end at once. */
 private suspend fun playMoment(m: PendingMoment, set: (com.wimg.app.ui.components.SquirrelFrame) -> Unit) {
     if (android.animation.ValueAnimator.getDurationScale() == 0f) { set(m.moment.endFrame()); return }
-    var cur = com.wimg.app.ui.components.SquirrelFrame(m.moment.from)
+    var cur = m.moment.startFrame()
     set(cur)
     kotlinx.coroutines.delay(500) // let the page settle first
     for (st in m.moment.steps) {
@@ -1110,12 +1110,14 @@ private class Bubble(val text: String, val action: String? = null, val onAction:
 private fun BandFigure(pose: SquirrelPose, line: String, periodDays: Int, dayIndex: Int, noSpend: Set<Int>, moment: PendingMoment?) {
     val context = LocalContext.current
     var blink by remember { mutableStateOf(false) }
-    var frame by remember { mutableStateOf(com.wimg.app.ui.components.SquirrelFrame(pose)) }
+    // A moment about to play starts in its own first frame: the page drew the
+    // resting pose (full ring) for a few frames, then jumped to the empty start.
+    var frame by remember { mutableStateOf(moment?.moment?.startFrame() ?: com.wimg.app.ui.components.SquirrelFrame(pose)) }
     var playing by remember { mutableStateOf(false) }
     var bubble by remember { mutableStateOf<Bubble?>(null) }
     var prices by remember { mutableStateOf("" to "") }
     val currentPose by androidx.compose.runtime.rememberUpdatedState(pose)
-    LaunchedEffect(pose) { if (!playing && frame.z == 0f) frame = com.wimg.app.ui.components.SquirrelFrame(pose) }
+    LaunchedEffect(pose) { if (!playing && frame.z == 0f && moment == null) frame = com.wimg.app.ui.components.SquirrelFrame(pose) }
     LaunchedEffect(Unit) {
         while (true) {
             kotlinx.coroutines.delay(kotlin.random.Random.nextLong(4_000, 8_000))
@@ -1141,6 +1143,9 @@ private fun BandFigure(pose: SquirrelPose, line: String, periodDays: Int, dayInd
         // Back to the real state (the ghost leaves with the bubble); asleep stays asleep.
         if (!playing && frame.pose != SquirrelPose.SLEEP) frame = com.wimg.app.ui.components.SquirrelFrame(currentPose)
     }
+    // The band's evening light follows the frame; gone when Übersicht is.
+    LaunchedEffect(frame.dusk) { com.wimg.app.ui.components.BandDusk.amount = frame.dusk }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { com.wimg.app.ui.components.BandDusk.amount = 0f } }
     // Below 380 dp of width the figure shrinks to 88 % (board).
     val narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 380
     val size = if (narrow) 99.dp else 112.dp

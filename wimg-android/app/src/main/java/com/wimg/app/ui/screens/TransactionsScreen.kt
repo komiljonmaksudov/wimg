@@ -271,7 +271,7 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
                             accounts.singleOrNull()?.let { add(it.bank.ifBlank { it.name }) }
                             balanceDate?.let { add(L("Stand %s", WimgDates.short(it))) }
                         }
-                        add(L("%d Umsätze", filtered.size))
+                        add(if (filtered.size == 1) L("1 Umsatz") else L("%d Umsätze", filtered.size))
                     }
                     Text(parts.joinToString(" · "), style = WimgType.desc, color = c.bandSub, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
                 }
