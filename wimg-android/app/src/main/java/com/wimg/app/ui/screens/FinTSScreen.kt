@@ -736,7 +736,10 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
                     WimgToggle(rememberPin, { rememberPin = it }, label = L("PIN merken"))
                 }
                 DockError(error, L("Meldung der Bank"))
-                QuietLine(L("Mehrere falsche PIN-Eingaben können dein Bankkonto sperren."), Modifier.padding(top = 18.dp), icon = Icons.Outlined.WarningAmber)
+                // Says where the login goes: an unknown app asking for a bank PIN
+                // has to (testers, Play review).
+                QuietLine(L("Kennung und PIN gehen direkt an deine Bank, nie an wimg."), Modifier.padding(top = 18.dp), icon = Icons.Outlined.Lock)
+                QuietLine(L("Mehrere falsche PIN-Eingaben können dein Bankkonto sperren."), Modifier.padding(top = 8.dp), icon = Icons.Outlined.WarningAmber)
             }
             Step.Medium -> FormPage {
                 Text(L("Deine Bank möchte wissen, auf welches Gerät die TAN kommt."), style = WimgType.body, color = c.text2, modifier = Modifier.padding(top = 4.dp, bottom = 14.dp))

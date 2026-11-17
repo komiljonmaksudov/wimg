@@ -80,14 +80,14 @@ wimg is open source (MIT licence). The code is on GitHub.
 | Section | Answer |
 | --- | --- |
 | Privacy policy | `https://wimg.komiljonmaksudov.com/datenschutz.html` |
-| App access | "All or some functionality is restricted" → add instructions: *No login needed. On first start choose "Leer starten", then tap "Beispieldaten ansehen" on the empty Übersicht. Connecting a bank needs the user's own online-banking login; it is optional.* |
+| App access | "All or some functionality is restricted" → add instructions (English, reviewers' phones are usually English): *No account or login needed. On first start tap "Let's go", choose "Start empty", then "Look at demo data" on the empty Overview: every screen then has invented sample data. "Connect bank" talks to German banks via FinTS (registered product ID F7C4049477F6136957A46EC28) and needs the user's own online-banking login; it is optional and the login goes from the phone straight to the bank, never to a wimg server.* |
 | Ads | No ads |
 | Content rating | Category "All other app types"; answer No to every content question (no violence, no user-generated content shared, no purchases, no gambling). Expected: rated for everyone. |
 | Target audience | 18 and over (finance app) |
 | News app | No |
 | Health apps | No |
 | Government app | No |
-| Financial features | Declare: personal finance – budgeting / expense tracking. No lending, no payments, no crypto, no banking services of its own. Note: it reads the user's own bank statements directly from the bank (FinTS) on the device. |
+| Financial features | The declaration has no "personal finance / budgeting" category (checked 2026-11-17). Choose **Support services → Other** and describe: *Personal finance manager. Reads the user's own bank statements from their bank via FinTS, on the device, at the user's request. No lending, payments, transfers, trading or advice.* None of the licensed categories apply. |
 | Data safety | See below |
 
 ### Data safety (please read before submitting – this is your declaration)
@@ -103,14 +103,49 @@ How wimg handles data:
   themselves; then decrypted data goes to that AI service at the user's request.
 - No analytics, no crash reporting SDK, no ads, no third-party SDKs.
 
-Suggested answers:
-- "Does your app collect or share any of the required user data types?" →
-  **No.** Google's guidance exempts data that is processed only on the device,
-  data the user sends to a third party of their choice (their bank), and data
-  sent end-to-end encrypted. Check the current wording in Play's "Data safety"
-  help before answering; if in doubt, declare "Financial info → Purchase history /
-  other financial info: collected, optional, encrypted in transit, not shared"
-  for the sync feature.
+Answers (checked against Play's Data safety help, 2026-11-17):
+- **Sync is not "collected":** end-to-end encrypted data that nobody but the
+  user's devices can read is out of scope.
+- **MCP is:** when the user connects Claude, the server derives the key from the
+  sync key and decrypts the rows in memory for that request. That is ephemeral
+  processing, which must be **declared** (it isn't shown on the store page).
+  So declare: *Financial info → Other financial info: collected, optional,
+  processed ephemerally, purpose App functionality; not shared.*
+- **Bank login:** goes from the phone straight to the user's bank at the user's
+  request; wimg never receives it. Not declared as collected or shared
+  (user-initiated, to a party the user chose). Re-check the wording if Play's
+  form asks about credentials.
 - Encrypted in transit: **Yes** (TLS; sync additionally end-to-end).
-- Users can delete their data: **Yes** (Einstellungen › Daten › Alle Daten
-  löschen; sync data via ending sync).
+- Users can delete their data: **Yes** (Settings › Data › Delete all data also
+  deletes the encrypted copy on the sync server).
+
+## Closed test and production access (personal account)
+
+Rules (Play help, 2026-11-17): 12+ testers opted in for 14 **consecutive** days
+(opting out and back in restarts a tester's count), then "Apply for production"
+on the Dashboard. Google can ask for 14 more days when testers were too few or
+didn't use the app; vendor blogs agree that inactive testers are the usual reason.
+
+- **Testers:** Testers Community (15 testers) plus 3–5 people with a German bank
+  account, so the bank connection is tested for real and there is a margin above 12.
+- **Tester instructions** (in the test's description and to Testers Community):
+  start empty → demo data, then try Overview, Transactions (search, filter, a
+  detail), Recurring, Review, the + menu (add a cash entry), Settings, a widget.
+  German bank customers: connect your bank. Feedback: the Play "private feedback"
+  in the test, or the testing service's report.
+- **Keep a feedback log** (date, tester, what, what changed): the form asks for a
+  summary and for changes made.
+- Ship at least one update during the test that fixes tester feedback.
+
+Draft answers for the application form:
+- *Recruiting:* through a testing community plus people I know who bank in Germany.
+- *Features used:* demo data covers every screen; the bank connection was tested by
+  the German testers and by me (Comdirect, CAMT and MT940). Non-German testers
+  can't connect a bank: expected, wimg is for German bank customers.
+- *Matches production use:* yes for the screens; real users will mostly connect
+  a bank instead of using demo data.
+- *Feedback and how collected:* summary from the log.
+- *Audience / value:* people in Germany who want to see where their money goes
+  without giving a third-party service their bank login. Install estimate: realistic
+  and small (e.g. 1,000–10,000 in year one).
+- *Changes / readiness:* list the fixes from the log and the release notes.

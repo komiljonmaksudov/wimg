@@ -1211,6 +1211,7 @@ private val translations: Map<String, String> = mapOf(
     "%s für %d Tage. Das sind %s am Tag. Geht." to "%s for %d days. That's %s a day. Doable.",
     "Hab dich. %s kostet jetzt %s statt %s." to "Gotcha. %s now costs %s instead of %s.",
     "Preis gestiegen" to "Price went up",
+    "Kennung und PIN gehen direkt an deine Bank, nie an wimg." to "Your login and PIN go straight to your bank, never to wimg.",
     "%s kostet jetzt %s statt %s." to "%s now costs %s instead of %s.",
     "%s kostet jetzt mehr." to "%s costs more now.",
     "Wenn eine feste Zahlung teurer wird" to "When a fixed payment gets more expensive",
