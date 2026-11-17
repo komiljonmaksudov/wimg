@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.9.11 (2026-11-17)
+
+- Version bump
+
 ## v0.9.10 (2026-11-17)
 
 - fix: language and theme are set before the first frame, so a cold start never speaks German on an English phone
