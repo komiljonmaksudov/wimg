@@ -46,11 +46,11 @@ fun rememberPeriods(): Periods? {
 object PeriodLabels {
     private fun parts(iso: String) = iso.split("-").mapNotNull { it.toIntOrNull() }
 
-    /** "27.10." */
-    fun dotted(iso: String): String = parts(iso).let { if (it.size == 3) "%02d.%02d.".format(it[2], it[1]) else iso }
+    /** "27.10." (German), "27 Oct" (English). */
+    fun dotted(iso: String): String = parts(iso).let { if (it.size == 3) WimgDates.numeric(it[2], it[1]) else iso }
 
-    /** "27.10.–26.11." for chips. */
-    fun short(p: PeriodInfo) = "${dotted(p.from)}–${dotted(p.to)}"
+    /** "27.10.–26.11." for chips; "27 Oct – 26 Nov" in English. */
+    fun short(p: PeriodInfo) = if (com.wimg.app.ui.theme.LocaleState.locale == "en") "${dotted(p.from)} – ${dotted(p.to)}" else "${dotted(p.from)}–${dotted(p.to)}"
 
     /** "27. Okt. – 26. Nov." */
     fun long(p: PeriodInfo): String {

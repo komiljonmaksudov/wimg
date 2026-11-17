@@ -90,7 +90,8 @@ private fun shortDate(iso: String?): String {
     if (iso == null || iso.length < 10) return ""
     val m = iso.substring(5, 7).toIntOrNull() ?: return iso
     val d = iso.substring(8, 10).toIntOrNull() ?: return iso
-    return "$d. ${DateFormatSymbols(locale()).shortMonths[m - 1].trimEnd('.')}."
+    val mon = DateFormatSymbols(locale()).shortMonths[m - 1].trimEnd('.')
+    return if (LocaleState.locale == "en") "$d $mon" else "$d. $mon."
 }
 
 private fun open(context: Context, route: String?) = actionStartActivity(

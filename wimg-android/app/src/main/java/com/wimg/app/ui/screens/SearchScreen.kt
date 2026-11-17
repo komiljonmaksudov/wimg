@@ -239,7 +239,7 @@ fun SearchScreen(selectedAccount: String?, navController: NavController, initial
                 if (!active || hits.isEmpty()) {
                     Text(L("Suche"), style = WimgType.title.copy(fontSize = WimgType.title.fontSize * 1.25f), color = Color.White)
                 } else {
-                    val label = listOfNotNull(q.takeIf { it.isNotEmpty() }?.let { "„$it“" }, quick?.let { L(it.label) }).joinToString(" · ")
+                    val label = listOfNotNull(q.takeIf { it.isNotEmpty() }?.let { if (com.wimg.app.ui.theme.LocaleState.locale == "en") "“$it”" else "„$it“" }, quick?.let { L(it.label) }).joinToString(" · ")
                     Text(
                         listOf(label, if (hits.size == 1) L("1 Treffer") else L("%d Treffer", hits.size), dateRange(hits)).joinToString(" · "),
                         style = WimgType.bandOver, color = c.bandSub, maxLines = 1, overflow = TextOverflow.Ellipsis,

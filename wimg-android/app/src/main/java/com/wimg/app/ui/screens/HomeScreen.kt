@@ -428,7 +428,7 @@ internal fun loadHome(year: Int, month: Int, account: String?, compare: HomeComp
 private fun daysInMonth(year: Int, month: Int): Int =
     Calendar.getInstance().apply { set(year, month - 1, 1) }.getActualMaximum(Calendar.DAY_OF_MONTH)
 
-private fun dayMonth(day: Int, month: Int, shortMonths: List<String>) = "$day. ${shortMonths[month - 1]}."
+private fun dayMonth(day: Int, month: Int, @Suppress("UNUSED_PARAMETER") shortMonths: List<String>) = com.wimg.app.ui.components.WimgDates.dayMonth(day, month)
 
 @Composable
 private fun dayLabel(date: String, now: Calendar, shortMonths: List<String>, locale: Locale): String {
@@ -442,7 +442,7 @@ private fun dayLabel(date: String, now: Calendar, shortMonths: List<String>, loc
         sameDay(cal, yesterday) -> L("Gestern")
         else -> {
             val wd = DateFormatSymbols(locale).shortWeekdays[cal.get(Calendar.DAY_OF_WEEK)].trimEnd('.')
-            "$wd. ${dayMonth(dd, m, shortMonths)}"
+            "$wd${if (LocaleState.locale == "en") "" else "."} ${dayMonth(dd, m, shortMonths)}"
         }
     }
 }

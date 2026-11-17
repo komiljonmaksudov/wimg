@@ -609,7 +609,7 @@ fun AboutLicensesScreen(navController: NavController?) {
         WimgGroup {
             LIBS.forEachIndexed { i, lib ->
                 if (i > 0) RowDivider()
-                WimgRow(lib.name, desc = lib.licence, trailing = { ExternalArrow() }, onClick = { open(context, lib.url) })
+                WimgRow(L(lib.name), desc = lib.licence, trailing = { ExternalArrow() }, onClick = { open(context, lib.url) })
             }
         }
         QuietLine(L("Danke an alle, die diese Bibliotheken bauen. Die Lizenztexte öffnen sich im Browser."))

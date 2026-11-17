@@ -31,8 +31,15 @@ object WimgDates {
         "%04d-%02d-%02d".format(it.get(Calendar.YEAR), it.get(Calendar.MONTH) + 1, it.get(Calendar.DAY_OF_MONTH))
     }
 
-    /** "12. Nov." */
-    fun dayMonth(day: Int, month: Int): String = "$day. ${shortMonths()[month - 1]}."
+    private val en: Boolean get() = LocaleState.locale == "en"
+
+    /** "12. Nov." (German), "12 Nov" (English). */
+    fun dayMonth(day: Int, month: Int): String =
+        if (en) "$day ${shortMonths()[month - 1]}" else "$day. ${shortMonths()[month - 1]}."
+
+    /** "27.10." (German), "27 Oct" (English): for compact ranges like "27.10.–26.11.". */
+    fun numeric(day: Int, month: Int): String =
+        if (en) "$day ${shortMonths()[month - 1]}" else "%02d.%02d.".format(day, month)
 
     /** "12. Nov." or "12. Nov. 2025" when not this year. */
     fun short(date: String): String {
@@ -47,8 +54,9 @@ object WimgDates {
         return "${dayMonth(c.get(Calendar.DAY_OF_MONTH), c.get(Calendar.MONTH) + 1)} ${c.get(Calendar.YEAR)}"
     }
 
+    /** "Do." (German), "Thu" (English). */
     private fun weekday(c: Calendar): String =
-        DateFormatSymbols(locale).shortWeekdays[c.get(Calendar.DAY_OF_WEEK)].trimEnd('.') + "."
+        DateFormatSymbols(locale).shortWeekdays[c.get(Calendar.DAY_OF_WEEK)].trimEnd('.') + (if (en) "" else ".")
 
     /** Day header: "Heute, Do. 12. Nov.", "Gestern, Mi. 11. Nov.", "Di. 10. Nov." */
     @Composable
