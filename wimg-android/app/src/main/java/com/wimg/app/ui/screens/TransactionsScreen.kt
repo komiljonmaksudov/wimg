@@ -28,6 +28,16 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.SwapVert
+import androidx.compose.material.icons.outlined.AccountBalanceWallet
+import androidx.compose.material.icons.outlined.CalendarToday
+import androidx.compose.material.icons.outlined.LocalOffer
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -158,6 +168,7 @@ internal fun loadTx(account: String?) = TxData(
     pending = LibWimg.getPending(account).sortedByDescending { it.date },
 )
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TransactionsScreen(selectedAccount: String?, navController: NavController? = null, onSelectAccount: (String?) -> Unit = {}) {
     var data by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<TxData>(txKey(selectedAccount))) }
@@ -213,24 +224,32 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
     val balanceDate = accounts.mapNotNull { it.balance_date.takeIf { d -> d.isNotEmpty() } }.maxOrNull()
     val anchored = balance != null && !filterActive
 
+    val accountName = if (selectedAccount != null && allAccounts.size > 1) allAccounts.firstOrNull { it.id == selectedAccount }?.name else null
+    val tags = filterTags(filter, categories, period, accountName)
+
     val listState = rememberLazyListState()
     // Running value at the topmost visible row: with a bank balance it is the
     // balance after that row (walking back through history); without one, the
     // sum of that row and everything older. Never called "Kontostand" then.
     // Computed once per list, not on every scroll frame: position of each id,
     // and before[i] = sum of rows 0 until i.
-    val running by remember(view, anchored, balance) {
+    val running by remember(view, anchored, balance, filterActive) {
         derivedStateOf {
             val v = view ?: return@derivedStateOf 0.0
             val top = listState.layoutInfo.visibleItemsInfo.firstNotNullOfOrNull { (it.key as? String)?.let(v.indexOf::get) } ?: 0
-            if (anchored) balance!! - v.before[top]
-            else v.before[v.list.size] - v.before[top]
+            // Filtered: the total of every match, standing still while scrolling
+            // (board 36/11); it changes, and rolls once, only with the data.
+            when {
+                anchored -> balance!! - v.before[top]
+                filterActive -> v.before[v.list.size]
+                else -> v.before[v.list.size] - v.before[top]
+            }
         }
     }
     val compact by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 48 } }
 
     BarContribution(
-        chip = BarChipSpec(label = if (period?.key?.endsWith(":salary") == true) L("Gehalt") else period?.label ?: "", active = filterOpen || filterActive, onClick = { filterOpen = !filterOpen }, icon = Icons.Outlined.Tune, contentDescription = L("Filter")),
+        chip = BarChipSpec(label = if (tags.isEmpty()) "" else "${tags.size}", active = filterOpen || filterActive, onClick = { filterOpen = !filterOpen }, icon = Icons.Outlined.Tune, contentDescription = L("Filter")),
         panel = if (filterOpen) {
             {
                 FilterPanel(
@@ -238,6 +257,16 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
                     categories = categories, onCategories = { categories = it },
                     period = period, onPeriod = { period = it },
                     resultCount = filtered.size,
+                    categoryTotals = {
+                        // Every filter but the category one, summed per category.
+                        val d = data
+                        if (d == null) emptyList() else d.transactions.asSequence()
+                            .filter { tx ->
+                                (when (filter) { TxFilter.ALL -> true; TxFilter.EXPENSES -> tx.isExpense; TxFilter.INCOME -> tx.isIncome; TxFilter.MANUAL -> tx.manual }) &&
+                                    (period == null || tx.date in period!!.from..period!!.to) && !tx.isExcluded
+                            }
+                            .groupBy { it.category }.map { (k, v) -> k to v.sumOf { it.amount } }
+                    },
                     accountLabel = if (allAccounts.size > 1) (allAccounts.firstOrNull { it.id == selectedAccount }?.name ?: L("Alle Konten")) else null,
                     selectedAccount = selectedAccount, onAccount = onSelectAccount,
                     periods = periods,
@@ -277,7 +306,10 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
                         }
                         add(if (filtered.size == 1) L("1 Umsatz") else L("%d Umsätze", filtered.size))
                     }
-                    Text(parts.joinToString(" · "), style = WimgType.desc, color = c.bandSub, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                    // What's filtered, in the same quiet line as the count (the
+                    // tag pills of board 36/07 looked heavy on the phone).
+                    val line = parts + (if (filterActive) tags else emptyList())
+                    Text(line.joinToString(" · "), style = WimgType.desc, color = c.bandSub, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
                 }
             }
         },
@@ -373,17 +405,30 @@ private fun TxRow(tx: Transaction, last: Boolean, pending: Boolean = false, onCl
     }
 }
 
-@Composable
-private fun PeriodChip(label: String, on: Boolean, onClick: () -> Unit) {
-    val c = Wimg.colors
-    Box(
-        Modifier.height(38.dp).clip(CircleShape).background(if (on) c.ink else Color.Transparent)
-            .border(1.dp, if (on) c.ink else c.line, CircleShape).clickable(onClick = onClick).padding(horizontal = 14.dp),
-        contentAlignment = Alignment.Center,
-    ) { Text(label, style = WimgType.rowTitle.copy(fontSize = WimgType.rowTitle.fontSize * 0.95f), color = if (on) c.inkText else c.text) }
+
+// ---------------------------------------------------------------------------
+// Filter panel, option A of brief 19 (boards 36/02–04, 07–09): four rows with
+// their current value; a row opens a short list in the same panel.
+// ---------------------------------------------------------------------------
+
+private enum class FilterPage { MAIN, TYPE, ACCOUNT, PERIOD, CATEGORY }
+
+/** What the closed panel shows as tags under the sum, and counts on the button. */
+internal fun filterTags(filter: TxFilter, categories: Set<Int>, period: TxPeriod?, accountName: String?): List<String> = buildList {
+    if (filter != TxFilter.ALL) add(__t(filter.label))
+    accountName?.let { add(it) }
+    when (categories.size) {
+        0 -> {}
+        1 -> add(__t(WimgCategory.fromId(categories.first()).label))
+        else -> add(__t("%d Kategorien").format(categories.size))
+    }
+    period?.let { add(periodTag(it)) }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/** "seit 27.10." for the running Gehaltsmonat, the label otherwise. */
+private fun periodTag(p: TxPeriod) =
+    if (p.key.endsWith(":salary")) __t("seit %s").format(com.wimg.app.ui.components.PeriodLabels.dotted(p.from)) else p.label
+
 @Composable
 private fun FilterPanel(
     filter: TxFilter,
@@ -393,6 +438,8 @@ private fun FilterPanel(
     period: TxPeriod?,
     onPeriod: (TxPeriod?) -> Unit,
     resultCount: Int,
+    /** Category → sum of the rows that pass every filter but the category one. */
+    categoryTotals: () -> List<Pair<Int, Double>>,
     onReset: () -> Unit,
     onDone: () -> Unit,
     accountLabel: String? = null,
@@ -401,112 +448,206 @@ private fun FilterPanel(
     periods: com.wimg.app.models.Periods? = null,
 ) {
     val c = Wimg.colors
-    var picking by remember { mutableStateOf(false) }
-    var pickingAccount by remember { mutableStateOf(false) }
-    if (pickingAccount) {
-        AccountsPanel(selectedAccount, onPick = onAccount, onDone = { pickingAccount = false })
+    var page by remember { mutableStateOf(FilterPage.MAIN) }
+    var pickingMonth by remember { mutableStateOf(false) }
+    val now = remember { Calendar.getInstance() }
+    if (page == FilterPage.ACCOUNT) {
+        AccountsPanel(selectedAccount, onPick = onAccount, onDone = { page = FilterPage.MAIN })
         return
     }
-    val now = remember { Calendar.getInstance() }
-    if (picking) {
-        // The same month grid as Home's period chip, in place of the filter panel.
+    if (pickingMonth) {
         val shortMonths = remember { java.text.DateFormatSymbols(if (com.wimg.app.ui.theme.LocaleState.locale == "en") java.util.Locale.ENGLISH else java.util.Locale.GERMAN).shortMonths.map { it.trimEnd('.') } }
         val (py, pm) = period?.key?.removePrefix("m:")?.split("-")?.mapNotNull { it.toIntOrNull() }?.takeIf { it.size == 2 }?.let { it[0] to it[1] }
             ?: (now.get(Calendar.YEAR) to now.get(Calendar.MONTH) + 1)
-        MonthPickerPanel(py, pm, shortMonths, now, onPick = { y, m -> onPeriod(monthPeriod(y, m)); picking = false })
+        MonthPickerPanel(py, pm, shortMonths, now, onPick = { y, m -> onPeriod(monthPeriod(y, m)); pickingMonth = false; page = FilterPage.MAIN })
         return
     }
     BarPanel {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(L("Filter"), style = WimgType.sheetTitle.copy(fontSize = WimgType.sheetTitle.fontSize * 0.86f), color = c.text, modifier = Modifier.weight(1f))
-            Text(L("Zurücksetzen"), style = WimgType.chip, color = c.text2, modifier = Modifier.pressable(onClick = onReset).clip(WimgShape.button).padding(8.dp))
-        }
-        // Segmented control: Alle / Ausgaben / Einnahmen
-        Row(
-            Modifier.padding(top = 14.dp).fillMaxWidth().clip(WimgShape.segmentOuter).background(c.neutralTint).padding(4.dp),
-        ) {
-            TxFilter.entries.forEach { f ->
-                val on = f == filter
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .height(38.dp)
-                        .clip(WimgShape.segmentInner)
-                        .background(if (on) c.card else Color.Transparent)
-                        .clickable { onFilter(f) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(L(f.label), style = WimgType.chip, color = if (on) c.text else c.text2)
+        when (page) {
+            FilterPage.MAIN -> {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)) {
+                    Text(L("Filter"), style = WimgType.sheetTitle.copy(fontSize = WimgType.sheetTitle.fontSize * 0.86f), color = c.text, modifier = Modifier.weight(1f))
+                    Text(L("Zurücksetzen"), style = WimgType.chip, color = c.accent, modifier = Modifier.pressable(onClick = onReset).clip(WimgShape.button).padding(8.dp))
+                }
+                FilterRow(Icons.Outlined.SwapVert, L("Art"), L(filter.label), filter != TxFilter.ALL) { page = FilterPage.TYPE }
+                if (accountLabel != null) {
+                    HorizontalDivider(thickness = 1.dp, color = c.line)
+                    FilterRow(Icons.Outlined.AccountBalanceWallet, L("Konto"), accountLabel, selectedAccount != null) { page = FilterPage.ACCOUNT }
+                }
+                HorizontalDivider(thickness = 1.dp, color = c.line)
+                FilterRow(Icons.Outlined.CalendarToday, L("Zeitraum"), period?.let { periodTag(it) } ?: L("Gesamt"), period != null) { page = FilterPage.PERIOD }
+                HorizontalDivider(thickness = 1.dp, color = c.line)
+                val catValue = when (categories.size) {
+                    0 -> L("Alle")
+                    1 -> L(WimgCategory.fromId(categories.first()).label)
+                    else -> L("%d Kategorien", categories.size)
+                }
+                FilterRow(Icons.Outlined.LocalOffer, L("Kategorie"), catValue, categories.isNotEmpty()) { page = FilterPage.CATEGORY }
+            }
+            FilterPage.TYPE -> {
+                SubHeader(L("Art")) { page = FilterPage.MAIN }
+                TxFilter.entries.forEach { f ->
+                    ChoiceRow(L(f.label), null, f == filter) { onFilter(f); page = FilterPage.MAIN }
                 }
             }
-        }
-        if (accountLabel != null) {
-            Text(L("Konto"), style = WimgType.label, color = c.text2, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
-            PeriodChip(accountLabel + "  ›", selectedAccount != null) { pickingAccount = true }
-        }
-        Text(L("Zeitraum"), style = WimgType.label, color = c.text2, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
-        // Gehaltsmonat: its periods first; calendar months are one tap away.
-        var calendarChips by remember { mutableStateOf(periods == null || periods.isCalendar || period?.key?.startsWith("m:") == true) }
-        if (!calendarChips && periods != null) {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PeriodChip(L("Immer"), period == null) { onPeriod(null) }
-                periods.periods.take(4).forEach { p ->
-                    val tp = txPeriodOf(p, periods.isSalary)
-                    val label = when {
-                        !p.current -> tp.label
-                        periods.isSalary -> L("Aktueller Gehaltsmonat")
-                        else -> L("Aktueller Monat")
-                    }
-                    PeriodChip(label, period?.from == tp.from && period.to == tp.to) { onPeriod(tp) }
-                }
-                PeriodChip(L("Kalendermonate"), false) { calendarChips = true }
+            FilterPage.PERIOD -> {
+                SubHeader(L("Zeitraum")) { page = FilterPage.MAIN }
+                PeriodList(period, periods, now, onPick = { onPeriod(it); page = FilterPage.MAIN }, onPickMonth = { pickingMonth = true })
             }
-        } else run {
-            val thisMonth = monthPeriod(now.get(Calendar.YEAR), now.get(Calendar.MONTH) + 1).copy(label = L("Dieser Monat"), key = "this")
-            val lastMonth = (now.clone() as Calendar).apply { add(Calendar.MONTH, -1) }.let { monthPeriod(it.get(Calendar.YEAR), it.get(Calendar.MONTH) + 1) }.copy(label = L("Letzter Monat"), key = "last")
-            val options = listOf<TxPeriod?>(null, thisMonth, lastMonth, lastDays(91, L("3 Monate"), "3m"), lastDays(365, L("12 Monate"), "12m"))
-            // One scrollable line: the panel stays as tall as before the period filter.
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                options.forEach { o ->
-                    PeriodChip(o?.label ?: L("Immer"), period?.key == o?.key) { onPeriod(o) }
-                }
-                // A specific month (from Home, or picked) shows as its own chip.
-                val custom = period?.takeIf { it.key.startsWith("m:") }
-                PeriodChip(custom?.label ?: L("Monat wählen…"), custom != null) { picking = true }
-                if (periods != null && !periods.isCalendar) PeriodChip(if (periods.isSalary) L("Gehaltsmonate") else L("Zeiträume"), false) { calendarChips = false }
+            FilterPage.CATEGORY -> {
+                SubHeader(L("Kategorie")) { page = FilterPage.MAIN }
+                Text(L("Nur was in diesem Zeitraum vorkommt, nach Ausgaben sortiert"), style = WimgType.desc, color = c.text2, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
+                CategoryList(remember(filter, period, selectedAccount) { categoryTotals() }, categories, onCategories)
             }
-        }
-        Text(L("Kategorien"), style = WimgType.label, color = c.text2, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            FILTER_CATEGORIES.forEach { cat ->
-                val on = cat.id in categories
-                Row(
-                    Modifier
-                        .height(38.dp)
-                        .clip(CircleShape)
-                        .background(if (on) c.ink else Color.Transparent)
-                        .border(1.dp, if (on) c.ink else c.line, CircleShape)
-                        .clickable { onCategories(if (on) categories - cat.id else categories + cat.id) }
-                        .padding(horizontal = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(Modifier.size(8.dp).clip(CircleShape).background(c.categoryBar(cat.id)))
-                    Spacer(Modifier.width(8.dp))
-                    Text(L(cat.label), style = WimgType.rowTitle.copy(fontSize = WimgType.rowTitle.fontSize * 0.95f), color = if (on) c.inkText else c.text)
-                }
-            }
+            FilterPage.ACCOUNT -> {}
         }
         Box(
-            Modifier
-                .padding(top = 18.dp)
-                .fillMaxWidth()
-                .height(50.dp)
-                .pressable(onClick = onDone)
-                .clip(CircleShape)
-                .background(c.ink),
+            Modifier.padding(top = 14.dp).fillMaxWidth().height(50.dp).pressable(onClick = onDone).clip(CircleShape).background(c.ink),
             contentAlignment = Alignment.Center,
         ) {
-            Text(L("%d Umsätze anzeigen", resultCount), style = WimgType.button, color = c.inkText)
+            Text(if (resultCount == 1) L("1 Umsatz anzeigen") else L("%d Umsätze anzeigen", resultCount), style = WimgType.button, color = c.inkText)
+        }
+    }
+}
+
+/** Art · Konto · Zeitraum · Kategorie: the value sits on a light accent when it isn't "all". */
+@Composable
+private fun FilterRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, value: String, set: Boolean, onClick: () -> Unit) {
+    val c = Wimg.colors
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 60.dp).clip(WimgShape.button).clickable(onClick = onClick).padding(horizontal = 4.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(36.dp).clip(WimgShape.iconTile).background(c.neutralTint), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = c.text2, modifier = Modifier.size(19.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(title, style = WimgType.rowTitle, color = c.text, modifier = Modifier.weight(1f))
+        Spacer(Modifier.width(10.dp))
+        Text(
+            value, style = if (set) WimgType.chip else WimgType.body, color = if (set) c.text else c.text2, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 180.dp).then(if (set) Modifier.clip(RoundedCornerShape(10.dp)).background(c.accentSoft).padding(horizontal = 10.dp, vertical = 4.dp) else Modifier),
+        )
+        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = c.text3, modifier = Modifier.padding(start = 4.dp).size(20.dp))
+    }
+}
+
+@Composable
+private fun SubHeader(title: String, onBack: () -> Unit) {
+    val c = Wimg.colors
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 6.dp)) {
+        Icon(
+            Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = L("Zurück"), tint = c.text,
+            modifier = Modifier.size(36.dp).clip(CircleShape).pressable(onClick = onBack).padding(7.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(title, style = WimgType.sheetTitle.copy(fontSize = WimgType.sheetTitle.fontSize * 0.86f), color = c.text)
+    }
+}
+
+/** A row in a sub-list: the chosen one on a soft background with a check. */
+@Composable
+private fun ChoiceRow(title: String, detail: String?, on: Boolean, onClick: () -> Unit) {
+    val c = Wimg.colors
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 50.dp).clip(RoundedCornerShape(14.dp)).background(if (on) c.neutralTint else Color.Transparent)
+            .clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(title, style = if (on) WimgType.rowTitle.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) else WimgType.rowTitle, color = c.text, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        detail?.let { Text(it, style = WimgType.body, color = c.text2, maxLines = 1, modifier = Modifier.padding(start = 10.dp)) }
+        if (on) Icon(Icons.Outlined.Check, contentDescription = null, tint = c.accent, modifier = Modifier.padding(start = 10.dp).size(20.dp))
+    }
+}
+
+/** Zeitraum stacked: Gesamt, the current and recent periods, then older ones or a calendar month. */
+@Composable
+private fun PeriodList(period: TxPeriod?, periods: com.wimg.app.models.Periods?, now: Calendar, onPick: (TxPeriod?) -> Unit, onPickMonth: () -> Unit) {
+    val c = Wimg.colors
+    var more by remember { mutableStateOf(false) }
+    fun same(a: TxPeriod?, b: TxPeriod?) = a?.from == b?.from && a?.to == b?.to
+    Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+        ChoiceRow(L("Gesamt"), L("alle Umsätze"), period == null) { onPick(null) }
+        val rows = mutableListOf<Triple<String, String?, TxPeriod>>()
+        if (periods != null && !periods.isCalendar) {
+            periods.periods.forEachIndexed { i, p ->
+                val tp = txPeriodOf(p, periods.isSalary)
+                val range = if (p.current && periods.isSalary) __t("seit %s").format(com.wimg.app.ui.components.PeriodLabels.dotted(p.from)) else com.wimg.app.ui.components.PeriodLabels.short(p)
+                when (i) {
+                    0 -> rows += Triple(if (periods.isSalary) L("Aktueller Gehaltsmonat") else L("Aktueller Zeitraum"), range, tp)
+                    1 -> rows += Triple(if (periods.isSalary) L("Letzter Gehaltsmonat") else L("Letzter Zeitraum"), range, tp)
+                    else -> rows += Triple(range, null, tp)
+                }
+            }
+        } else {
+            val thisMonth = monthPeriod(now.get(Calendar.YEAR), now.get(Calendar.MONTH) + 1)
+            val lastMonth = (now.clone() as Calendar).apply { add(Calendar.MONTH, -1) }.let { monthPeriod(it.get(Calendar.YEAR), it.get(Calendar.MONTH) + 1) }
+            rows += Triple(L("Dieser Monat"), thisMonth.label, thisMonth.copy(label = L("Dieser Monat"), key = "this"))
+            rows += Triple(L("Letzter Monat"), lastMonth.label, lastMonth.copy(label = L("Letzter Monat"), key = "last"))
+            rows += Triple(L("3 Monate"), null, lastDays(91, L("3 Monate"), "3m"))
+            rows += Triple(L("12 Monate"), null, lastDays(365, L("12 Monate"), "12m"))
+        }
+        val shown = if (more) rows else rows.take(4)
+        // A month picked earlier (from Home or the picker) stays visible as a choice.
+        val custom = period?.takeIf { p -> rows.none { same(it.third, p) } }
+        custom?.let { ChoiceRow(it.label, null, true) { onPick(it) } }
+        shown.forEach { (title, detail, tp) -> ChoiceRow(title, detail, same(tp, period)) { onPick(tp) } }
+        if (!more && rows.size > 4) {
+            Text(
+                L("Ältere und eigener Zeitraum …"), style = WimgType.rowTitle, color = c.accent,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { more = true }.padding(horizontal = 14.dp, vertical = 12.dp),
+            )
+        } else {
+            Text(
+                L("Kalendermonat wählen …"), style = WimgType.rowTitle, color = c.accent,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onPickMonth).padding(horizontal = 14.dp, vertical = 12.dp),
+            )
+        }
+    }
+}
+
+/** Kategorie: only what occurs, by spending, with the amount; the rest behind "Mehr (n)". */
+@Composable
+private fun CategoryList(totals: List<Pair<Int, Double>>, selected: Set<Int>, onChange: (Set<Int>) -> Unit) {
+    val c = Wimg.colors
+    // Spending first, biggest on top; income after (it would always lead otherwise).
+    val sorted = remember(totals) { totals.filter { it.second < 0 }.sortedBy { it.second } + totals.filter { it.second >= 0 }.sortedByDescending { it.second } }
+    val spent = totals.filter { it.second < 0 }.sumOf { it.second }
+    val allTotal = kotlin.math.abs(if (spent != 0.0) spent else totals.sumOf { it.second })
+    var more by remember { mutableStateOf(sorted.drop(5).any { it.first in selected }) }
+    Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 50.dp).clip(RoundedCornerShape(14.dp)).background(if (selected.isEmpty()) c.neutralTint else Color.Transparent)
+                .clickable { onChange(emptySet()) }.padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(L("Alle Kategorien"), style = WimgType.rowTitle, color = c.text, modifier = Modifier.weight(1f))
+            Text(amountText(allTotal, showPlus = false), style = WimgType.body, color = c.text2)
+        }
+        (if (more) sorted else sorted.take(5)).forEach { (id, sum) ->
+            val on = id in selected
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 50.dp).clip(RoundedCornerShape(14.dp)).background(if (on) c.neutralTint else Color.Transparent)
+                    .clickable { onChange(if (on) selected - id else selected + id) }.padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier.size(22.dp).clip(RoundedCornerShape(6.dp)).background(if (on) c.accent else Color.Transparent)
+                        .border(1.5.dp, if (on) c.accent else c.text3, RoundedCornerShape(6.dp)),
+                    contentAlignment = Alignment.Center,
+                ) { if (on) Icon(Icons.Outlined.Check, contentDescription = null, tint = c.onAccent, modifier = Modifier.size(16.dp)) }
+                Spacer(Modifier.width(14.dp))
+                Box(Modifier.size(8.dp).clip(CircleShape).background(c.categoryBar(id)))
+                Spacer(Modifier.width(10.dp))
+                Text(L(WimgCategory.fromId(id).label), style = if (on) WimgType.rowTitle.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) else WimgType.rowTitle, color = c.text, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(amountText(kotlin.math.abs(sum), showPlus = false), style = WimgType.body, color = c.text2)
+            }
+        }
+        if (!more && sorted.size > 5) {
+            Text(
+                L("Mehr (%d)", sorted.size - 5), style = WimgType.rowTitle, color = c.accent,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { more = true }.padding(horizontal = 14.dp, vertical = 12.dp),
+            )
         }
     }
 }
