@@ -54,6 +54,36 @@ fn cardMerchant(text: []const u8) ?[]const u8 {
     return if (name.len == 0) null else name;
 }
 
+/// Pending card payments (CAMT, Comdirect) end with the payment time:
+/// "EDK*EDEKA Musterladen Musterstadt DEU    20 26-11-16T19:08:03" (the bank
+/// may break the year with a space). Returns the text without it.
+fn stripTrailingTime(text: []const u8) []const u8 {
+    const t = std.mem.trimEnd(u8, text, " ");
+    // "HH:MM:SS" at the very end, after a 'T'.
+    if (t.len < 9) return text;
+    const time = t[t.len - 8 ..];
+    for (time, 0..) |ch, i| {
+        const want_colon = i == 2 or i == 5;
+        if (want_colon != (ch == ':') or (!want_colon and !std.ascii.isDigit(ch))) return text;
+    }
+    if (t[t.len - 9] != 'T') return text;
+    // Then the date: up to 8 digits, '-' and spaces, nothing else (the
+    // merchant's own letters stay, even a "T" ending a word).
+    var i = t.len - 9;
+    var digits: usize = 0;
+    while (i > 0) {
+        const ch = t[i - 1];
+        if (std.ascii.isDigit(ch)) {
+            if (digits == 8) break;
+            digits += 1;
+        } else if (ch != '-' and ch != ' ') break;
+        i -= 1;
+    }
+    if (digits < 6) return text;
+    const rest = std.mem.trimEnd(u8, t[0..i], " ");
+    return if (rest.len == 0) text else rest;
+}
+
 /// The description without its booking type, or the description itself.
 pub fn stripPrefix(text: []const u8) []const u8 {
     return if (match(text)) |m| m.rest else text;
@@ -63,7 +93,8 @@ pub fn stripPrefix(text: []const u8) []const u8 {
 pub fn displayTitle(text: []const u8) []const u8 {
     const base = if (match(text)) |m| m.rest else std.mem.trim(u8, text, " ");
     if (cardMerchant(base)) |name| return name;
-    return if (base.len == 0) text else base;
+    if (base.len == 0) return text;
+    return stripTrailingTime(base);
 }
 
 /// Booking type label ("Lastschrift", "Karte", …), or "" when there is none
@@ -111,4 +142,14 @@ test "card payments show the merchant" {
     try std.testing.expectEqualStrings("Karte", kind("LASTSCHRIFT / BELASTUNG MUSTERLADEN, MUSTERSTADT DE KARTE NR. 1234"));
     // Text that only mentions a card later keeps its title.
     try std.testing.expectEqualStrings("Karte Nr. 1234 gesperrt", displayTitle("Karte Nr. 1234 gesperrt"));
+}
+
+test "pending card payments lose the payment time" {
+    try std.testing.expectEqualStrings("EDK*EDEKA Musterladen Musterstadt DEU", displayTitle("EDK*EDEKA Musterladen Musterstadt DEU    20 26-11-16T19:08:03"));
+    try std.testing.expectEqualStrings("Musterladen Discount Musterstadt DE", displayTitle("Musterladen Discount Musterstadt DE 2026-11-14T15:24:15"));
+    // A name ending in T keeps it.
+    try std.testing.expectEqualStrings("SUPERMARKT", displayTitle("SUPERMARKT 2026-11-14T15:24:15"));
+    // A time without a date, or numbers that only look alike, stay.
+    try std.testing.expectEqualStrings("Kurs um T10:00:00", displayTitle("Kurs um T10:00:00"));
+    try std.testing.expectEqualStrings("Rechnung 2026-11-14", displayTitle("Rechnung 2026-11-14"));
 }
