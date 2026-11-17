@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.9.10 (2026-11-17)
+
+- fix: language and theme are set before the first frame, so a cold start never speaks German on an English phone
+- fix: a category tapped on Übersicht opens Umsätze with its sum in place, no roll
+- fix: back retraces the places opened from the menu instead of jumping to Übersicht
+- docs: TODO, moments after the launch animation
+- feat: wimg Test can play each squirrel moment and the Rückblick cards on demand; moments wait for the launch animation
+- docs: TODO, squirrel leftovers done
+- feat: the squirrel's evening moment dims the band and sews today's stitch, payday refills the ring; bar chips never show "…"; 1 transaction
+- docs: closed test without asking testers for their bank login
+- docs: Play notes match Google's rules (MCP declared, English reviewer steps, test plan); bank login says it goes straight to the bank
+- fix: the price notification waits for a rise of at least 1 € and 5 %
+- feat: card payments show the merchant ("PAYSEND"), not the bank's card text
+- docs: TODO after the price notification, minus-period cards and the English pass
+- feat: a period that ended in minus still gets its true Rückblick cards (quiet days, a caught price)
+- feat: a notification when a fixed cost gets more expensive, with its own switch
+- fix: English reads like English: dates as 15 Nov, day 27 instead of the 27., sentence case, English quotes
+- fix: an account without transactions keeps the period and account switch on Übersicht
+- fix: the month widget fits at 2×2, writes amounts like the app, and has English names in the widget list
+- fix: demo data starts as a salary month with money left, and screen readers hear English category names
+- fix: release.sh stops when the push fails instead of saying "Pushed!"
+
 ## v0.9.9 (2026-11-16)
 
 - fix: a new install speaks the phone's language, and Neuigkeiten lists 0.9.8
