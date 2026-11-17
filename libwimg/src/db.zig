@@ -514,7 +514,22 @@ pub const Db = struct {
         return c.sqlite3_changes(self.handle) > 0;
     }
 
-    pub fn setCategory(self: *Db, id: [*]const u8, id_len: usize, category: u8) DbError!void {
+    /// Sets one booking's category, learns a rule from its merchant, and moves
+    /// the merchant's other bookings that have none yet or sit in Sonstiges
+    /// (0 / 255) too. A category picked elsewhere is never overwritten. One
+    /// undo step covers all of them. Returns how many other bookings moved.
+    pub fn setCategory(self: *Db, id: [*]const u8, id_len: usize, category: u8) DbError!u32 {
+        const keyword: ?[]const u8 = if (category != 0) self.merchantKeyword(id, id_len) else null;
+        if (keyword) |kw| {
+            const n = try self.setCategoryForMerchant(id, id_len, category, kw);
+            self.learnRule(kw, category) catch {};
+            return n;
+        }
+        try self.setCategoryOne(id, id_len, category);
+        return 0;
+    }
+
+    fn setCategoryOne(self: *Db, id: [*]const u8, id_len: usize, category: u8) DbError!void {
         // Capture old category for undo history
         const old_cat = self.queryInt("SELECT category FROM transactions WHERE id = ?1;", id, id_len);
 
@@ -542,36 +557,100 @@ pub const Db = struct {
             const new_len = formatInt(&new_buf, @as(u32, category)) orelse return;
             self.recordHistory(1, "transactions", id[0..id_len], "category", old_buf[0..old_len], new_buf[0..new_len]) catch {};
         }
-
-        // Auto-learn: extract keyword from description, insert rule if new
-        if (category != 0) {
-            self.learnRule(id, id_len, category) catch {};
-        }
     }
 
-    /// Auto-learn a categorization rule from a manual user action.
-    /// Extracts a merchant keyword from the transaction description and inserts
-    /// a low-priority rule if no rule with that pattern already exists.
-    fn learnRule(self: *Db, id: [*]const u8, id_len: usize, category: u8) DbError!void {
-        // 1. Get description for this transaction
+    /// The merchant word a rule is learned from, copied into `keyword_buf`
+    /// (valid until the next call). Null when the booking has none.
+    fn merchantKeyword(self: *Db, id: [*]const u8, id_len: usize) ?[]const u8 {
         const desc_sql = "SELECT description FROM transactions WHERE id = ?1;";
         var desc_stmt: ?*c.sqlite3_stmt = null;
         if (c.sqlite3_prepare_v2(self.handle, desc_sql, -1, &desc_stmt, null) != c.SQLITE_OK or desc_stmt == null)
-            return DbError.PrepareFailed;
+            return null;
         defer _ = c.sqlite3_finalize(desc_stmt.?);
 
         if (c.sqlite3_bind_text(desc_stmt.?, 1, @ptrCast(id), @intCast(id_len), c.SQLITE_STATIC) != c.SQLITE_OK)
-            return DbError.BindFailed;
-        if (c.sqlite3_step(desc_stmt.?) != c.SQLITE_ROW) return;
+            return null;
+        if (c.sqlite3_step(desc_stmt.?) != c.SQLITE_ROW) return null;
 
-        const desc_ptr = c.sqlite3_column_text(desc_stmt.?, 0) orelse return;
+        const desc_ptr = c.sqlite3_column_text(desc_stmt.?, 0) orelse return null;
         const desc_len: usize = @intCast(c.sqlite3_column_bytes(desc_stmt.?, 0));
-        if (desc_len == 0) return;
+        if (desc_len == 0) return null;
 
-        // 2. Extract merchant keyword
-        const keyword = categories.extractKeyword(desc_ptr[0..desc_len]) orelse return;
+        const kw = categories.extractKeyword(desc_ptr[0..desc_len]) orelse return null;
+        if (kw.len > keyword_buf.len) return null;
+        @memcpy(keyword_buf[0..kw.len], kw);
+        return keyword_buf[0..kw.len];
+    }
 
-        // 3. Check if a rule with this pattern already exists
+    var keyword_buf: [256]u8 = undefined;
+
+    /// The booking `id` and the merchant's other bookings without a real
+    /// category (0 / 255) get `category`, recorded as one undo step (op 4:
+    /// old_val = [[id, old category], …], new_val = category).
+    fn setCategoryForMerchant(self: *Db, id: [*]const u8, id_len: usize, category: u8, keyword: []const u8) DbError!u32 {
+        const which =
+            \\FROM transactions WHERE id = ?1
+            \\   OR (category IN (0, 255) AND category != ?2 AND instr(lower(description), lower(?3)) > 0)
+        ;
+        const bind = struct {
+            fn run(s: *c.sqlite3_stmt, i: [*]const u8, il: usize, cat: u8, kw: []const u8) DbError!void {
+                if (c.sqlite3_bind_text(s, 1, @ptrCast(i), @intCast(il), c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
+                if (c.sqlite3_bind_int(s, 2, @intCast(cat)) != c.SQLITE_OK) return DbError.BindFailed;
+                if (c.sqlite3_bind_text(s, 3, @ptrCast(kw.ptr), @intCast(kw.len), c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
+            }
+        };
+
+        // 1. What changes, with the old categories, for undo.
+        var sel: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, "SELECT json_group_array(json_array(id, category)), count(*) " ++ which ++ ";", -1, &sel, null) != c.SQLITE_OK or sel == null)
+            return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(sel.?);
+        try bind.run(sel.?, id, id_len, category, keyword);
+        if (c.sqlite3_step(sel.?) != c.SQLITE_ROW) return DbError.StepFailed;
+        const count = c.sqlite3_column_int(sel.?, 1);
+        if (count == 0) return 0; // unknown id
+        const old_ptr = c.sqlite3_column_text(sel.?, 0) orelse return DbError.StepFailed;
+        const old_json = old_ptr[0..@intCast(c.sqlite3_column_bytes(sel.?, 0))];
+
+        // 2. Change them.
+        var upd: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, "UPDATE transactions SET category = ?2, updated_at = ?4 WHERE id IN (SELECT id " ++ which ++ ");", -1, &upd, null) != c.SQLITE_OK or upd == null)
+            return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(upd.?);
+        try bind.run(upd.?, id, id_len, category, keyword);
+        if (c.sqlite3_bind_int64(upd.?, 4, nowMs()) != c.SQLITE_OK) return DbError.BindFailed;
+        if (c.sqlite3_step(upd.?) != c.SQLITE_DONE) return DbError.StepFailed;
+
+        // 3. One undo step for all of them.
+        var new_buf: [4]u8 = undefined;
+        const new_len = formatInt(&new_buf, @as(u32, category)) orelse return @intCast(count - 1);
+        self.recordHistory(4, "transactions", id[0..id_len], "category", old_json, new_buf[0..new_len]) catch {};
+        return @intCast(count - 1);
+    }
+
+    /// Restores op 4: every [id, category] pair in `pairs` (JSON), or every id
+    /// to `to` when given (redo).
+    fn applyCategoryList(self: *Db, pairs: []const u8, to: ?[]const u8) DbError!void {
+        const sql = "SELECT value->>0, value->>1 FROM json_each(?1);";
+        var stmt: ?*c.sqlite3_stmt = null;
+        if (c.sqlite3_prepare_v2(self.handle, sql, -1, &stmt, null) != c.SQLITE_OK or stmt == null) return DbError.PrepareFailed;
+        defer _ = c.sqlite3_finalize(stmt.?);
+        if (c.sqlite3_bind_text(stmt.?, 1, @ptrCast(pairs.ptr), @intCast(pairs.len), c.SQLITE_STATIC) != c.SQLITE_OK) return DbError.BindFailed;
+        while (c.sqlite3_step(stmt.?) == c.SQLITE_ROW) {
+            const id_ptr = c.sqlite3_column_text(stmt.?, 0) orelse continue;
+            const row_id = id_ptr[0..@intCast(c.sqlite3_column_bytes(stmt.?, 0))];
+            const val = to orelse blk: {
+                const v = c.sqlite3_column_text(stmt.?, 1) orelse continue;
+                break :blk v[0..@intCast(c.sqlite3_column_bytes(stmt.?, 1))];
+            };
+            try self.applyUpdate("transactions", row_id, "category", val);
+        }
+    }
+
+    /// Auto-learn a categorization rule from a manual user action: a
+    /// low-priority rule for the merchant word, unless one exists.
+    fn learnRule(self: *Db, keyword: []const u8, category: u8) DbError!void {
+        // Check if a rule with this pattern already exists
         const check_sql = "SELECT COUNT(*) FROM rules WHERE pattern = ?1 COLLATE NOCASE;";
         var check_stmt: ?*c.sqlite3_stmt = null;
         if (c.sqlite3_prepare_v2(self.handle, check_sql, -1, &check_stmt, null) != c.SQLITE_OK or check_stmt == null)
@@ -1491,6 +1570,11 @@ pub const Db = struct {
                 const old_val = old_ptr.?[0..old_len];
                 try self.applyReinsert(tbl, old_val);
             },
+            4 => {
+                // Category for a merchant's bookings → each back to its old one
+                if (old_ptr == null) return null;
+                try self.applyCategoryList(old_ptr.?[0..old_len], null);
+            },
             else => return null,
         }
 
@@ -1544,6 +1628,13 @@ pub const Db = struct {
             3 => {
                 // DELETE → DELETE the row
                 try self.applyDelete(tbl, row_id);
+            },
+            4 => {
+                // Category for a merchant's bookings → all to the new one again
+                if (new_ptr == null) return null;
+                const old_ptr = c.sqlite3_column_text(fs, 5) orelse return null;
+                const old_len: usize = @intCast(c.sqlite3_column_bytes(fs, 5));
+                try self.applyCategoryList(old_ptr[0..old_len], new_ptr.?[0..new_len]);
             },
             else => return null,
         }
@@ -1699,7 +1790,7 @@ pub const Db = struct {
     fn formatUndoResult(_: *Db, buf: [*]u8, buf_len: usize, op: u8, tbl: []const u8, row_id: []const u8, col_ptr: ?[*]const u8, col_len: usize) ?usize {
         var pos: usize = 0;
         const op_str = switch (op) {
-            1 => "update",
+            1, 4 => "update",
             2 => "insert",
             3 => "delete",
             else => "unknown",
@@ -5432,4 +5523,57 @@ test "CAMT next to MT940: newest booking date and twin counts per account, day a
     try std.testing.expectEqual(@as(i64, 2), db.countSameBooking("comdirect", 2026, 11, 13, -250));
     try std.testing.expectEqual(@as(i64, 0), db.countSameBooking("comdirect", 2026, 11, 14, -250));
     try std.testing.expectEqual(@as(i64, 0), db.countSameBooking("comdirect", 2026, 11, 16, -500));
+}
+
+fn testCategory(db: *Db, id: []const u8) i64 {
+    return db.queryInt("SELECT category FROM transactions WHERE id = ?1;", id.ptr, id.len) orelse -1;
+}
+
+test "setCategory moves the merchant's uncategorized and Sonstiges bookings, one undo puts them back" {
+    var db = try Db.init(":memory:");
+    defer db.close();
+    try db.exec(
+        \\INSERT INTO transactions (id, date_year, date_month, date_day, description, amount_cents, category) VALUES
+        \\ ('a', 2026, 11, 1, 'LASTSCHRIFT / BELASTUNG MUSTERSTREAM ABO', -999, 0),
+        \\ ('b', 2026, 10, 1, 'LASTSCHRIFT / BELASTUNG MUSTERSTREAM ABO', -999, 255),
+        \\ ('c', 2026, 9, 1, 'Musterstream Abo Sept', -999, 0),
+        \\ ('d', 2026, 8, 1, 'LASTSCHRIFT / BELASTUNG MUSTERSTREAM ABO', -999, 3),
+        \\ ('e', 2026, 8, 2, 'LASTSCHRIFT / BELASTUNG MUSTERLADEN', -500, 0);
+    );
+    // 'd' sits in a real category: stays. 'e' is another merchant: stays.
+    try std.testing.expectEqual(@as(u32, 2), try db.setCategory("a", 1, 7));
+    try std.testing.expectEqual(@as(i64, 7), testCategory(&db, "a"));
+    try std.testing.expectEqual(@as(i64, 7), testCategory(&db, "b"));
+    try std.testing.expectEqual(@as(i64, 7), testCategory(&db, "c"));
+    try std.testing.expectEqual(@as(i64, 3), testCategory(&db, "d"));
+    try std.testing.expectEqual(@as(i64, 0), testCategory(&db, "e"));
+    try std.testing.expectEqual(@as(?i32, 1), db.queryInt("SELECT count(*) FROM rules WHERE pattern = ?1;", "MUSTERSTREAM", 12));
+
+    var buf: [512]u8 = undefined;
+    _ = (try db.undo(&buf, buf.len)).?;
+    try std.testing.expectEqual(@as(i64, 0), testCategory(&db, "a"));
+    try std.testing.expectEqual(@as(i64, 255), testCategory(&db, "b"));
+    try std.testing.expectEqual(@as(i64, 0), testCategory(&db, "c"));
+    try std.testing.expectEqual(@as(i64, 3), testCategory(&db, "d"));
+
+    _ = (try db.redo(&buf, buf.len)).?;
+    try std.testing.expectEqual(@as(i64, 7), testCategory(&db, "a"));
+    try std.testing.expectEqual(@as(i64, 7), testCategory(&db, "b"));
+    try std.testing.expectEqual(@as(i64, 3), testCategory(&db, "d"));
+}
+
+test "setCategory without a merchant word changes only that booking" {
+    var db = try Db.init(":memory:");
+    defer db.close();
+    try db.exec(
+        \\INSERT INTO transactions (id, date_year, date_month, date_day, description, amount_cents, category) VALUES
+        \\ ('a', 2026, 11, 1, 'LASTSCHRIFT / BELASTUNG', -999, 0),
+        \\ ('b', 2026, 10, 1, 'LASTSCHRIFT / BELASTUNG', -999, 0);
+    );
+    try std.testing.expectEqual(@as(u32, 0), try db.setCategory("a", 1, 7));
+    try std.testing.expectEqual(@as(i64, 7), testCategory(&db, "a"));
+    try std.testing.expectEqual(@as(i64, 0), testCategory(&db, "b"));
+    var buf: [512]u8 = undefined;
+    _ = (try db.undo(&buf, buf.len)).?;
+    try std.testing.expectEqual(@as(i64, 0), testCategory(&db, "a"));
 }

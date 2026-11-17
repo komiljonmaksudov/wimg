@@ -26,7 +26,7 @@ export fn wimg_import_statement(data: [*]const u8, len: u32) ?[*]const u8  // in
 export fn wimg_get_transactions() ?[*]const u8
 export fn wimg_get_transactions_filtered(acct: [*]const u8, acct_len: u32) ?[*]const u8
 export fn wimg_get_pending(acct: [*]const u8, acct_len: u32) ?[*]const u8   // "Vorgemerkt": device-only, never summed
-export fn wimg_set_category(id: [*]const u8, id_len: u32, category: u8) i32
+export fn wimg_set_category(id: [*]const u8, id_len: u32, category: u8) i32   // merchant's other 0/Sonstiges bookings follow (one undo); returns how many, -1 error
 export fn wimg_set_excluded(id: [*]const u8, id_len: u32, excluded: u8) i32
 export fn wimg_auto_categorize() i32
 export fn wimg_get_categories() ?[*]const u8

@@ -30,3 +30,4 @@ A note about a security bug stays out of anything public until the fix has shipp
 - [2026-11-14 · The rolling amount: the most expensive composable, and digits a line too low](2026-11-14-rolling-digits.md)
 - [2026-11-14 · "Erneut erkennen" lost the current fixed costs: 256 ids and a table filled by 2022](2026-11-14-recurring-256-ids.md)
 - [2026-11-14 · The bank sent the pending list, and a leftover TAN flag threw it away](2026-11-14-pending-and-a-stale-tan-flag.md)
+- [2026-11-18 · Correcting a booking's category moved only that booking](2026-11-18-correcting-a-category-moved-one-booking.md)

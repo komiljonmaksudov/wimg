@@ -288,6 +288,7 @@ export const en: Record<string, string> = {
   "wimg hat die Umsätze schon nach Kategorien sortiert, so weit es ging.": "wimg has already sorted the transactions into categories as far as it could.",
   // Android redesign: Bankverbindung
   "%d schon vorhanden": "%d already there",
+  "+%d weitere": "+%d more",
   "%s entfernen?": "Remove %s?",
   "%s · %d neue": "%s · %d new",
   "%s · Bank nicht erreichbar": "%s · bank not reachable",

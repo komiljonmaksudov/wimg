@@ -64,9 +64,11 @@ object LibWimg {
         runCatching { json.decodeFromString<List<Transaction>>(str) }.getOrDefault(emptyList())
     }
 
-    fun setCategory(id: String, category: Int) = lock.withLock {
+    /** Returns how many other bookings of the same merchant moved with it. */
+    fun setCategory(id: String, category: Int): Int = lock.withLock {
         val rc = WimgJni.nativeSetCategory(id, category)
-        if (rc != 0) throw WimgException("setCategory failed")
+        if (rc < 0) throw WimgException("setCategory failed")
+        rc
     }
 
     fun setExcluded(id: String, excluded: Boolean) = lock.withLock {

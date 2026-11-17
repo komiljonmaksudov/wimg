@@ -244,9 +244,11 @@ private fun InfoRow(label: String, value: @Composable () -> Unit) {
 
 private fun applyCategory(tx: Transaction, category: Int) {
     if (category == tx.category) return
-    LibWimg.setCategory(tx.id, category)
+    // The merchant's other bookings without a category (or in Sonstiges) follow.
+    val others = LibWimg.setCategory(tx.id, category)
     Changes.bump()
-    Dock.undo(__t("Kategorie geändert"), __t(WimgCategory.fromId(category).label)) {
+    val label = __t(WimgCategory.fromId(category).label)
+    Dock.undo(__t("Kategorie geändert"), if (others > 0) "$label · " + __t("+%d weitere").format(others) else label) {
         LibWimg.undo()
         Changes.bump()
     }

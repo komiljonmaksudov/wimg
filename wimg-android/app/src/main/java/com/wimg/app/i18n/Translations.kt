@@ -284,6 +284,7 @@ private val translations: Map<String, String> = mapOf(
     "wimg erkennt diese Datei nicht. Unterstützt sind CSV-Exporte von Comdirect, Trade Republic und Scalable." to "wimg doesn't recognise this file. Supported are CSV exports from Comdirect, Trade Republic and Scalable.",
     "wimg hat die Umsätze schon nach Kategorien sortiert, so weit es ging." to "wimg has already sorted the transactions into categories as far as it could.",
     "%d schon vorhanden" to "%d already there",
+    "+%d weitere" to "+%d more",
     "%s entfernen?" to "Remove %s?",
     "%s · %d neue" to "%s · %d new",
     "%s · Bank nicht erreichbar" to "%s · bank not reachable",

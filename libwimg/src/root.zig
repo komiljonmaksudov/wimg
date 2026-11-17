@@ -593,17 +593,18 @@ export fn wimg_get_transactions() ?[*]const u8 {
     return buf.ptr;
 }
 
-/// Set the category for a transaction.
+/// Set the category for a transaction; the merchant's other bookings without
+/// a real category follow. Returns how many others moved, -1 on error.
 export fn wimg_set_category(id: [*]const u8, id_len: u32, category: u8) i32 {
     var database = global_db orelse {
         setError("wimg_set_category: database not initialized", .{});
         return -1;
     };
-    database.setCategory(id, id_len, category) catch |err| {
+    const moved = database.setCategory(id, id_len, category) catch |err| {
         setError("wimg_set_category: failed: {s}", .{@errorName(err)});
         return -1;
     };
-    return 0;
+    return @intCast(moved);
 }
 
 /// Set the excluded flag for a transaction.

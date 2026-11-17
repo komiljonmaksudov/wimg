@@ -53,6 +53,7 @@ const uint8_t *wimg_import_statement(const uint8_t *data, uint32_t len);
 const uint8_t *wimg_get_transactions(void);
 
 // Set the category for a transaction by ID. Returns 0 on success, -1 on error.
+/* Also moves the merchant's other bookings in 0 / Sonstiges; returns how many (>= 0), -1 on error. */
 int32_t wimg_set_category(const uint8_t *id, uint32_t id_len, uint8_t category);
 
 // Set the excluded flag for a transaction. excluded=1 hides from summaries, excluded=0 restores.

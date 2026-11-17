@@ -170,7 +170,7 @@ final class LibWimg {
             let rc = idData.withUnsafeBufferPointer { buf in
                 wimg_set_category(buf.baseAddress!, UInt32(buf.count), category)
             }
-            if rc != 0 {
+            if rc < 0 {
                 throw WimgError.operationFailed("setCategory", lastError())
             }
         }

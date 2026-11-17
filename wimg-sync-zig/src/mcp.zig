@@ -496,7 +496,7 @@ fn toolSetCategory(gpa: std.mem.Allocator, store: *Store, key: []const u8, id_js
     const cat_id = (try resolveCategoryId(gpa, cat_name)) orelse
         return toolError(gpa, id_json, "set_category: unknown category");
 
-    if (wimg_set_category(txn_id.ptr, @intCast(txn_id.len), cat_id) != 0)
+    if (wimg_set_category(txn_id.ptr, @intCast(txn_id.len), cat_id) < 0)
         return toolError(gpa, id_json, "set_category: failed");
 
     // Persist + broadcast: pull the changed rows, re-encrypt, merge into Store.
