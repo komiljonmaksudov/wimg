@@ -126,22 +126,26 @@ Rules (Play help, 2026-11-17): 12+ testers opted in for 14 **consecutive** days
 on the Dashboard. Google can ask for 14 more days when testers were too few or
 didn't use the app; vendor blogs agree that inactive testers are the usual reason.
 
-- **Testers:** Testers Community (15 testers) plus 3–5 people with a German bank
-  account, so the bank connection is tested for real and there is a margin above 12.
+- **Testers:** Testers Community (15 testers, a margin above 12), optionally a few
+  friends. Nobody has to connect a bank: German bank customers won't give an
+  unknown app their PIN. Demo data covers every screen; friends with a German
+  bank can try the CSV import instead (no login leaves their phone). The bank
+  connection itself is tested by the developer with their own accounts.
 - **Tester instructions** (in the test's description and to Testers Community):
   start empty → demo data, then try Overview, Transactions (search, filter, a
   detail), Recurring, Review, the + menu (add a cash entry), Settings, a widget.
-  German bank customers: connect your bank. Feedback: the Play "private feedback"
+  Optional with a German bank: import your bank's CSV. Feedback: the Play "private feedback"
   in the test, or the testing service's report.
 - **Keep a feedback log** (date, tester, what, what changed): the form asks for a
   summary and for changes made.
 - Ship at least one update during the test that fixes tester feedback.
 
 Draft answers for the application form:
-- *Recruiting:* through a testing community plus people I know who bank in Germany.
-- *Features used:* demo data covers every screen; the bank connection was tested by
-  the German testers and by me (Comdirect, CAMT and MT940). Non-German testers
-  can't connect a bank: expected, wimg is for German bank customers.
+- *Recruiting:* through a testing community (plus people I know, if any joined).
+- *Features used:* testers used every screen with demo data. The bank connection
+  needs a German online-banking login, so I tested it myself with my own account
+  (Comdirect: MT940 and CAMT, TAN and app approval, the daily background fetch).
+  Testers with a German bank could import their bank's CSV instead.
 - *Matches production use:* yes for the screens; real users will mostly connect
   a bank instead of using demo data.
 - *Feedback and how collected:* summary from the log.
