@@ -211,16 +211,18 @@ private fun Stitches(n: Int, u: Float, ink: Color) {
 }
 
 /**
- * The opener's cards, only the ones that are true for this period. Empty when
- * nothing was left over (no opener then): the first card is the one that matters.
+ * The opener's cards, only the ones that are true for this period. A period
+ * with money left starts with it and its Sparquote; one that ended in minus
+ * (or had no income) gets only the cards that are still true: quiet days and a
+ * caught price. Empty when nothing is true (no opener then).
  */
 @Composable
 internal fun openerCards(d: ReviewData, label: String, prevLabel: String?, salaryMode: Boolean): List<OpenerCard> {
     val s = d.summary ?: return emptyList()
     val income = s.income
     val net = income - kotlin.math.abs(s.expenses)
-    if (income <= 0.0 || net <= 0.0) return emptyList()
-    val rate = (net / income * 100).toInt()
+    val leftOver = income > 0.0 && net > 0.0
+    val rate = if (leftOver) (net / income * 100).toInt() else 0
     val green = if (Wimg.colors.isDark) Color(0xFF6FD39A) else Color(0xFF2E9E62)
     fun withAmount(template: String, amount: String) = androidx.compose.ui.text.buildAnnotatedString {
         val parts = template.split("%s", limit = 2)
@@ -230,12 +232,12 @@ internal fun openerCards(d: ReviewData, label: String, prevLabel: String?, salar
     }
     fun eur(v: Double) = com.wimg.app.ui.components.amountText(v, showPlus = false)
     return buildList {
-        add(OpenerCard(label,
+        if (leftOver) add(OpenerCard(label,
             withAmount(if (salaryMode) L("Vom Gehalt sind %s übrig geblieben.") else L("Von den Einnahmen sind %s übrig geblieben."), eur(net)),
             L("Sparquote %d %%.", rate), OpenerFigure.VOLL))
         val p = d.previous
         val prevRate = if (p != null && p.income > 0) ((p.income - kotlin.math.abs(p.expenses)) / p.income * 100).toInt() else null
-        if (prevRate != null && rate > prevRate) add(OpenerCard(L("Sparquote"),
+        if (leftOver && prevRate != null && rate > prevRate) add(OpenerCard(L("Sparquote"),
             AnnotatedString(if (prevLabel != null) L("Sparquote %d %%, höher als im %s.", rate, prevLabel) else L("Sparquote %d %%, höher als im Zeitraum davor.", rate)),
             if (prevLabel != null) L("%s: %d %%.", prevLabel, prevRate) else L("Davor: %d %%.", prevRate),
             OpenerFigure.RING, ring = (rate / 100f).coerceIn(0f, 1f)))
