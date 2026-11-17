@@ -163,6 +163,10 @@ export fn wimg_import_csv(data: [*]const u8, len: u32) ?[*]const u8 {
 
     const format = cursor.format;
 
+    // New bookings can complete a fixed cost or show a new price: detect again,
+    // so Wiederkehrend and the price notice don't wait for "Erneut erkennen".
+    if (result.imported > 0) _ = recurring.detectRecurring(&database) catch 0;
+
     // Auto-create account entry for this bank format (once)
     if (!account_created) {
         const account_info = accountInfoForFormat(format);
@@ -2960,6 +2964,9 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     // Auto-create account entry
     database.ensureAccount(account_name, account_name, "#4361ee") catch {};
 
+    // As after a CSV import: new bookings may complete a fixed cost or change its price.
+    if (imported > 0) _ = recurring.detectRecurring(&database) catch 0;
+
     // Persist the statement closing balance so the UI can show a real account
     // balance instead of a meaningless sum of fetched transactions.
     if (balance_date_int > 0) {
@@ -3314,4 +3321,25 @@ test "daysBefore crosses months, years and leap days" {
 
 test "challenge text is JSON-escaped for the app" {
     try std.testing.expectEqualStrings("Bitte \\\"Freigabe\\\" \\nf\\u00fcr 50 EUR", jsonEscChallenge("Bitte \"Freigabe\" \nf\xfcr 50 EUR"));
+}
+
+test "an import detects fixed costs without Erneut erkennen" {
+    try std.testing.expectEqual(@as(i32, 0), wimg_init(":memory:"));
+    defer wimg_close();
+    const csv =
+        "\"Buchungstag\";\"Wertstellung (Valuta)\";\"Vorgang\";\"Buchungstext\";\"Umsatz in EUR\"\n" ++
+        "\"03.11.2026\";\"03.11.2026\";\"Lastschrift\";\"MUSTERSTREAM ABO\";\"-12,99\"\n" ++
+        "\"03.10.2026\";\"03.10.2026\";\"Lastschrift\";\"MUSTERSTREAM ABO\";\"-12,99\"\n" ++
+        "\"03.09.2026\";\"03.09.2026\";\"Lastschrift\";\"MUSTERSTREAM ABO\";\"-12,99\"\n" ++
+        "\"03.08.2026\";\"03.08.2026\";\"Lastschrift\";\"MUSTERSTREAM ABO\";\"-12,99\"\n";
+    const res = wimg_import_csv(csv.ptr, csv.len) orelse return error.ImportFailed;
+    const n = std.mem.readInt(u32, res[0..4], .little);
+    wimg_free(res, n + 4);
+    const database = global_db.?;
+    var stmt: ?*@import("sqlite_c.zig").sqlite3_stmt = null;
+    const c = @import("sqlite_c.zig");
+    try std.testing.expectEqual(c.SQLITE_OK, c.sqlite3_prepare_v2(database.handle, "SELECT COUNT(*) FROM recurring_patterns WHERE active = 1;", -1, &stmt, null));
+    defer _ = c.sqlite3_finalize(stmt.?);
+    try std.testing.expectEqual(c.SQLITE_ROW, c.sqlite3_step(stmt.?));
+    try std.testing.expect(c.sqlite3_column_int(stmt.?, 0) >= 1);
 }
