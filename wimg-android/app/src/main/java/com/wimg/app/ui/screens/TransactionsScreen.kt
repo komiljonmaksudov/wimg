@@ -196,7 +196,11 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
     // thread every time the page opened (measured: the biggest part of opening
     // Umsätze). Unfiltered they come ready-made with the data; filtered they're
     // built in the background.
-    val view by produceState(data?.view?.takeIf { !filterActive }, data, filter, categories, period) {
+    // Opened already filtered (a category tapped on Übersicht, or back to a
+    // filtered list): build that view before the first frame. Without it the
+    // big sum started empty and rolled to its value, changing width as it went.
+    val firstView = remember { data?.let { d -> if (filterActive) TxView.of(d.transactions.filter { matches(it) }) else d.view } }
+    val view by produceState(firstView, data, filter, categories, period) {
         val d = data ?: return@produceState
         value = if (!filterActive) d.view else withContext(Dispatchers.Default) { TxView.of(d.transactions.filter { matches(it) }) }
     }
