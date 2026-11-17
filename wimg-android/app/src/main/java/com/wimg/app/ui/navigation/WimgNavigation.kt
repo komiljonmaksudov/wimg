@@ -408,12 +408,17 @@ private fun WimgMain(afterOnboarding: String?, onArrived: () -> Unit) {
     }
 }
 
-/** Places replace each other instead of stacking up; Übersicht stays the root. */
+/**
+ * Places from the menu go into the history, so back retraces them (they used to
+ * replace each other: back from the second place skipped to Übersicht). A place
+ * already in the history is returned to instead of added again, so the history
+ * stays short; Übersicht stays the root.
+ */
 private fun NavHostController.goTo(route: String) {
-    navigate(route) {
-        popUpTo("dashboard") { inclusive = route == "dashboard" }
-        launchSingleTop = true
-    }
+    if (currentBackStackEntry?.destination?.route == route) return
+    val inHistory = runCatching { getBackStackEntry(route) }.isSuccess
+    if (inHistory) popBackStack(route, inclusive = false)
+    else navigate(route) { launchSingleTop = true }
 }
 
 /** "Hinzufügen" above the bar (board 12/07): the three ways data gets into wimg. */
