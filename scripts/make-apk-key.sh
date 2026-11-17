@@ -21,7 +21,8 @@ if [ -e "$KEY" ]; then
 fi
 command -v keytool >/dev/null || { echo "keytool not found (install a JDK)" >&2; exit 1; }
 command -v gh >/dev/null || { echo "gh not found" >&2; exit 1; }
-gh auth status >/dev/null 2>&1 || { echo "gh is not logged in: gh auth login" >&2; exit 1; }
+# Only the active account: `gh auth status` also fails on a stale second one.
+gh auth token >/dev/null 2>&1 || { echo "gh is not logged in: gh auth login" >&2; exit 1; }
 
 PASS="$(openssl rand -base64 33 | tr -d '/+=\n')"
 
