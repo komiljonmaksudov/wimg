@@ -45,6 +45,11 @@ class MainActivity : FragmentActivity() {
         FrameWatch.attach(this)
         applySecureFlag()
         openRequestedRoute(intent)
+        // Language and theme before the first frame: WimgTheme read them in an
+        // effect, after it. On an English phone the first frame was German, and
+        // text chosen then stayed German (the squirrel's line on a cold start).
+        com.wimg.app.ui.theme.LocaleState.locale = com.wimg.app.ui.theme.LocaleState.stored(this)
+        com.wimg.app.ui.theme.ThemeState.mode = getSharedPreferences("wimg", 0).getInt("wimg_theme", -1)
         setContent {
             WimgTheme {
                 Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
