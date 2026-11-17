@@ -34,12 +34,13 @@ object WimgDates {
     private val en: Boolean get() = LocaleState.locale == "en"
 
     /** "12. Nov." (German), "12 Nov" (English). */
+    // A no-break space: "26 Aug" never splits across lines.
     fun dayMonth(day: Int, month: Int): String =
-        if (en) "$day ${shortMonths()[month - 1]}" else "$day. ${shortMonths()[month - 1]}."
+        if (en) "$day\u00A0${shortMonths()[month - 1]}" else "$day.\u00A0${shortMonths()[month - 1]}."
 
     /** "27.10." (German), "27 Oct" (English): for compact ranges like "27.10.–26.11.". */
     fun numeric(day: Int, month: Int): String =
-        if (en) "$day ${shortMonths()[month - 1]}" else "%02d.%02d.".format(day, month)
+        if (en) "$day\u00A0${shortMonths()[month - 1]}" else "%02d.%02d.".format(day, month)
 
     /** "12. Nov." or "12. Nov. 2025" when not this year. */
     fun short(date: String): String {

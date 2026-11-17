@@ -117,7 +117,8 @@ fun amountParts(euros: Double, showPlus: Boolean = true): Pair<String, String> {
         showPlus -> "+"
         else -> ""
     }
-    return sign + whole to String.format(Locale.GERMANY, ",%02d €", cents % 100)
+    // No-break space before €: an amount never splits across lines in a sentence.
+    return sign + whole to String.format(Locale.GERMANY, ",%02d\u00A0€", cents % 100)
 }
 
 /** Plain-text amount for places that can't style cents (titles, accessibility). */
@@ -178,12 +179,17 @@ fun RollingAmount(
         if (firstKey) firstKey = false else armedUntil = System.currentTimeMillis() + 1_500
     }
     var shown by remember { mutableStateOf(euros) }
+    var shownLen by remember { mutableStateOf(text.length) }
     var dir by remember { mutableStateOf(0) }
     var roll by remember { mutableStateOf(false) }
     if (euros != shown) {
-        roll = rollAlways || System.currentTimeMillis() < armedUntil
+        // A new length (−754,21 → −1.754,21) moves the sign and the dots to
+        // other slots: rolling those showed "−1−754" and stray dots. Then the
+        // new amount just appears.
+        roll = (rollAlways || System.currentTimeMillis() < armedUntil) && text.length == shownLen
         dir = if (euros > shown) 1 else -1
         shown = euros
+        shownLen = text.length
     }
     val centsOnly = style.copy(fontSize = centsStyle.fontSize, letterSpacing = centsStyle.letterSpacing)
     val density = androidx.compose.ui.platform.LocalDensity.current
@@ -236,7 +242,8 @@ private fun RowScope.RollChar(ch: Char, style: TextStyle, color: Color, track: F
     var d by remember { mutableStateOf(1) }
     val p = remember { androidx.compose.animation.core.Animatable(1f) }
     if (ch != cur) {
-        old = if (roll && dir != 0) cur else null
+        // Only a digit rolls into a digit; a sign, dot or comma just changes.
+        old = if (roll && dir != 0 && cur.isDigit() && ch.isDigit()) cur else null
         d = dir
         cur = ch
     }

@@ -56,7 +56,8 @@ object PeriodLabels {
     fun long(p: PeriodInfo): String {
         val a = parts(p.from); val b = parts(p.to)
         if (a.size != 3 || b.size != 3) return short(p)
-        return "${WimgDates.dayMonth(a[2], a[1])} – ${WimgDates.dayMonth(b[2], b[1])}"
+        // The dash sticks to the first date; a break may only come after it.
+        return "${WimgDates.dayMonth(a[2], a[1])}\u00A0– ${WimgDates.dayMonth(b[2], b[1])}"
     }
 
     /** Days from today to the period's last day, today included. */

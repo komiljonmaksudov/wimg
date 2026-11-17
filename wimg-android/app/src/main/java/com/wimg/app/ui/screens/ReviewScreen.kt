@@ -476,7 +476,7 @@ private fun ReviewPeriodBand(
                 change < 0 -> L("%d %% weniger ausgegeben als im Monat davor (%s).", -change, range)
                 else -> L("%d %% mehr ausgegeben als im Monat davor (%s).", change, range)
             },
-            style = WimgType.body, color = c.bandSub, modifier = Modifier.padding(top = 8.dp),
+            style = WimgType.body.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Heading), color = c.bandSub, modifier = Modifier.padding(top = 8.dp),
         )
     }
 }

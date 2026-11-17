@@ -165,19 +165,23 @@ object WimgType {
     val amountHeroCents = amountHero.copy(fontSize = 21.sp, letterSpacing = (-0.3).sp)
     val amountLarge = TextStyle(fontFamily = Manrope, fontWeight = FontWeight.ExtraBold, fontSize = 24.sp, lineHeight = 30.sp, letterSpacing = (-0.4).sp)
     val amountStat = TextStyle(fontFamily = Manrope, fontWeight = FontWeight.Bold, fontSize = 15.sp, lineHeight = 20.sp, letterSpacing = (-0.2).sp)
-    val title = TextStyle(fontFamily = Manrope, fontWeight = FontWeight.ExtraBold, fontSize = 24.sp, lineHeight = 30.sp, letterSpacing = (-0.4).sp)
-    val sheetTitle = TextStyle(fontFamily = Manrope, fontWeight = FontWeight.ExtraBold, fontSize = 21.sp, lineHeight = 28.sp)
-    val section = TextStyle(fontFamily = Manrope, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, lineHeight = 24.sp)
+    // Line breaks: headings are balanced (no word left alone on the last line,
+    // "…of your salary is still / left."); running text uses the paragraph
+    // strategy (fewer orphans, a calmer right edge). Dates and amounts carry
+    // no-break spaces ("26 Aug", "12,50 €").
+    val title = TextStyle(fontFamily = Manrope, fontWeight = FontWeight.ExtraBold, fontSize = 24.sp, lineHeight = 30.sp, letterSpacing = (-0.4).sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading)
+    val sheetTitle = TextStyle(fontFamily = Manrope, fontWeight = FontWeight.ExtraBold, fontSize = 21.sp, lineHeight = 28.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading)
+    val section = TextStyle(fontFamily = Manrope, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, lineHeight = 24.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading)
     val rowTitle = TextStyle(fontFamily = Inter, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, lineHeight = 21.sp)
     val amountRow = TextStyle(fontFamily = Manrope, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 22.sp, fontFeatureSettings = TABULAR)
     val amountRowCents = amountRow.copy(fontSize = 11.sp)
     val button = TextStyle(fontFamily = Manrope, fontWeight = FontWeight.Bold, fontSize = 15.sp, lineHeight = 20.sp)
     val chip = TextStyle(fontFamily = Manrope, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 18.sp)
-    val body = TextStyle(fontFamily = Inter, fontWeight = FontWeight.Normal, fontSize = 15.sp, lineHeight = 22.sp)
-    val desc = TextStyle(fontFamily = Inter, fontWeight = FontWeight.Normal, fontSize = 13.sp, lineHeight = 18.sp)
-    val label = TextStyle(fontFamily = Inter, fontWeight = FontWeight.Bold, fontSize = 13.sp, lineHeight = 18.sp)
-    val caption = TextStyle(fontFamily = Inter, fontWeight = FontWeight.Medium, fontSize = 12.sp, lineHeight = 16.sp)
-    val bandOver = TextStyle(fontFamily = Inter, fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 18.sp)
+    val body = TextStyle(fontFamily = Inter, fontWeight = FontWeight.Normal, fontSize = 15.sp, lineHeight = 22.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Paragraph)
+    val desc = TextStyle(fontFamily = Inter, fontWeight = FontWeight.Normal, fontSize = 13.sp, lineHeight = 18.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Paragraph)
+    val label = TextStyle(fontFamily = Inter, fontWeight = FontWeight.Bold, fontSize = 13.sp, lineHeight = 18.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Paragraph)
+    val caption = TextStyle(fontFamily = Inter, fontWeight = FontWeight.Medium, fontSize = 12.sp, lineHeight = 16.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Paragraph)
+    val bandOver = TextStyle(fontFamily = Inter, fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 18.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Paragraph)
     val mono = TextStyle(fontFamily = JetBrainsMono, fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 19.sp)
 }
 
