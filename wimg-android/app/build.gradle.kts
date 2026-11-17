@@ -13,10 +13,10 @@ android {
         applicationId = "com.wimg.app"
         minSdk = 26
         targetSdk = 36
-        // Bumped by scripts/release.sh alongside package.json and project.yml.
+        // versionName is bumped by scripts/release.sh together with project.yml.
         // Play requires a strictly increasing versionCode for every upload, so
-        // CI overrides it with a timestamp (-PwimgVersionCode), the same trick
-        // the iOS job uses for CURRENT_PROJECT_VERSION.
+        // CI passes its run counter (-PwimgVersionCode); not a timestamp, which
+        // would reach Play's 2,100,000,000 limit in 2036.
         versionCode = (project.findProperty("wimgVersionCode") as String?)?.toInt() ?: 1
         versionName = "0.9.10"
         manifestPlaceholders["appLabel"] = "wimg"

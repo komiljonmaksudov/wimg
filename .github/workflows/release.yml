@@ -288,7 +288,10 @@ jobs:
           fi
           export WIMG_KEYSTORE_FILE="$RUNNER_TEMP/upload.jks"
           echo "$WIMG_KEYSTORE_BASE64" | base64 -d > "$WIMG_KEYSTORE_FILE"
-          ./gradlew bundleRelease -PwimgVersionCode=$(date +%s)
+          # The run counter, not the Unix time: Play keeps version codes below
+          # 2,100,000,000 and every upload must be higher than the last, so a
+          # timestamp (1.79e9) would hit the limit in 2036 (Play warned on the first upload).
+          ./gradlew bundleRelease -PwimgVersionCode=${{ github.run_number }}
           rm -f "$WIMG_KEYSTORE_FILE"
 
       # Kept out of the GitHub Release on purpose: the .aab is only for the
