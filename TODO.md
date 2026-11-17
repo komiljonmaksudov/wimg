@@ -29,7 +29,7 @@ Open work only, grouped by area; finished work moves to [CHANGELOG.md](CHANGELOG
 ## Android
 - [ ] Notification tap: not reproducible on the emulator anymore (foreground and background, 2026-11-15); confirm with a real notification on the phone.
 - [x] Price-change notification (2026-11-17, `BackgroundRefresh.notifyPriceRise`, switch "Preis gestiegen", on by default). Runs recurring detection after a background import first.
-- [ ] Recurring detection only runs on "Erneut erkennen", the demo and the background job: after an in-app fetch a new price isn't seen until then. Run it after every import (libwimg or the shell).
+- [x] Recurring detection runs in libwimg after every fetch or CSV import that added bookings (2026-11-17).
 - [ ] Merchant names: card payments show raw bank text ("PAYSEND, Dublin IE Karte Nr. …", "KD.1210843747 WIR SAGEN"). Clean them up in libwimg `booking.zig` once the user sends full payment references.
 - [x] Squirrel: the band dims to evening and today's stitch is sewn in during "Tag ohne Ausgaben" (2026-11-17).
 - [x] Squirrel: "Gehalt ist da" refills the ring (2026-11-17). Moments wait for the launch animation since 2026-11-17 (they used to play underneath it).

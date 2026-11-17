@@ -54,7 +54,7 @@ Each release also attaches `libwimg.xcframework.zip`. There is no web app.
 
 ## Build
 
-Requirements: Zig 0.17.0, Bun (for scripts), Android NDK + SDK for Android, Xcode +
+Requirements: Zig 0.17.1, Bun (for scripts), Android NDK + SDK for Android, Xcode +
 XcodeGen for iOS.
 
 ```sh
