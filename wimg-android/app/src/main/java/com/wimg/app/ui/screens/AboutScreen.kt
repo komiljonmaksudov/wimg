@@ -133,6 +133,30 @@ private class Release(val version: String, val dateIso: String, val notes: List<
 
 private val RELEASES = listOf(
     Release(
+        "0.9.12", "2026-11-18",
+        listOf(
+            NoteKind.New to "Kontoauszüge (MT940, CAMT) von jeder Bank importieren.",
+            NoteKind.New to "Revolut-CSV importieren.",
+            NoteKind.Better to "Wer einem Umsatz eine Kategorie gibt, sortiert die unsortierten Umsätze desselben Händlers gleich mit. Ein Tippen auf Rückgängig nimmt alles zurück.",
+            NoteKind.Better to "Ruhigerer Filter in Umsätze. Art, Konto, Zeitraum und Kategorie stehen als Zeilen mit ihrem Wert, und die Summe bleibt beim Scrollen stehen.",
+            NoteKind.Better to "Die Bankensuche zeigt ING und andere große Banken zuerst.",
+            NoteKind.Fixed to "Regeln entstehen nur noch aus dem Händler, nie aus Wörtern wie „BELASTUNG“. Falsch gelernte Regeln sind entfernt.",
+            NoteKind.Fixed to "Umsätze ohne Kategorie heißen „Unkategorisiert“, nicht mehr „Sonstiges“.",
+            NoteKind.Fixed to "Der Schalter Hell / Dunkel / System zeigt die gewählte Einstellung.",
+        ),
+    ),
+    Release(
+        "0.9.9 – 0.9.11", "2026-11-17",
+        listOf(
+            NoteKind.New to "Eine Mitteilung, wenn Fixkosten teurer werden (ab 1 € und 5 %).",
+            NoteKind.New to "Das Monats-Widget passt auf 2×2.",
+            NoteKind.Better to "Kartenzahlungen zeigen den Händler statt des Kartentexts.",
+            NoteKind.Better to "wimg startet in der Sprache des Telefons, ohne Flackern.",
+            NoteKind.Better to "Das Englisch ist überarbeitet: Datum, Wortwahl, Groß- und Kleinschreibung.",
+            NoteKind.Fixed to "Zurück führt durch die zuletzt geöffneten Seiten statt direkt zur Übersicht.",
+        ),
+    ),
+    Release(
         "0.9.8", "2026-11-16",
         listOf(
             NoteKind.New to "Neues Aussehen: eine schwebende Leiste, neue Übersicht, Umsätze und Einstellungen.",

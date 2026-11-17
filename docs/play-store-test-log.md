@@ -15,6 +15,24 @@ release notes that name the change.
 | --- | --- | --- | --- |
 | 2026-11-17 | 0.9.11 (116) | First test build: demo month as a salary month, English throughout (dates, wording), first start without flicker, phone language, 2×2 widget, merchant names for card payments, price-rise notification, squirrel moments, back through places, bank login says it goes straight to the bank | Own pass before the test (developer's phone, emulator, English sweep) |
 
+## Next update: "What's new" for Play (paste with the release)
+
+DE:
+- Kontoauszüge (MT940, CAMT) von jeder Bank und Revolut-CSV importieren
+- Eine Kategorie für einen Umsatz gilt auch für die unsortierten Umsätze desselben Händlers
+- Ruhigerer Filter in Umsätze
+- Bankensuche: ING und große Banken zuerst
+- Kategorien werden nicht mehr aus Wörtern wie „BELASTUNG“ gelernt
+
+EN:
+- Import bank statements (MT940, CAMT) from any bank, and Revolut CSV files
+- A category given to one transaction also sorts the merchant's other uncategorised ones
+- A calmer filter in Transactions
+- Bank search: ING and big banks first
+- Categories are no longer learned from words like "BELASTUNG"
+
+GitHub release, add on top: "This APK has a new permanent signature. Uninstall the old wimg once (turn on Sync or save a backup file first), then install this one; later updates install over it."
+
 ## Feedback
 
 | Date | From | What they said | What changed (build) |

@@ -1496,6 +1496,20 @@ private val translations: Map<String, String> = mapOf(
     "Alle Kategorien" to "All categories",
     "Mehr (%d)" to "More (%d)",
     "1 Umsatz anzeigen" to "Show 1 transaction",
+    "Kontoauszüge (MT940, CAMT) von jeder Bank importieren." to "Import bank statements (MT940, CAMT) from any bank.",
+    "Revolut-CSV importieren." to "Import Revolut CSV files.",
+    "Wer einem Umsatz eine Kategorie gibt, sortiert die unsortierten Umsätze desselben Händlers gleich mit. Ein Tippen auf Rückgängig nimmt alles zurück." to "Giving a transaction a category also sorts the merchant's other uncategorised transactions. One tap on Undo takes it all back.",
+    "Ruhigerer Filter in Umsätze. Art, Konto, Zeitraum und Kategorie stehen als Zeilen mit ihrem Wert, und die Summe bleibt beim Scrollen stehen." to "A calmer filter in Transactions. Type, account, period and category are rows showing their value, and the sum stays still while you scroll.",
+    "Die Bankensuche zeigt ING und andere große Banken zuerst." to "Bank search shows ING and other big banks first.",
+    "Regeln entstehen nur noch aus dem Händler, nie aus Wörtern wie „BELASTUNG“. Falsch gelernte Regeln sind entfernt." to "Rules are learned from the merchant only, never from words like “BELASTUNG”. Wrongly learned rules are gone.",
+    "Umsätze ohne Kategorie heißen „Unkategorisiert“, nicht mehr „Sonstiges“." to "Transactions without a category are called “Uncategorised”, no longer “Other”.",
+    "Der Schalter Hell / Dunkel / System zeigt die gewählte Einstellung." to "The Light / Dark / System switch shows the chosen setting.",
+    "Eine Mitteilung, wenn Fixkosten teurer werden (ab 1 € und 5 %)." to "A notification when a fixed cost gets more expensive (from 1 € and 5 %).",
+    "Das Monats-Widget passt auf 2×2." to "The month widget fits 2×2.",
+    "Kartenzahlungen zeigen den Händler statt des Kartentexts." to "Card payments show the merchant instead of the card text.",
+    "wimg startet in der Sprache des Telefons, ohne Flackern." to "wimg starts in the phone's language, without flicker.",
+    "Das Englisch ist überarbeitet: Datum, Wortwahl, Groß- und Kleinschreibung." to "The English is reworked: dates, wording, capitalisation.",
+    "Zurück führt durch die zuletzt geöffneten Seiten statt direkt zur Übersicht." to "Back goes through the pages you opened instead of straight to Overview.",
 )
 
 /** Composable lookup — recomposes when LocaleState.locale flips. */
