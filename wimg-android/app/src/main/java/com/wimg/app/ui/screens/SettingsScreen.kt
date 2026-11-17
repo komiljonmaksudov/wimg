@@ -200,7 +200,7 @@ fun SettingsScreen(navController: NavController? = null) {
         WimgGroup {
             WimgRow(L("Design"), trailing = {
                 val modes = listOf(1, 2, -1)
-                Segmented(listOf(L("Hell"), L("Dunkel"), L("System")), modes.indexOf(theme).coerceAtLeast(2), { i ->
+                Segmented(listOf(L("Hell"), L("Dunkel"), L("System")), modes.indexOf(theme).let { if (it < 0) 2 else it }, { i ->
                     theme = modes[i]
                     prefs.edit().putInt("wimg_theme", theme).apply()
                     ThemeState.mode = theme
@@ -356,7 +356,7 @@ fun SettingsAppearanceScreen(navController: NavController?) {
         WimgGroup {
             WimgRow(L("Design"), trailing = {
                 val modes = listOf(1, 2, -1)
-                Segmented(listOf(L("Hell"), L("Dunkel"), L("System")), modes.indexOf(theme).coerceAtLeast(2), { i ->
+                Segmented(listOf(L("Hell"), L("Dunkel"), L("System")), modes.indexOf(theme).let { if (it < 0) 2 else it }, { i ->
                     theme = modes[i]
                     prefs.edit().putInt("wimg_theme", theme).apply()
                     ThemeState.mode = theme

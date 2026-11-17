@@ -75,7 +75,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Category picker order from the design; 0 is "Unkategorisiert", 255 "Andere". */
+/** Category picker order from the design; 0 is "Unkategorisiert", 255 "Sonstiges" (as in libwimg and iOS). */
 private val PICKER_ORDER = listOf(
     WimgCategory.GROCERIES, WimgCategory.DINING, WimgCategory.TRANSPORT, WimgCategory.HOUSING,
     WimgCategory.UTILITIES, WimgCategory.ENTERTAINMENT, WimgCategory.SHOPPING, WimgCategory.HEALTH,
@@ -244,7 +244,7 @@ private fun InfoRow(label: String, value: @Composable () -> Unit) {
 
 private fun applyCategory(tx: Transaction, category: Int) {
     if (category == tx.category) return
-    // The merchant's other bookings without a category (or in Sonstiges) follow.
+    // The merchant's other bookings that are uncategorized or in Sonstiges follow.
     val others = LibWimg.setCategory(tx.id, category)
     Changes.bump()
     val label = __t(WimgCategory.fromId(category).label)

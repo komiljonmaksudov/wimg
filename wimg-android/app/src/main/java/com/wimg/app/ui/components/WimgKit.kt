@@ -71,6 +71,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
@@ -1127,6 +1129,9 @@ fun BarPanel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() 
             .clip(RoundedCornerShape(24.dp))
             .background(c.card)
             .border(1.dp, c.line, RoundedCornerShape(24.dp))
+            // A tap on the panel's empty parts stays here; without this it fell
+            // through to the scrim behind, which closes the panel.
+            .pointerInput(Unit) { detectTapGestures { } }
             .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 16.dp),
         content = content,
     )

@@ -11,7 +11,7 @@ enum class WimgCategory(
     val color: Color,
     val icon: ImageVector,
 ) {
-    UNCATEGORIZED(0, "Sonstiges", Color(0xFF8E8E93), Icons.Outlined.HelpCenter),
+    UNCATEGORIZED(0, "Unkategorisiert", Color(0xFF8E8E93), Icons.Outlined.HelpCenter),
     GROCERIES(1, "Lebensmittel", Color(0xFF34C759), Icons.Outlined.ShoppingCart),
     DINING(2, "Essen gehen", Color(0xFFFF9500), Icons.Outlined.Restaurant),
     TRANSPORT(3, "Transport", Color(0xFF007AFF), Icons.Outlined.DirectionsCar),
@@ -27,7 +27,7 @@ enum class WimgCategory(
     SUBSCRIPTIONS(13, "Abonnements", Color(0xFFBF5AF2), Icons.Outlined.Subscriptions),
     TRAVEL(14, "Reisen", Color(0xFF30B0C7), Icons.Outlined.Flight),
     EDUCATION(15, "Bildung", Color(0xFF5856D6), Icons.Outlined.School),
-    OTHER(255, "Andere", Color(0xFF8E8E93), Icons.Outlined.MoreHoriz);
+    OTHER(255, "Sonstiges", Color(0xFF8E8E93), Icons.Outlined.MoreHoriz);
 
     companion object {
         fun fromId(id: Int): WimgCategory = entries.find { it.id == id } ?: UNCATEGORIZED
