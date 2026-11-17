@@ -397,6 +397,14 @@ private fun comparison(year: Int, month: Int, account: String?, compare: HomeCom
     }
 }
 
+/**
+ * "Noch keine Umsätze" is for an empty wimg, not an empty account: with an
+ * account picked that has nothing (Bargeld), the page lost its chip and there
+ * was no way back to "Alle Konten".
+ */
+private fun hasAnyData(all: List<Transaction>, account: String?): Boolean =
+    all.isNotEmpty() || (account != null && LibWimg.getTransactionsFiltered(null).isNotEmpty())
+
 internal fun loadHome(year: Int, month: Int, account: String?, compare: HomeCompare = HomeCompare.PREV): HomeData {
     val summary = LibWimg.getSummaryFiltered(year, month, account)
     val previous = comparison(year, month, account, compare)
@@ -410,7 +418,7 @@ internal fun loadHome(year: Int, month: Int, account: String?, compare: HomeComp
         summary = summary,
         previous = previous?.takeIf { it.tx_count > 0 },
         day = if (lastDate == null) emptyList() else inMonth.filter { it.date == lastDate }.take(6),
-        hasAnyData = all.isNotEmpty(),
+        hasAnyData = hasAnyData(all, account),
         pending = if (today.startsWith(prefix)) LibWimg.getPending(account) else emptyList(),
         spendDates = inMonth.filter { it.amount < 0 }.mapTo(HashSet()) { it.date },
         priceRise = if (today.startsWith(prefix)) latestPriceRise("$prefix-01") else null,
@@ -700,7 +708,7 @@ internal fun loadHomeRange(p: com.wimg.app.models.PeriodInfo, prev: com.wimg.app
         summary = summary,
         previous = previous?.takeIf { it.tx_count > 0 },
         day = if (lastDate == null) emptyList() else inRange.filter { it.date == lastDate }.take(6),
-        hasAnyData = all.isNotEmpty(),
+        hasAnyData = hasAnyData(all, account),
         pending = if (p.current) LibWimg.getPending(account) else emptyList(),
         spendDates = inRange.filter { it.amount < 0 }.mapTo(HashSet()) { it.date },
         priceRise = if (p.current) latestPriceRise(p.from) else null,
