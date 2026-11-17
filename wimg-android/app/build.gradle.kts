@@ -31,6 +31,10 @@ android {
     // local build can export the same four vars. When they're absent the
     // release build simply stays unsigned (fine for `assembleDebug`).
     val keystorePath = System.getenv("WIMG_KEYSTORE_FILE")
+    // The GitHub APK's own permanent key (scripts/make-apk-key.sh), separate
+    // from the Play upload key: the same signature on every release, so an
+    // update installs over the last one.
+    val apkKeystorePath = System.getenv("WIMG_APK_KEYSTORE_FILE")
     signingConfigs {
         if (keystorePath != null) {
             create("release") {
@@ -38,6 +42,14 @@ android {
                 storePassword = System.getenv("WIMG_KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("WIMG_KEY_ALIAS")
                 keyPassword = System.getenv("WIMG_KEY_PASSWORD")
+            }
+        }
+        if (apkKeystorePath != null) {
+            create("github") {
+                storeFile = file(apkKeystorePath)
+                storePassword = System.getenv("WIMG_APK_KEYSTORE_PASSWORD")
+                keyAlias = "wimg-apk"
+                keyPassword = System.getenv("WIMG_APK_KEYSTORE_PASSWORD")
             }
         }
     }
@@ -67,6 +79,14 @@ android {
             initWith(getByName("bench"))
             applicationIdSuffix = ".tester"
             manifestPlaceholders["appLabel"] = "wimg Test"
+        }
+        // The APK on GitHub Releases: release code (R8, not debuggable, no test
+        // pages) signed with the permanent APK key. Unsigned without it, so CI
+        // fails instead of shipping an APK that can't update the installed one.
+        create("github") {
+            initWith(getByName("release"))
+            signingConfig = if (apkKeystorePath != null) signingConfigs.getByName("github") else null
+            matchingFallbacks += listOf("release")
         }
     }
 

@@ -68,7 +68,9 @@ check              → zig fmt + zig build test -Doptimize=ReleaseFast (libwimg,
   ↓
 build-libwimg-ios  → XCFramework (macos-15)
 build-ios          → archive + TestFlight upload (macos-26; skipped without ASC_* secrets)
-build-android      → libwimg.so + debug APK (+ signed Play bundle if keystore secrets exist)
+build-android      → libwimg.so + GitHub APK (`github` build type: release code, permanent key
+                     `WIMG_APK_*` secrets from `scripts/make-apk-key.sh`; fails without them)
+                     + signed Play bundle if the upload keystore secrets exist
   ↓
 release            → GitHub Release: XCFramework, .so, APK
 ```
