@@ -182,14 +182,19 @@ fun RollingAmount(
     var shownLen by remember { mutableStateOf(text.length) }
     var dir by remember { mutableStateOf(0) }
     var roll by remember { mutableStateOf(false) }
+    var lastChange by remember { mutableStateOf(0L) }
     if (euros != shown) {
         // A new length (−754,21 → −1.754,21) moves the sign and the dots to
-        // other slots: rolling those showed "−1−754" and stray dots. Then the
-        // new amount just appears.
-        roll = (rollAlways || System.currentTimeMillis() < armedUntil) && text.length == shownLen
+        // other slots: rolling those showed "−1−754" and stray dots. Values that
+        // come faster than a roll lasts (scrolling) cut rolls off halfway and
+        // looked restless. In both cases the new amount just appears.
+        val now = System.currentTimeMillis()
+        val tooFast = now - lastChange < 320
+        roll = (rollAlways || now < armedUntil) && text.length == shownLen && !tooFast
         dir = if (euros > shown) 1 else -1
         shown = euros
         shownLen = text.length
+        lastChange = now
     }
     val centsOnly = style.copy(fontSize = centsStyle.fontSize, letterSpacing = centsStyle.letterSpacing)
     val density = androidx.compose.ui.platform.LocalDensity.current
