@@ -62,6 +62,17 @@ object DemoDataService {
             }
             LibWimg.autoCategorize()
             LibWimg.detectRecurring()
+            // The demo salary comes on the 27th. In calendar months a tester saw
+            // November without it (−1.700 €, the squirrel "Leer"); as Gehaltsmonat
+            // the month starts with it, and the feature shows itself.
+            LibWimg.setPeriodMode("salary")
+            LibWimg.getPeriods(1)?.salary?.key?.let { LibWimg.answerSalary(it, 1) }
+            // Mark the demo's refunds as already shown, so the bar doesn't ask a
+            // tester whether a refund is salary (same key as ReviewScreen).
+            val prefs = context.getSharedPreferences("wimg", 0)
+            val incomeIds = LibWimg.getPeriods(1)?.other_income?.map { it.id }.orEmpty()
+            prefs.edit().putStringSet("wimg_income_seen", prefs.getStringSet("wimg_income_seen", emptySet()).orEmpty() + incomeIds).apply()
+            com.wimg.app.ui.components.PeriodState.reload()
             context.getSharedPreferences("wimg", 0).edit().putBoolean(DEMO_LOADED_KEY, true).apply()
         }
     }

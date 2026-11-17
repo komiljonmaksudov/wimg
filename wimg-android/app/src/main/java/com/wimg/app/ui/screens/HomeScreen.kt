@@ -484,7 +484,7 @@ private fun SectionHeader(title: String, trailing: String?, trailingStrong: Bool
 @Composable
 private fun StackedBar(cats: List<CategoryBreakdown>, total: Double) {
     val c = Wimg.colors
-    val label = cats.joinToString { "${WimgCategory.fromId(it.id).label} ${(abs(it.amount) / total * 100).roundToInt()} %" }
+    val label = cats.joinToString { "${__t(WimgCategory.fromId(it.id).label)} ${(abs(it.amount) / total * 100).roundToInt()} %" }
     Row(
         Modifier
             .padding(top = 14.dp, bottom = 6.dp)
