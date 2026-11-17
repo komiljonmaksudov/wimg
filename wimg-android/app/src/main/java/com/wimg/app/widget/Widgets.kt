@@ -18,6 +18,9 @@ import androidx.glance.ImageProvider
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
+import androidx.glance.appwidget.SizeMode
+import androidx.glance.LocalSize
+import androidx.compose.ui.unit.DpSize
 import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
@@ -70,10 +73,15 @@ private fun t(context: Context, key: String): String {
 
 private fun locale() = if (LocaleState.locale == "en") Locale.ENGLISH else Locale.GERMANY
 
-/** "−1.396,66 €", or "•••• €" when amounts are hidden. */
-private fun money(v: Double, masked: Boolean, plus: Boolean = false): String {
+/**
+ * "−1.396,66 €", or "•••• €" when amounts are hidden. German grouping in every
+ * language, like the app ("414.45 €" in the widget next to "2.726,02 €" in the app).
+ * [cents] false: whole euros, for the narrow widget.
+ */
+private fun money(v: Double, masked: Boolean, plus: Boolean = false, cents: Boolean = true): String {
     if (masked) return "•••• €"
-    val f = NumberFormat.getNumberInstance(locale()).apply { minimumFractionDigits = 2; maximumFractionDigits = 2 }
+    val digits = if (cents) 2 else 0
+    val f = NumberFormat.getNumberInstance(Locale.GERMANY).apply { minimumFractionDigits = digits; maximumFractionDigits = digits }
     val sign = when { v < -0.004 -> "−"; plus && v > 0.004 -> "+"; else -> "" }
     return "$sign${f.format(kotlin.math.abs(v))} €"
 }
@@ -119,6 +127,10 @@ private fun categoryBar(parts: List<Pair<Int, Double>>): Bitmap {
 }
 
 class MonthWidget : GlanceAppWidget() {
+    // Resizable down to 2×2: below ~220 dp a compact layout (the full one cut
+    // every number off: "+414.4…", "−1,781.…").
+    override val sizeMode = SizeMode.Responsive(setOf(DpSize(150.dp, 150.dp), DpSize(250.dp, 110.dp)))
+
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val d = WidgetData.load(context)
         val masked = WidgetData.masked(context)
@@ -132,8 +144,9 @@ class MonthWidget : GlanceAppWidget() {
             )
         } else ""
         provideContent {
+            val narrow = LocalSize.current.width < 220.dp
             Column(
-                GlanceModifier.fillMaxSize().cornerRadius(24.dp).background(Dark).padding(18.dp).clickable(open(context, null)),
+                GlanceModifier.fillMaxSize().cornerRadius(24.dp).background(Dark).padding(if (narrow) 14.dp else 18.dp).clickable(open(context, null)),
             ) {
                 Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                     val headline = when (d.mode) {
@@ -141,7 +154,7 @@ class MonthWidget : GlanceAppWidget() {
                         "day" -> t(context, "Bis zum %d. verfügbar").format(d.startDay)
                         else -> t(context, "Verfügbar im %s").format(monthName)
                     }
-                    Text(headline, style = style(DarkSub, 13.sp), modifier = GlanceModifier.defaultWeight())
+                    Text(headline, style = style(DarkSub, if (narrow) 12.sp else 13.sp), maxLines = 2, modifier = GlanceModifier.defaultWeight())
                     Image(ImageProvider(R.mipmap.ic_launcher_round), contentDescription = null, modifier = GlanceModifier.size(22.dp))
                 }
                 if (!d.hasData) {
@@ -150,8 +163,8 @@ class MonthWidget : GlanceAppWidget() {
                     return@Column
                 }
                 Text(
-                    money(d.available, masked, plus = true),
-                    style = style(if (masked) androidx.compose.ui.graphics.Color.White else if (d.available < 0) Neg else Pos, 30.sp, bold = true),
+                    money(d.available, masked, plus = true, cents = !narrow),
+                    style = style(if (masked) androidx.compose.ui.graphics.Color.White else if (d.available < 0) Neg else Pos, if (narrow) 24.sp else 30.sp, bold = true),
                     maxLines = 1,
                 )
                 if (d.overdueDay > 0) {
@@ -160,7 +173,19 @@ class MonthWidget : GlanceAppWidget() {
                 }
                 Spacer(GlanceModifier.defaultWeight())
                 Image(ImageProvider(bar), contentDescription = null, contentScale = androidx.glance.layout.ContentScale.FillBounds, modifier = GlanceModifier.fillMaxWidth().height(6.dp))
-                Spacer(GlanceModifier.height(10.dp))
+                Spacer(GlanceModifier.height(if (narrow) 8.dp else 10.dp))
+                if (narrow) {
+                    // One pair only; "Stand" doesn't fit. Calendar months have no
+                    // "per day left" (their perDay is spending per day): Expenses.
+                    if (d.mode != "calendar") {
+                        Text(t(context, "%s pro Tag").format(money(d.perDay.coerceAtLeast(0.0), masked, cents = false)), style = style(androidx.compose.ui.graphics.Color.White, 14.sp, bold = true), maxLines = 1)
+                        Text(if (d.daysLeft == 1) t(context, "noch 1 Tag") else t(context, "noch %d Tage").format(d.daysLeft), style = style(DarkSub, 12.sp), maxLines = 1)
+                    } else {
+                        Text(t(context, "Ausgaben"), style = style(DarkSub, 12.sp), maxLines = 1)
+                        Text(money(-d.expenses, masked, cents = false), style = style(androidx.compose.ui.graphics.Color.White, 14.sp, bold = true), maxLines = 1)
+                    }
+                    return@Column
+                }
                 if (d.mode != "calendar") Row(GlanceModifier.fillMaxWidth()) {
                     Column(GlanceModifier.defaultWeight()) {
                         Text(t(context, "Ausgaben"), style = style(DarkSub, 12.sp))

@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">wimg</string>
-    <string name="widget_month_label">Monat</string>
-    <string name="widget_fixed_label">Fixkosten offen</string>
-    <string name="widget_today_label">Heute</string>
-    <string name="widget_month_desc">Verfügbar im Monat, Ausgaben und Ausgaben pro Tag</string>
-    <string name="widget_fixed_desc">Fixkosten, die diesen Monat noch offen sind</string>
-    <string name="widget_today_desc">Was heute gebucht wurde</string>
+    <!-- English by default, German in values-de: like the app, which speaks
+         German on German phones and English everywhere else. -->
+    <string name="widget_month_label">Month</string>
+    <string name="widget_fixed_label">Fixed costs due</string>
+    <string name="widget_today_label">Today</string>
+    <string name="widget_month_desc">Available this month, spending and spending per day</string>
+    <string name="widget_fixed_desc">Fixed costs still due this month</string>
+    <string name="widget_today_desc">What was booked today</string>
 </resources>

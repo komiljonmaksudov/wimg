@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_month_label">Monat</string>
+    <string name="widget_fixed_label">Fixkosten offen</string>
+    <string name="widget_today_label">Heute</string>
+    <string name="widget_month_desc">Verfügbar im Monat, Ausgaben und Ausgaben pro Tag</string>
+    <string name="widget_fixed_desc">Fixkosten, die diesen Monat noch offen sind</string>
+    <string name="widget_today_desc">Was heute gebucht wurde</string>
+</resources>
