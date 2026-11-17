@@ -27,6 +27,8 @@ Open work only, grouped by area; finished work moves to [CHANGELOG.md](CHANGELOG
 - [ ] Direct bank connectors (bunq, Fio, comdirect REST) only on user demand; comdirect REST needs a TAN per session, FinTS doesn't.
 
 ## Android
+- [ ] GitHub APK (open decision): CI ships a debug APK with a new temporary key per run (every update needs an uninstall, debuggable, slow, test pages visible). Recommended: release build with its own permanent key (or at least a fixed debug key); existing installs need one reinstall (Sync or backup file first). See handoff SESSION-2026-11-17 §2.4.
+- [ ] Play test updates: 2–3 during the 16 days, each with release notes from `docs/play-store-test-log.md`; paste the new store descriptions (`docs/play-store-listing.md`) with the first one.
 - [ ] Filter panel on Umsätze, option A from brief 19 (`~/Desktop/wimg-redesign/export/36-Filter-Panel/`, boards 02–04, 07–09; decided 2026-11-17):
   - four rows Art · Konto · Zeitraum · Kategorie, each with its current value on the right (light background when not "Alle"); a row opens a short list in the same panel, with a back arrow;
   - Kategorie lists only the categories in the period, sorted by spending, with the amount, then "Mehr (n)"; Zeitraum stacked vertically (no cut-off row);
