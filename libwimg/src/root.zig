@@ -8,6 +8,7 @@ const summary = @import("summary.zig");
 const period = @import("period.zig");
 const crypto = @import("crypto.zig");
 const recurring = @import("recurring.zig");
+const import_mod = @import("import.zig");
 
 const Db = db_mod.Db;
 const Transaction = types.Transaction;
@@ -182,6 +183,157 @@ export fn wimg_import_csv(data: [*]const u8, len: u32) ?[*]const u8 {
     };
 
     return makeLengthPrefixed(json_buf[0..json_len]);
+}
+
+// --- Statement files (MT940, CAMT) ---
+
+/// At most this many bookings per statement file (a few years of a busy account).
+const statement_max = 5000;
+
+/// Preview of a statement file (MT940 or CAMT, recognized by content):
+/// {"format","account","total_rows","duplicates","transactions":[…]}. Null with
+/// the error "not a statement" for anything else, so the shell can try CSV.
+/// `duplicates` counts what the import will skip (same account, day and amount).
+export fn wimg_parse_statement(data: [*]const u8, len: u32) ?[*]const u8 {
+    const bytes = data[0..len];
+    const fmt = import_mod.detect(bytes) orelse {
+        setError("not a statement", .{});
+        return null;
+    };
+    const account = import_mod.accountFor(bytes, fmt);
+    const txns = fba.allocator().alloc(Transaction, statement_max) catch {
+        setError("wimg_parse_statement: out of memory", .{});
+        return null;
+    };
+    defer fba.allocator().free(txns);
+    const parsed = import_mod.parseStatement(bytes, fmt, account, txns);
+    const list = txns[0..parsed.count];
+
+    var duplicates: u32 = 0;
+    if (global_db) |db_val| {
+        var database = db_val;
+        if (fba.allocator().alloc(bool, list.len)) |twin| {
+            defer fba.allocator().free(twin);
+            import_mod.markTwins(&database, list, twin);
+            for (twin) |b| duplicates += @intFromBool(b);
+        } else |_| {}
+        for (list) |*txn| {
+            if (txn.category != .uncategorized) continue;
+            const matched = categories.matchRules(database.handle, txn.descriptionSlice());
+            if (matched != .uncategorized) txn.category = matched;
+        }
+    }
+
+    const buf_size: usize = 4 * 1024 * 1024;
+    const buf = fba.allocator().alloc(u8, buf_size + 4) catch {
+        setError("wimg_parse_statement: failed to allocate output buffer", .{});
+        return null;
+    };
+    var pos: usize = 4;
+    const hdr = std.fmt.bufPrint(buf[4..], "{{\"format\":\"{s}\",\"account\":", .{fmt.name()}) catch {
+        fba.allocator().free(buf);
+        return null;
+    };
+    pos += hdr.len;
+    pos += jsonQuoted(buf[pos .. buf_size + 4], account) orelse {
+        fba.allocator().free(buf);
+        return null;
+    };
+    const mid = std.fmt.bufPrint(buf[pos .. buf_size + 4], ",\"total_rows\":{d},\"duplicates\":{d},\"transactions\":[", .{ list.len, duplicates }) catch {
+        fba.allocator().free(buf);
+        return null;
+    };
+    pos += mid.len;
+    for (list, 0..) |*txn, i| {
+        const written = formatPreviewTransaction(buf[pos .. buf_size + 4], i == 0, &txn.id, txn.date.year, txn.date.month, txn.date.day, txn.descriptionSlice(), txn.amount_cents, &txn.currency, @backingInt(txn.category), txn.accountSlice()) orelse {
+            setError("wimg_parse_statement: too many bookings for the preview", .{});
+            fba.allocator().free(buf);
+            return null;
+        };
+        pos += written;
+    }
+    if (pos + 2 > buf_size + 4) {
+        fba.allocator().free(buf);
+        return null;
+    }
+    buf[pos] = ']';
+    buf[pos + 1] = '}';
+    pos += 2;
+    const body_len: u32 = @intCast(pos - 4);
+    std.mem.writeInt(u32, buf[0..4], body_len, .little);
+    return buf.ptr;
+}
+
+/// Imports a statement file (MT940 or CAMT) into the account of its bank (the
+/// same account a FinTS connection to that bank fills). A booking whose twin
+/// (account, day, amount) is already here is skipped, so a file next to fetched
+/// bookings, or the same file twice, adds nothing twice. Sets the account balance
+/// from the statement when it is newer. Same JSON as wimg_import_csv.
+export fn wimg_import_statement(data: [*]const u8, len: u32) ?[*]const u8 {
+    var database = global_db orelse {
+        setError("wimg_import_statement: database not initialized", .{});
+        return null;
+    };
+    const bytes = data[0..len];
+    const fmt = import_mod.detect(bytes) orelse {
+        setError("not a statement", .{});
+        return null;
+    };
+    const account = import_mod.accountFor(bytes, fmt);
+    const txns = fba.allocator().alloc(Transaction, statement_max) catch {
+        setError("wimg_import_statement: out of memory", .{});
+        return null;
+    };
+    defer fba.allocator().free(txns);
+    const twin = fba.allocator().alloc(bool, statement_max) catch {
+        setError("wimg_import_statement: out of memory", .{});
+        return null;
+    };
+    defer fba.allocator().free(twin);
+
+    const parsed = import_mod.parseStatement(bytes, fmt, account, txns);
+    database.ensureAccount(account, account, "#4361ee") catch {};
+    const applied = import_mod.apply(&database, txns[0..parsed.count], .day_and_amount, twin);
+    if (applied.imported > 0) _ = recurring.detectRecurring(&database) catch 0;
+    if (parsed.balance_date > 0) {
+        var date_buf: [10]u8 = undefined;
+        const d = parsed.balance_date;
+        const date_str = std.fmt.bufPrint(&date_buf, "{d:0>4}-{d:0>2}-{d:0>2}", .{ d / 10000, (d / 100) % 100, d % 100 }) catch "";
+        if (date_str.len > 0) database.setAccountBalance(account, parsed.balance_cents, date_str) catch {};
+    }
+
+    var json_buf: [256]u8 = undefined;
+    const json = std.fmt.bufPrint(&json_buf, "{{\"total_rows\":{d},\"imported\":{d},\"skipped_duplicates\":{d},\"errors\":{d},\"format\":\"{s}\",\"categorized\":0}}", .{
+        parsed.count, applied.imported, applied.duplicates, parsed.errors, fmt.name(),
+    }) catch return null;
+    return makeLengthPrefixed(json);
+}
+
+/// `"text"` with JSON escaping, for small strings like an account name.
+fn jsonQuoted(out: []u8, s: []const u8) ?usize {
+    if (out.len < 2) return null;
+    out[0] = '"';
+    var pos: usize = 1;
+    for (s) |ch| {
+        if (pos + 7 > out.len) return null;
+        switch (ch) {
+            '"', '\\' => {
+                out[pos] = '\\';
+                out[pos + 1] = ch;
+                pos += 2;
+            },
+            0...0x1f => {
+                const w = std.fmt.bufPrint(out[pos..], "\\u{x:0>4}", .{ch}) catch return null;
+                pos += w.len;
+            },
+            else => {
+                out[pos] = ch;
+                pos += 1;
+            },
+        }
+    }
+    out[pos] = '"';
+    return pos + 1;
 }
 
 /// Parse CSV without importing into the database (preview only).
@@ -2825,22 +2977,9 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
                 });
             }
 
-            for (txn_buf[0..mt940_result.count]) |*txn| {
-                const inserted = database.insertTransaction(txn) catch {
-                    continue;
-                };
-                if (inserted) {
-                    imported += 1;
-                    if (txn.category == .uncategorized) {
-                        const matched = categories.matchRules(database.handle, txn.descriptionSlice());
-                        if (matched != .uncategorized) {
-                            database.setCategoryById(&txn.id, matched) catch {};
-                        }
-                    }
-                } else {
-                    duplicates += 1;
-                }
-            }
+            const applied = import_mod.apply(&database, txn_buf[0..mt940_result.count], .same_id, &.{});
+            imported += applied.imported;
+            duplicates += applied.duplicates;
         } else if (resp.camt_len > 0) {
             saw_camt = true;
 
@@ -2870,39 +3009,11 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
             }
 
             // CAMT next to MT940 history: a booking whose twin (same account, day and
-            // amount) is already here is skipped; counted before inserting, so two
-            // equal coffees on one day both stay.
-            var twin: [2000]bool = @splat(false);
-            if (camt_short) {
-                for (txn_buf[0..camt_result.count], 0..) |*t, i| {
-                    var same_before: i64 = 0;
-                    for (txn_buf[0..i]) |*u| {
-                        if (u.date.year == t.date.year and u.date.month == t.date.month and u.date.day == t.date.day and u.amount_cents == t.amount_cents) same_before += 1;
-                    }
-                    const here = database.countSameBooking(t.accountSlice(), t.date.year, t.date.month, t.date.day, t.amount_cents);
-                    twin[i] = same_before < here;
-                }
-            }
-            for (txn_buf[0..camt_result.count], 0..) |*txn, i| {
-                if (twin[i]) {
-                    duplicates += 1;
-                    continue;
-                }
-                const inserted = database.insertTransaction(txn) catch {
-                    continue;
-                };
-                if (inserted) {
-                    imported += 1;
-                    if (txn.category == .uncategorized) {
-                        const matched = categories.matchRules(database.handle, txn.descriptionSlice());
-                        if (matched != .uncategorized) {
-                            database.setCategoryById(&txn.id, matched) catch {};
-                        }
-                    }
-                } else {
-                    duplicates += 1;
-                }
-            }
+            // amount) is already here is skipped (import.zig, TwinRule.day_and_amount).
+            var twin_scratch: [2000]bool = undefined;
+            const applied = import_mod.apply(&database, txn_buf[0..camt_result.count], if (camt_short) .day_and_amount else .same_id, &twin_scratch);
+            imported += applied.imported;
+            duplicates += applied.duplicates;
         }
 
         // Not yet booked ("vorgemerkt"): parsed apart, never imported as booked.
@@ -3342,4 +3453,32 @@ test "an import detects fixed costs without Erneut erkennen" {
     defer _ = c.sqlite3_finalize(stmt.?);
     try std.testing.expectEqual(c.SQLITE_ROW, c.sqlite3_step(stmt.?));
     try std.testing.expect(c.sqlite3_column_int(stmt.?, 0) >= 1);
+}
+
+test "statement file: imported into the bank's account, the same file twice adds nothing" {
+    try std.testing.expectEqual(@as(i32, 0), wimg_init(":memory:"));
+    defer wimg_close();
+    const sta = ":20:STARTUMS\r\n:25:20041177/1234567890\r\n:28C:00001/001\r\n:60F:C261101EUR1000,00\r\n" ++
+        ":61:2611030301DR12,99NDDTNONREF\r\n:86:005?00LASTSCHRIFT?20MUSTERSTREAM ABO\r\n" ++
+        ":61:2611050501DR45,10NDDTNONREF\r\n:86:005?00LASTSCHRIFT?20MUSTERMARKT EINKAUF\r\n" ++
+        ":62F:C261105EUR941,91\r\n-\r\n";
+    const r1 = wimg_import_statement(sta.ptr, sta.len) orelse return error.ImportFailed;
+    const n1 = std.mem.readInt(u32, r1[0..4], .little);
+    defer wimg_free(r1, n1 + 4);
+    try std.testing.expect(std.mem.indexOf(u8, r1[4 .. 4 + n1], "\"imported\":2") != null);
+    const r2 = wimg_import_statement(sta.ptr, sta.len) orelse return error.ImportFailed;
+    const n2 = std.mem.readInt(u32, r2[0..4], .little);
+    defer wimg_free(r2, n2 + 4);
+    try std.testing.expect(std.mem.indexOf(u8, r2[4 .. 4 + n2], "\"imported\":0,\"skipped_duplicates\":2") != null);
+    // The account is the bank's name (the one a FinTS connection would use), with the statement's balance.
+    const bank = banks_mod.findByBlz("20041177").?;
+    var database = global_db.?;
+    const c = @import("sqlite_c.zig");
+    var stmt: ?*c.sqlite3_stmt = null;
+    try std.testing.expectEqual(c.SQLITE_OK, c.sqlite3_prepare_v2(database.handle, "SELECT balance_cents FROM accounts WHERE id = ?1;", -1, &stmt, null));
+    defer _ = c.sqlite3_finalize(stmt.?);
+    _ = c.sqlite3_bind_text(stmt.?, 1, bank.nameSlice().ptr, @intCast(bank.nameSlice().len), c.SQLITE_STATIC);
+    try std.testing.expectEqual(c.SQLITE_ROW, c.sqlite3_step(stmt.?));
+    try std.testing.expectEqual(@as(i64, 94191), c.sqlite3_column_int64(stmt.?, 0));
+    _ = &database;
 }

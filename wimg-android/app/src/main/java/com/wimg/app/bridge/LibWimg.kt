@@ -97,6 +97,17 @@ object LibWimg {
         json.decodeFromString(str)
     }
 
+    /** MT940 or CAMT statement file; null when the bytes aren't one (then try CSV). */
+    fun parseStatement(data: ByteArray): ParseResult? = lock.withLock {
+        val str = WimgJni.nativeParseStatement(data) ?: return null
+        json.decodeFromString(str)
+    }
+
+    fun importStatement(data: ByteArray): ImportResult? = lock.withLock {
+        val str = WimgJni.nativeImportStatement(data) ?: return null
+        json.decodeFromString(str)
+    }
+
     // --- Accounts ---
 
     fun getAccounts(): List<Account> = lock.withLock {

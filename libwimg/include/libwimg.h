@@ -39,6 +39,14 @@ const uint8_t *wimg_parse_csv(const uint8_t *data, uint32_t len);
 // Returns NULL on error.
 const uint8_t *wimg_import_csv(const uint8_t *data, uint32_t len);
 
+// Statement files (MT940 .sta/.mt940, CAMT .xml), recognized by content.
+// Preview: {"format","account","total_rows","duplicates","transactions":[…]};
+// NULL with the error "not a statement" for anything else (try CSV then).
+const uint8_t *wimg_parse_statement(const uint8_t *data, uint32_t len);
+// Import into the bank's account (BLZ from :25: or the IBAN); skips bookings whose
+// twin (account, day, amount) is already here. Same JSON as wimg_import_csv.
+const uint8_t *wimg_import_statement(const uint8_t *data, uint32_t len);
+
 // --- Transactions ---
 
 // Get all transactions as a length-prefixed JSON array.

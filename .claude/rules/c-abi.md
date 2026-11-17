@@ -19,6 +19,8 @@ export fn wimg_get_error() ?[*]const u8
 // Import
 export fn wimg_parse_csv(data: [*]const u8, len: u32) ?[*]const u8
 export fn wimg_import_csv(data: [*]const u8, len: u32) ?[*]const u8
+export fn wimg_parse_statement(data: [*]const u8, len: u32) ?[*]const u8   // MT940/CAMT preview {format,account,total_rows,duplicates,transactions}; null "not a statement"
+export fn wimg_import_statement(data: [*]const u8, len: u32) ?[*]const u8  // into the bank's account (BLZ/IBAN), twins (account, day, amount) skipped; JSON like import_csv
 
 // Transactions
 export fn wimg_get_transactions() ?[*]const u8

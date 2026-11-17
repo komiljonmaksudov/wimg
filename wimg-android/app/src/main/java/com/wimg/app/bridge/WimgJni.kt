@@ -29,6 +29,8 @@ object WimgJni {
     // Import
     external fun nativeParseCsv(data: ByteArray): String?
     external fun nativeImportCsv(data: ByteArray): String?
+    external fun nativeParseStatement(data: ByteArray): String?
+    external fun nativeImportStatement(data: ByteArray): String?
 
     // Accounts
     external fun nativeGetAccounts(): String?

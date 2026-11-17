@@ -41,6 +41,9 @@ data class ParseResult(
     val format: String,
     val total_rows: Int,
     val transactions: List<Transaction>,
+    /** Statement files: the bank's account they go to, and what is already here. */
+    val account: String = "",
+    val duplicates: Int = 0,
 )
 
 @Serializable

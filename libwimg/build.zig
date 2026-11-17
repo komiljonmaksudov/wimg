@@ -145,6 +145,21 @@ pub fn build(b: *std.Build) void {
     period_tests.root_module.link_libc = true;
     test_step.dependOn(&b.addRunArtifact(period_tests).step);
 
+    // The import seam and statement files (import.zig).
+    const import_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/import.zig"),
+            .target = b.resolveTargetQuery(.{}),
+            .optimize = optimize,
+        }),
+    });
+    import_tests.root_module.addCSourceFile(.{
+        .file = b.path("vendor/sqlite3.c"),
+        .flags = native_sqlite_flags,
+    });
+    import_tests.root_module.link_libc = true;
+    test_step.dependOn(&b.addRunArtifact(import_tests).step);
+
     // FinTS modules (native-only)
     const banks_tests = b.addTest(.{
         .root_module = b.createModule(.{

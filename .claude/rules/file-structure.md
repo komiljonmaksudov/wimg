@@ -33,6 +33,7 @@ wimg/
 │       ├── parser.zig         CSV parsers (Comdirect, TR, Scalable)
 │       ├── categories.zig     keyword rules
 │       ├── booking.zig        booking-type prefixes → row title + kind
+│       ├── import.zig         import seam (twins, categories) + MT940/CAMT statement files
 │       ├── recurring.zig      recurring detection
 │       ├── period.zig         Gehaltsmonat: salary detection, periods
 │       ├── summary.zig        monthly summaries

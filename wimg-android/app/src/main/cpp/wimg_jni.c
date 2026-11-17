@@ -17,6 +17,8 @@ extern int32_t wimg_auto_categorize(void);
 extern const uint8_t *wimg_get_summary_filtered(uint32_t year, uint32_t month, const uint8_t *acct, uint32_t acct_len);
 extern const uint8_t *wimg_parse_csv(const uint8_t *data, uint32_t len);
 extern const uint8_t *wimg_import_csv(const uint8_t *data, uint32_t len);
+extern const uint8_t *wimg_parse_statement(const uint8_t *data, uint32_t len);
+extern const uint8_t *wimg_import_statement(const uint8_t *data, uint32_t len);
 extern const uint8_t *wimg_get_accounts(void);
 extern const uint8_t *wimg_get_recurring(void);
 extern int32_t wimg_detect_recurring(void);
@@ -163,6 +165,22 @@ JNIEXPORT jstring JNICALL JNI_FN(nativeImportCsv)(JNIEnv *env, jobject obj, jbyt
     jsize len = (*env)->GetArrayLength(env, data);
     jbyte *bytes = (*env)->GetByteArrayElements(env, data, NULL);
     const uint8_t *ptr = wimg_import_csv((const uint8_t *)bytes, len);
+    (*env)->ReleaseByteArrayElements(env, data, bytes, JNI_ABORT);
+    return ptr_to_jstring(env, ptr);
+}
+
+JNIEXPORT jstring JNICALL JNI_FN(nativeParseStatement)(JNIEnv *env, jobject obj, jbyteArray data) {
+    jsize len = (*env)->GetArrayLength(env, data);
+    jbyte *bytes = (*env)->GetByteArrayElements(env, data, NULL);
+    const uint8_t *ptr = wimg_parse_statement((const uint8_t *)bytes, len);
+    (*env)->ReleaseByteArrayElements(env, data, bytes, JNI_ABORT);
+    return ptr_to_jstring(env, ptr);
+}
+
+JNIEXPORT jstring JNICALL JNI_FN(nativeImportStatement)(JNIEnv *env, jobject obj, jbyteArray data) {
+    jsize len = (*env)->GetArrayLength(env, data);
+    jbyte *bytes = (*env)->GetByteArrayElements(env, data, NULL);
+    const uint8_t *ptr = wimg_import_statement((const uint8_t *)bytes, len);
     (*env)->ReleaseByteArrayElements(env, data, bytes, JNI_ABORT);
     return ptr_to_jstring(env, ptr);
 }

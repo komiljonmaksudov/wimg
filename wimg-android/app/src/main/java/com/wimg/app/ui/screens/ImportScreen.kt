@@ -88,10 +88,16 @@ private val SOURCES = listOf(
         "scalable_capital", "Scalable", "Verrechnungskonto",
         listOf("Bei Scalable Capital im Browser anmelden.", "Unter Transaktionen die Umsätze als CSV exportieren.", "Die Datei hier auswählen. Sie bleibt auf deinem Gerät."),
     ),
+    // Any bank: statement files (libwimg import.zig), for banks FinTS can't reach
+    // or anyone who'd rather not type a PIN into an app.
+    Source(
+        "statement", "Andere Bank", "Kontoauszug als MT940 oder CAMT",
+        listOf("Im Online-Banking deiner Bank die Umsätze oder Kontoauszüge öffnen.", "Als MT940 (.sta) oder CAMT (.xml) exportieren. Oft heißt das „Export für Finanzsoftware“.", "Die Datei hier auswählen. Sie bleibt auf deinem Gerät."),
+    ),
 )
 
 /** A read file waiting for confirmation: nothing is written until "importieren". */
-private class Picked(val name: String, val bytes: ByteArray, val format: String, val rows: List<Transaction>, val duplicates: Int)
+private class Picked(val name: String, val bytes: ByteArray, val format: String, val rows: List<Transaction>, val duplicates: Int, val statement: Boolean = false, val account: String = "")
 
 private enum class ImportStep { Source, Preview, Done }
 
@@ -120,6 +126,11 @@ fun ImportScreen(navController: NavController) {
             val p = withContext(Dispatchers.IO) {
                 runCatching {
                     val bytes = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
+                    // A statement file (MT940, CAMT) first; anything else is tried as CSV.
+                    LibWimg.parseStatement(bytes)?.let { st ->
+                        return@runCatching if (st.transactions.isEmpty()) null
+                        else Picked(displayName(context, uri), bytes, st.format, st.transactions, st.duplicates, statement = true, account = st.account)
+                    }
                     val parsed = LibWimg.parseCsv(bytes) ?: return@runCatching null
                     if (parsed.transactions.isEmpty()) return@runCatching null
                     // Same id scheme as the database, so this matches what import will skip.
@@ -128,7 +139,7 @@ fun ImportScreen(navController: NavController) {
                 }.getOrNull()
             }
             busy = false
-            if (p == null) error = __t("wimg erkennt diese Datei nicht. Unterstützt sind CSV-Exporte von Comdirect, Trade Republic und Scalable.")
+            if (p == null) error = __t("wimg erkennt diese Datei nicht. Unterstützt sind Kontoauszüge als MT940 oder CAMT und CSV-Exporte von Comdirect, Trade Republic und Scalable.")
             else { picked = p; step = ImportStep.Preview }
         }
     }
@@ -137,7 +148,7 @@ fun ImportScreen(navController: NavController) {
         val p = picked ?: return
         busy = true
         scope.launch {
-            val r = withContext(Dispatchers.IO) { runCatching { LibWimg.importCsv(p.bytes) }.getOrNull() }
+            val r = withContext(Dispatchers.IO) { runCatching { if (p.statement) LibWimg.importStatement(p.bytes) else LibWimg.importCsv(p.bytes) }.getOrNull() }
             busy = false
             if (r == null) { error = __t("Import fehlgeschlagen. Es wurde nichts gespeichert."); return@launch }
             Changes.bump()
@@ -154,7 +165,7 @@ fun ImportScreen(navController: NavController) {
             ImportStep.Source -> DetailBarSpec(
                 onBack = { navController.popBackStack() },
                 actionLabel = L("Datei wählen"), actionIcon = null, actionBusy = busy,
-                onAction = { if (!busy) picker.launch(arrayOf("text/*", "application/csv", "application/vnd.ms-excel", "application/octet-stream")) },
+                onAction = { if (!busy) picker.launch(arrayOf("text/*", "application/csv", "application/vnd.ms-excel", "application/xml", "application/octet-stream")) },
             )
             ImportStep.Preview -> {
                 val n = (p?.rows?.size ?: 0) - (p?.duplicates ?: 0)
@@ -178,9 +189,9 @@ fun ImportScreen(navController: NavController) {
     BandScreen(
         band = {
             when (step) {
-                ImportStep.Source -> StepBand(L("CSV-Import"), 1, 3, L("CSV-Datei wählen"))
-                ImportStep.Preview -> StepBand(L("CSV-Import"), 2, 3, L("Vorschau"))
-                ImportStep.Done -> StepBand(L("CSV-Import"), 3, 3, L("Fertig"))
+                ImportStep.Source -> StepBand(L("Import"), 1, 3, L("Datei wählen"))
+                ImportStep.Preview -> StepBand(L("Import"), 2, 3, L("Vorschau"))
+                ImportStep.Done -> StepBand(L("Import"), 3, 3, L("Fertig"))
             }
         },
     ) {
@@ -190,7 +201,7 @@ fun ImportScreen(navController: NavController) {
                     // No bank to choose: libwimg recognises the file, the preview shows
                     // which bank it is. The rows only say how to get the file.
                     Text(
-                        L("Wähle die CSV-Datei deiner Bank. wimg erkennt selbst, von wem sie ist; sie bleibt auf deinem Gerät."),
+                        L("Wähle einen Kontoauszug (MT940, CAMT) oder eine CSV-Datei deiner Bank. wimg erkennt selbst, was es ist; die Datei bleibt auf deinem Gerät."),
                         style = WimgType.body, color = c.text2, modifier = Modifier.padding(top = 14.dp, start = 4.dp, end = 4.dp),
                     )
                     GroupLabel(L("So kommst du an die Datei"))
@@ -204,7 +215,8 @@ fun ImportScreen(navController: NavController) {
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.weight(1f)) {
-                                        Text(src.name, style = WimgType.rowTitle.copy(fontWeight = FontWeight.Bold), color = c.text)
+                                        // Bank names stay as they are; "Andere Bank" has a translation.
+                                        Text(L(src.name), style = WimgType.rowTitle.copy(fontWeight = FontWeight.Bold), color = c.text)
                                         Text(L(src.account), style = WimgType.desc, color = c.text2)
                                     }
                                     Icon(if (open) Icons.Outlined.Remove else Icons.Outlined.Add, contentDescription = null, tint = if (open) c.accent else c.text2, modifier = Modifier.size(22.dp))
@@ -227,12 +239,16 @@ fun ImportScreen(navController: NavController) {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(Modifier.size(44.dp).clip(WimgShape.iconTile).background(c.neutralTint), contentAlignment = Alignment.Center) {
-                            Text("CSV", style = WimgType.mono, color = c.text)
+                            Text(if (p.statement) (if (p.format == "camt") "XML" else "STA") else "CSV", style = WimgType.mono, color = c.text)
                         }
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
                             Text(p.name, style = WimgType.mono.copy(fontSize = WimgType.mono.fontSize * 1.1f), color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(src?.let { "${it.name} · ${L(it.account)}" } ?: L("Format erkannt"), style = WimgType.desc, color = c.text2)
+                            Text(
+                                if (p.statement) "${p.account} · ${L("Kontoauszug")} ${p.format.uppercase()}"
+                                else src?.let { "${it.name} · ${L(it.account)}" } ?: L("Format erkannt"),
+                                style = WimgType.desc, color = c.text2,
+                            )
                         }
                     }
                     val dates = p.rows.map { it.date }.sorted()
