@@ -19,14 +19,21 @@ if [ -e "$KEY" ]; then
   echo "$KEY already exists. Refusing to overwrite the permanent key." >&2
   exit 1
 fi
-command -v keytool >/dev/null || { echo "keytool not found (install a JDK)" >&2; exit 1; }
+# /usr/bin/keytool is macOS's stub without a system Java: prefer JAVA_HOME,
+# then Android Studio's bundled JBR.
+KEYTOOL=""
+for j in "${JAVA_HOME:-}" "/Applications/Android Studio.app/Contents/jbr/Contents/Home"; do
+  if [ -n "$j" ] && [ -x "$j/bin/keytool" ]; then KEYTOOL="$j/bin/keytool"; break; fi
+done
+if [ -z "$KEYTOOL" ] && keytool -help >/dev/null 2>&1; then KEYTOOL=keytool; fi
+[ -n "$KEYTOOL" ] || { echo "keytool not found (install a JDK or Android Studio)" >&2; exit 1; }
 command -v gh >/dev/null || { echo "gh not found" >&2; exit 1; }
 # Only the active account: `gh auth status` also fails on a stale second one.
 gh auth token >/dev/null 2>&1 || { echo "gh is not logged in: gh auth login" >&2; exit 1; }
 
 PASS="$(openssl rand -base64 33 | tr -d '/+=\n')"
 
-keytool -genkeypair -storetype PKCS12 -keystore "$KEY" -alias wimg-apk \
+"$KEYTOOL" -genkeypair -storetype PKCS12 -keystore "$KEY" -alias wimg-apk \
   -keyalg RSA -keysize 4096 -validity 10950 \
   -dname "CN=wimg" \
   -storepass "$PASS" -keypass "$PASS" >/dev/null
@@ -39,5 +46,5 @@ printf '%s' "$PASS" | gh secret set WIMG_APK_KEYSTORE_PASSWORD
 
 echo "Key: $KEY (password in the Keychain as \"$SERVICE\")"
 echo "SHA-256 fingerprint:"
-keytool -list -v -keystore "$KEY" -storepass "$PASS" -alias wimg-apk | grep 'SHA256:'
+"$KEYTOOL" -list -v -keystore "$KEY" -storepass "$PASS" -alias wimg-apk | grep 'SHA256:'
 echo "Back up $KEY now (password manager or encrypted backup)."
