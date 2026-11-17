@@ -19,7 +19,7 @@ description 4000 characters.
 wimg zeigt dir, wo dein Geld hingeht. Deine Daten bleiben auf deinem Handy.
 
 DIREKT VON DEINER BANK
-Hol deine Umsätze per FinTS direkt von deiner Bank, ohne Dienst dazwischen. Rund 1.700 deutsche Banken, mit TAN, photoTAN oder Freigabe in der Banking-App. Mehrere Banken gleichzeitig. Oder importiere einen Kontoauszug (MT940, CAMT) von jeder Bank oder eine CSV-Datei von Comdirect, Trade Republic oder Scalable.
+Hol deine Umsätze per FinTS direkt von deiner Bank, ohne Dienst dazwischen. Rund 1.700 deutsche Banken, mit TAN, photoTAN oder Freigabe in der Banking-App. Mehrere Banken gleichzeitig. Oder importiere einen Kontoauszug (MT940, CAMT) von jeder Bank oder eine CSV-Datei von Comdirect, Trade Republic, Scalable oder Revolut.
 
 WAS DU SIEHST
 • Übersicht: was im Monat noch verfügbar ist, Sparquote, Ausgaben nach Kategorie im Vergleich zum Vormonat
@@ -48,7 +48,7 @@ wimg ist quelloffen (MIT-Lizenz). Den Code findest du auf GitHub.
 wimg shows you where your money goes. Your data stays on your phone.
 
 STRAIGHT FROM YOUR BANK
-Fetch your transactions directly from your bank via FinTS, with no service in between. About 1,700 German banks, with TAN, photoTAN or approval in your banking app. Several banks at once. Or import a bank statement (MT940, CAMT) from any bank, or a CSV file from Comdirect, Trade Republic or Scalable.
+Fetch your transactions directly from your bank via FinTS, with no service in between. About 1,700 German banks, with TAN, photoTAN or approval in your banking app. Several banks at once. Or import a bank statement (MT940, CAMT) from any bank, or a CSV file from Comdirect, Trade Republic, Scalable or Revolut.
 
 WHAT YOU SEE
 • Overview: what's left this month, savings rate, spending by category compared with last month
@@ -134,7 +134,7 @@ didn't use the app; vendor blogs agree that inactive testers are the usual reaso
 - **Tester instructions** (in the test's description and to Testers Community):
   start empty → demo data, then try Overview, Transactions (search, filter, a
   detail), Recurring, Review, the + menu (add a cash entry), Settings, a widget.
-  Optional with a German bank: import your bank's CSV. Feedback: the Play "private feedback"
+  Optional: import a statement file (MT940, CAMT) from your bank or a Revolut CSV. Feedback: the Play "private feedback"
   in the test, or the testing service's report.
 - **Keep a feedback log** (date, tester, what, what changed): the form asks for a
   summary and for changes made.
@@ -145,7 +145,7 @@ Draft answers for the application form:
 - *Features used:* testers used every screen with demo data. The bank connection
   needs a German online-banking login, so I tested it myself with my own account
   (Comdirect: MT940 and CAMT, TAN and app approval, the daily background fetch).
-  Testers with a German bank could import their bank's CSV instead.
+  Testers could import a statement file from their bank or a Revolut CSV instead.
 - *Matches production use:* yes for the screens; real users will mostly connect
   a bank instead of using demo data.
 - *Feedback and how collected:* summary from the log.
