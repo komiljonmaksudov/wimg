@@ -253,7 +253,9 @@ object BackgroundRefresh {
         runCatching { com.wimg.app.bridge.LibWimg.detectRecurring() }
         val since = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -14) }
             .let { "%04d-%02d-%02d".format(it.get(Calendar.YEAR), it.get(Calendar.MONTH) + 1, it.get(Calendar.DAY_OF_MONTH)) }
-        val rise = runCatching { com.wimg.app.ui.screens.latestPriceRise(since) }.getOrNull() ?: return
+        // At least 1 € and 5 % more: bills that vary a little every month
+        // (electricity, phone) shouldn't notify each time.
+        val rise = runCatching { com.wimg.app.ui.screens.latestPriceRise(since, minEuro = 0.99, minShare = 0.05) }.getOrNull() ?: return
         val key = "${rise.id}:${Math.round(rise.new * 100)}"
         val prefs = context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE)
         val done = prefs.getStringSet(PRICE_KEY, emptySet()).orEmpty()

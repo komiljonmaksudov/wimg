@@ -114,10 +114,15 @@ internal data class HomeData(
 
 internal class PriceRise(val id: String, val name: String, val old: Double, val new: Double, val seen: String)
 
-/** A fixed cost booked at a higher price since [fromIso] and not yet confirmed ("Stimmt, neuer Preis"). */
-internal fun latestPriceRise(fromIso: String): PriceRise? =
+/**
+ * A fixed cost booked at a higher price since [fromIso] and not yet confirmed
+ * ("Stimmt, neuer Preis"). The rise must exceed [minEuro] and [minShare]
+ * (0.05 = 5 %); the notification asks for more than the squirrel does.
+ */
+internal fun latestPriceRise(fromIso: String, minEuro: Double = 0.5, minShare: Double = 0.0): PriceRise? =
     LibWimg.getRecurring()
-        .filter { it.active == 1 && !it.isHidden && it.amount < 0 && it.price_change != null && it.prev_amount != null && abs(it.amount) - abs(it.prev_amount) > 0.5 && it.last_seen >= fromIso }
+        .filter { it.active == 1 && !it.isHidden && it.amount < 0 && it.price_change != null && it.prev_amount != null && it.last_seen >= fromIso }
+        .filter { val up = abs(it.amount) - abs(it.prev_amount!!); up > minEuro && up >= abs(it.prev_amount) * minShare }
         .maxByOrNull { it.last_seen }
         ?.let { PriceRise(it.id, it.displayName, abs(it.prev_amount!!), abs(it.amount), it.last_seen) }
 
