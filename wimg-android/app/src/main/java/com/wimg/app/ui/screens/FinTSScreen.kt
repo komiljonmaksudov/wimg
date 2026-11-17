@@ -817,14 +817,53 @@ private fun Field(label: String, value: String, onChange: (String) -> Unit, secr
     )
 }
 
+/**
+ * Banks people use most, by the start of their name: listed first when the
+ * search is empty and ahead of others in each match group. A tester looking
+ * for "ing" found ING-DiBa below every bank in Solingen and Recklinghausen.
+ */
+private val POPULAR_BANKS = listOf(
+    "ing", "dkb", "deutsche kreditbank", "comdirect", "sparkasse", "stadtsparkasse", "kreissparkasse",
+    "volksbank", "commerzbank", "deutsche bank", "postbank", "consorsbank", "hypovereinsbank",
+    "unicredit", "targobank", "1822direkt", "sparda", "psd bank", "norisbank", "santander",
+)
+
+private fun popularity(name: String): Int {
+    val n = name.lowercase()
+    val i = POPULAR_BANKS.indexOfFirst { n.startsWith(it) }
+    return if (i < 0) POPULAR_BANKS.size else i
+}
+
+/**
+ * Search order: name starts with the query, then a word in the name does
+ * ("Deutsche Kreditbank" for "kre"), then the BLZ starts with it, then the
+ * name contains it anywhere ("Solingen" for "ing"). Popular banks first within
+ * each group, then the shorter name.
+ */
+private fun rankBanks(banks: List<BankInfo>, query: String): List<BankInfo> {
+    val q = query.trim().lowercase()
+    val digits = q.replace(" ", "")
+    if (q.isEmpty()) return banks.sortedWith(compareBy({ popularity(it.name) }, { it.name.length }))
+    fun group(b: BankInfo): Int {
+        val n = b.name.lowercase()
+        return when {
+            n.startsWith(q) -> 0
+            n.split(' ', '-', '(', '/', '.').any { it.startsWith(q) } -> 1
+            digits.isNotEmpty() && b.blz.startsWith(digits) -> 2
+            n.contains(q) || (digits.isNotEmpty() && b.blz.contains(digits)) -> 3
+            else -> -1
+        }
+    }
+    return banks.map { it to group(it) }.filter { it.second >= 0 }
+        .sortedWith(compareBy({ it.second }, { popularity(it.first.name) }, { it.first.name.length }))
+        .map { it.first }
+}
+
 @Composable
 private fun BankPicker(banks: List<BankInfo>, onPick: (BankInfo) -> Unit) {
     val c = Wimg.colors
     var q by remember { mutableStateOf("") }
-    val shown = remember(banks, q) {
-        val t = q.trim().lowercase().replace(" ", "")
-        (if (t.isEmpty()) banks else banks.filter { it.name.lowercase().contains(q.trim().lowercase()) || it.blz.contains(t) }).take(60)
-    }
+    val shown = remember(banks, q) { rankBanks(banks, q).take(60) }
     Column(Modifier.fillMaxSize()) {
         Row(
             Modifier.padding(16.dp).fillMaxWidth().clip(WimgShape.group).background(c.card).border(1.dp, c.line, WimgShape.group).padding(horizontal = 14.dp, vertical = 14.dp),

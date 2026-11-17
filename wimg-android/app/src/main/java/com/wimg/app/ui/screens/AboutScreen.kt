@@ -439,7 +439,7 @@ private val FAQ = listOf(
         listOf(
             Faq("Sieht der Server meine Umsätze?", "Nein. wimg verschlüsselt alles auf deinem Gerät, bevor es zum Server geht. Ohne deinen Sync-Schlüssel sind die Daten dort unlesbar. Ausnahme: Verbindest du Claude oder einen anderen KI-Assistenten per MCP, entschlüsselt der Server deine Daten für diese Anfrage mit deinem Schlüssel."),
             Faq("Ich habe den Sync-Schlüssel verloren", "Solange ein Gerät verknüpft ist, findest du ihn dort unter Einstellungen › wimg Sync › Sync-Schlüssel anzeigen. Ist kein Gerät mehr verknüpft, kann niemand die Daten wiederherstellen, auch wimg nicht."),
-            Faq("Wie verbinde ich ein zweites Gerät?", "Auf dem ersten Gerät den Sync-Schlüssel anzeigen. Auf dem zweiten „Ich habe schon wimg“ wählen und den Schlüssel einfügen."),
+            Faq("Wie verbinde ich ein zweites Gerät?", "Auf dem ersten Gerät den Sync-Schlüssel anzeigen. Auf dem zweiten „Ich nutze wimg schon“ wählen und den Schlüssel einfügen."),
         ),
     ),
     FaqGroup(

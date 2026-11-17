@@ -214,7 +214,7 @@ fun SettingsSyncScreen(navController: NavController?) {
                 on = true
                 syncNow()
             }
-            OutlineButton(L("Ich habe schon wimg"), Modifier.padding(top = 10.dp).fillMaxWidth()) { navController?.navigate("settings/sync/link") }
+            OutlineButton(L("Ich nutze wimg schon"), Modifier.padding(top = 10.dp).fillMaxWidth()) { navController?.navigate("settings/sync/link") }
         }
         return
     }
@@ -457,7 +457,7 @@ fun SettingsSyncLinkScreen(navController: NavController?) {
         ),
     )
 
-    SettingsPage(L("Ich habe schon wimg"), L("Mit deinem wimg verbinden")) {
+    SettingsPage(L("Ich nutze wimg schon"), L("Mit deinem wimg verbinden")) {
         Spacer(Modifier.height(14.dp))
         // The viewfinder: camera once allowed, otherwise a tap asks for it.
         Box(
@@ -544,7 +544,7 @@ fun SettingsSyncLinkedScreen(navController: NavController?) {
         ),
     )
 
-    BandScreen(band = { BandTitle(L("Ich habe schon wimg"), L("Verbunden")) }) {
+    BandScreen(band = { BandTitle(L("Ich nutze wimg schon"), L("Verbunden")) }) {
         Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(Modifier.size(72.dp).clip(CircleShape).background(c.pos.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
                 Icon(Icons.Outlined.Check, contentDescription = null, tint = c.pos, modifier = Modifier.size(34.dp))

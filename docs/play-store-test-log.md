@@ -19,6 +19,9 @@ release notes that name the change.
 
 | Date | From | What they said | What changed (build) |
 | --- | --- | --- | --- |
+| 2026-11-17 | Tester (friend, WhatsApp) | "Ich habe schon wimg" should read "Ich nutze wimg schon" | Button and Sync texts renamed (next update) |
+| 2026-11-17 | Tester (friend, WhatsApp) | Searching "ing" puts ING far down the bank list; sort by how common a bank is | Search ranks name start, then word start, then BLZ, then contains; big banks first, also with an empty search (next update) |
+| 2026-11-17 | Tester (friend, WhatsApp) | Wants to import Revolut ("Mit Revolut CSV") | Waiting for a sample export; Revolut has no FinTS (next update or the one after) |
 
 ## Pre-launch reports
 

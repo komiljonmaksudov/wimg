@@ -105,7 +105,7 @@ private fun Welcome(onStart: () -> Unit, onHaveWimg: () -> Unit) {
             Feature(Icons.Outlined.Sync, L("Sync zwischen deinen Geräten"), L("Ende-zu-Ende-verschlüsselt, mit einem Schlüssel statt Passwort."))
         }
         OnboardingBar(Modifier.align(Alignment.BottomCenter)) {
-            BarButton(L("Ich habe schon wimg"), primary = false, modifier = Modifier.weight(1f), onClick = onHaveWimg)
+            BarButton(L("Ich nutze wimg schon"), primary = false, modifier = Modifier.weight(1f), onClick = onHaveWimg)
             BarButton(L("Los geht’s"), primary = true, modifier = Modifier.weight(1f), onClick = onStart)
         }
     }
