@@ -98,6 +98,11 @@ object BackgroundRefresh {
     const val NOTIFY_TAN = "wimg_notify_tan"
     /** "Gehalt eingegangen" (off by default). */
     const val NOTIFY_SALARY = "wimg_notify_salary"
+    /** A fixed cost got more expensive (on by default). */
+    const val NOTIFY_PRICE = "wimg_notify_price"
+    private const val PRICE_NOTIFICATION_ID = 4714
+    /** Price rises already notified: "patternId:newCents", newest 40. */
+    private const val PRICE_KEY = "wimg_price_notified"
     /** "Nicht stören": "22-8" style start and end hour, or empty for off. */
     const val QUIET_HOURS = "wimg_quiet_hours"
 
@@ -235,6 +240,29 @@ object BackgroundRefresh {
                 route = "fints",
             )
             Outcome.Silent -> Unit
+        }
+    }
+
+    /**
+     * A fixed cost booked at a higher price in the last 14 days (Phase 6.9 v2).
+     * Detection runs first: it otherwise only runs on "Erneut erkennen", so a
+     * fetched higher payment wouldn't count as a new price yet. Once per price.
+     */
+    internal fun notifyPriceRise(context: Context) {
+        if (!notifyOn(context, NOTIFY_PRICE)) return
+        runCatching { com.wimg.app.bridge.LibWimg.detectRecurring() }
+        val since = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -14) }
+            .let { "%04d-%02d-%02d".format(it.get(Calendar.YEAR), it.get(Calendar.MONTH) + 1, it.get(Calendar.DAY_OF_MONTH)) }
+        val rise = runCatching { com.wimg.app.ui.screens.latestPriceRise(since) }.getOrNull() ?: return
+        val key = "${rise.id}:${Math.round(rise.new * 100)}"
+        val prefs = context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE)
+        val done = prefs.getStringSet(PRICE_KEY, emptySet()).orEmpty()
+        if (key in done) return
+        val money = { v: Double -> com.wimg.app.ui.components.amountText(v, showPlus = false) }
+        val body = if (amountsHidden(context)) tr(context, "%s kostet jetzt mehr.").format(rise.name)
+            else tr(context, "%s kostet jetzt %s statt %s.").format(rise.name, money(rise.new), money(rise.old))
+        if (post(context, tr(context, "Preis gestiegen"), body, route = "recurring", id = PRICE_NOTIFICATION_ID)) {
+            prefs.edit().putStringSet(PRICE_KEY, (done.toList().takeLast(39) + key).toSet()).apply()
         }
     }
 
@@ -536,6 +564,7 @@ class BackgroundRefreshWorker(
 
         val outcome = BackgroundRefresh.runSilentRefresh(applicationContext)
         BackgroundRefresh.notify(applicationContext, outcome)
+        if (outcome is BackgroundRefresh.Outcome.Imported && outcome.count > 0) runCatching { BackgroundRefresh.notifyPriceRise(applicationContext) }
         return Result.success()
     }
 }

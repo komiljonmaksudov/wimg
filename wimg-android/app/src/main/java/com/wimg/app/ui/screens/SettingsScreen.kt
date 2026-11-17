@@ -265,7 +265,7 @@ fun SettingsScreen(navController: NavController? = null) {
         WimgGroup {
             WimgRow(L("Konten"), desc = L("Ein- und ausblenden, umbenennen"), chevron = true, onClick = { navController?.navigate("settings/accounts") })
             RowDivider()
-            WimgRow(L("Mitteilungen"), desc = L("Monatsabschluss, neue Umsätze, TAN"), chevron = true, onClick = { navController?.navigate("settings/notifications") })
+            WimgRow(L("Mitteilungen"), desc = L("Monatsabschluss, neue Umsätze, Preise, TAN"), chevron = true, onClick = { navController?.navigate("settings/notifications") })
         }
 
         GroupLabel(L("Sicherheit"))
@@ -481,6 +481,8 @@ fun SettingsNotificationsScreen(navController: NavController?) {
             toggle(BackgroundRefresh.NOTIFY_TAN, L("TAN nötig"), L("Wenn die Bank eine TAN will · höchstens 1× am Tag"))
             RowDivider()
             toggle(BackgroundRefresh.NOTIFY_SALARY, L("Gehalt eingegangen"), L("Mit neuem Zeitraum"))
+            RowDivider()
+            toggle(BackgroundRefresh.NOTIFY_PRICE, L("Preis gestiegen"), L("Wenn eine feste Zahlung teurer wird"))
         }
         GroupLabel(L("Ruhezeit"))
         WimgGroup {

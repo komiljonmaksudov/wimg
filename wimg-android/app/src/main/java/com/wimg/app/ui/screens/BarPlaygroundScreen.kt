@@ -1,5 +1,6 @@
 package com.wimg.app.ui.screens
 
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -99,6 +100,8 @@ fun BarPlaygroundScreen(navController: NavController?) {
                 WimgRow("Mitteilung: TAN erforderlich", desc = "Höchstens einmal pro Tag", onClick = { com.wimg.app.services.BackgroundRefresh.notify(context, com.wimg.app.services.BackgroundRefresh.Outcome.TanRequired("Musterbank")) })
                 RowDivider()
                 WimgRow("Mitteilung: Monatsabschluss", onClick = { com.wimg.app.services.BackgroundRefresh.notifyMonthEnd(context, force = true) })
+                RowDivider()
+                WimgRow("Mitteilung: Preis gestiegen", desc = "Einmal pro Preis", onClick = { kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { com.wimg.app.services.BackgroundRefresh.notifyPriceRise(context) } })
                 RowDivider()
                 WimgRow("Läuft (Sync)", onClick = { Dock.show(DockRow(DockKind.Sync, "Umsätze laden", "comdirect · läuft im Hintergrund")) })
                 RowDivider()
