@@ -6,7 +6,7 @@ Open work only, grouped by area; finished work moves to [CHANGELOG.md](CHANGELOG
 - [x] **One schema, v1 (user, 2026-11-14)**: done 2026-11-15 (`db.zig` `migrate()`, meta key `schema`). The Poco was at 23 and is relabelled.
 
 ## Manual entries (user, 2026-11-14)
-- [x] Marked (`transactions.source = 'manual'`, v22/v23), editable and deletable on Android with real deletion across devices (`deleted_transactions` markers), left out of salary detection, "Von Hand" filter in Umsätze. Done 2026-11-14; edit form and filter not tried on the phone yet.
+- [x] Marked (`transactions.source = 'manual'`, v22/v23), editable and deletable on Android with real deletion across devices (`deleted_transactions` markers), left out of salary detection, "Von Hand" filter in Umsätze. Done 2026-11-14; checked on the phone by the user 2026-11-17.
 - [ ] iOS: the same (edit, delete, filter) once Android is settled.
 
 ## FinTS (from the Comdirect analysis, 2026-11-16)
@@ -15,7 +15,7 @@ Open work only, grouped by area; finished work moves to [CHANGELOG.md](CHANGELOG
 - [x] `isEscaped` counts the run of '?' (2026-11-16).
 - [x] Kunden-ID escaped in HNSHK/HNVSK key names and the fallback account (2026-11-16).
 - [ ] Encode outgoing text as ISO-8859-1 like python-fints (we send UTF-8): matters for names/TAN media with umlauts.
-- [x] System id kept per connection (`BankConnection.systemId`, connect without HKSYN, fresh sync if the bank refuses it) (2026-11-16). Not yet tried against a bank.
+- [x] System id kept per connection (`BankConnection.systemId`, connect without HKSYN, fresh sync if the bank refuses it) (2026-11-16). Two ↻ on Comdirect work (user, 2026-11-17).
 - [x] `_debug_*` fields gone from the connect JSON (2026-11-16).
 
 ## Bank sources (decided 2026-11-16, not started)
@@ -28,7 +28,10 @@ Open work only, grouped by area; finished work moves to [CHANGELOG.md](CHANGELOG
 
 ## Android
 - [ ] Notification tap: not reproducible on the emulator anymore (foreground and background, 2026-11-15); confirm with a real notification on the phone.
-- [ ] Price-change notification: the last unbuilt part of Phase 6.9 v2. Recurring already knows the higher price (`price_change`, shown in Wiederkehrend, Home and the squirrel moment); `BackgroundRefresh` doesn't notify it yet. Needs its own toggle under Einstellungen › Mitteilungen.
+- [x] Price-change notification (2026-11-17, `BackgroundRefresh.notifyPriceRise`, switch "Preis gestiegen", on by default). Runs recurring detection after a background import first.
+- [ ] Recurring detection only runs on "Erneut erkennen", the demo and the background job: after an in-app fetch a new price isn't seen until then. Run it after every import (libwimg or the shell).
+- [ ] Merchant names: card payments show raw bank text ("PAYSEND, Dublin IE Karte Nr. …", "KD.1210843747 WIR SAGEN"). Clean them up in libwimg `booking.zig` once the user sends full payment references.
 - [ ] Squirrel: dim the band in the evening for "Tag ohne Ausgaben".
 - [ ] Squirrel: animate the ring days during a moment.
-- [ ] Decision (user): should a period ending in minus get Rückblick cards (only the true ones, without "left over")?
+- [x] Minus periods get the Rückblick cards that are true (quiet days, a caught price), decided by the user 2026-11-17.
+- [ ] On the Poco: Monat widget at 2×2 (compact layout) and an empty account keeping the switch (both fixed 2026-11-17, not seen on a phone yet).
