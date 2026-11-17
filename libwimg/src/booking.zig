@@ -42,6 +42,18 @@ fn match(text: []const u8) ?Match {
     return null;
 }
 
+/// Card payments (Comdirect and others): "MERCHANT, City  CC Karte Nr. 4871 78XX
+/// … Kartenzahlung … Visa-Debitkarte 2026-11-13 00:00:00 Ref. …", in any case and,
+/// once booked, cut into 27-character pieces ("WUPP ERTAL"). The merchant is what
+/// comes before the first comma; without a comma, everything before "Karte Nr.".
+fn cardMerchant(text: []const u8) ?[]const u8 {
+    const k = std.ascii.findIgnoreCase(text, "karte nr.") orelse return null;
+    const head = text[0..k];
+    const end = std.mem.indexOfScalar(u8, head, ',') orelse head.len;
+    const name = std.mem.trim(u8, head[0..end], " ");
+    return if (name.len == 0) null else name;
+}
+
 /// The description without its booking type, or the description itself.
 pub fn stripPrefix(text: []const u8) []const u8 {
     return if (match(text)) |m| m.rest else text;
@@ -49,14 +61,16 @@ pub fn stripPrefix(text: []const u8) []const u8 {
 
 /// Row title: the text after the booking type, trimmed. Never empty.
 pub fn displayTitle(text: []const u8) []const u8 {
-    if (match(text)) |m| return m.rest;
-    const t = std.mem.trim(u8, text, " ");
-    return if (t.len == 0) text else t;
+    const base = if (match(text)) |m| m.rest else std.mem.trim(u8, text, " ");
+    if (cardMerchant(base)) |name| return name;
+    return if (base.len == 0) text else base;
 }
 
 /// Booking type label ("Lastschrift", "Karte", …), or "" when there is none
 /// (CSV imports usually carry no booking type).
 pub fn kind(text: []const u8) []const u8 {
+    // Booked card payments arrive as "Lastschrift": call them what they are.
+    if (cardMerchant(text) != null) return "Karte";
     return if (match(text)) |m| m.kind else "";
 }
 
@@ -83,4 +97,18 @@ test "kind names the booking type" {
     try std.testing.expectEqualStrings("Echtzeitüberweisung", kind("ÜBERTRAG / ÜBERWEISUNG - ECHTZEIT MAX"));
     try std.testing.expectEqualStrings("Überweisung", kind("ÜBERTRAG / ÜBERWEISUNG MAX"));
     try std.testing.expectEqualStrings("", kind("REWE Markt Köln"));
+}
+
+test "card payments show the merchant" {
+    // Invented merchants and card numbers, shaped like Comdirect's texts.
+    try std.testing.expectEqualStrings("Musterladen Discount", displayTitle("Musterladen Discount, Musterstadt  D E Karte Nr. 1234 56XX XXXX 7890 Kartenzahlung comdirect Visa-Debitkarte 2026-11-14 00:00:00"));
+    try std.testing.expectEqualStrings("BEISPIEL PAY", displayTitle("BEISPIEL PAY, Dublin  IE Karte Nr. 1234 56XX XXXX 7890 Kartenzahlung comdirect Visa-Debitkarte 2026-11-13 00:00:00"));
+    // Booked: upper case, cut into pieces, a reference at the end, behind a booking type.
+    try std.testing.expectEqualStrings("MUSTERLADEN DISCOUNT", displayTitle("LASTSCHRIFT / BELASTUNG MUSTERLADEN DISCOUNT, MUST ERSTADT  D E KARTE NR. 1234 56XX XXXX 78 90 KARTENZAHLUNG COMDIRECT VISA-DEBITKARTE 2026-11-11 00:00:00 Ref. 3T2C29KP0Y1ALB6J/47986"));
+    try std.testing.expectEqualStrings("BEISPIEL* ABO", displayTitle("BEISPIEL* ABO, DUBL IN 4  IE KARTE NR. 1234 56XX XXXX 78 90 KARTENZAHLUNG"));
+    // No comma: everything before "Karte Nr."
+    try std.testing.expectEqualStrings("CAFE AM ECK", displayTitle("CAFE AM ECK Karte Nr. 1234 56XX XXXX 7890"));
+    try std.testing.expectEqualStrings("Karte", kind("LASTSCHRIFT / BELASTUNG MUSTERLADEN, MUSTERSTADT DE KARTE NR. 1234"));
+    // Text that only mentions a card later keeps its title.
+    try std.testing.expectEqualStrings("Karte Nr. 1234 gesperrt", displayTitle("Karte Nr. 1234 gesperrt"));
 }
