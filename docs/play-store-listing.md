@@ -16,24 +16,24 @@ description 4000 characters.
 ### Full description (DE)
 
 ```
-wimg zeigt dir, wo dein Geld hingeht – und behält deine Daten dort, wo sie hingehören: auf deinem Handy.
+wimg zeigt dir, wo dein Geld hingeht. Deine Daten bleiben auf deinem Handy.
 
 DIREKT VON DEINER BANK
-Hol deine Umsätze per FinTS direkt von deiner Bank, ohne Dienst dazwischen. Rund 1.700 deutsche Banken, mit TAN, photoTAN oder Freigabe in der Banking-App. Mehrere Banken gleichzeitig. Oder importiere eine CSV-Datei von Comdirect, Trade Republic oder Scalable.
+Hol deine Umsätze per FinTS direkt von deiner Bank, ohne Dienst dazwischen. Rund 1.700 deutsche Banken, mit TAN, photoTAN oder Freigabe in der Banking-App. Mehrere Banken gleichzeitig. Oder importiere einen Kontoauszug (MT940, CAMT) von jeder Bank oder eine CSV-Datei von Comdirect, Trade Republic oder Scalable.
 
-ÜBERBLICK
+WAS DU SIEHST
 • Übersicht: was im Monat noch verfügbar ist, Sparquote, Ausgaben nach Kategorie im Vergleich zum Vormonat
 • Umsätze: alle Buchungen nach Tag, mit Suche und Filtern, vorgemerkte Umsätze getrennt
-• Wiederkehrend: erkennt Fixkosten und Abos automatisch und meldet Preiserhöhungen
-• Rückblick: dein Monat in wenigen Zeilen – was übrig blieb und was auffiel
+• Wiederkehrend: erkennt Fixkosten und Abos und sagt dir Bescheid, wenn ein Preis steigt
+• Rückblick: was am Monatsende übrig blieb und was auffiel
 • Widgets für den Startbildschirm, auf Wunsch ohne Beträge
 
 AUTOMATISCH SORTIERT
-Umsätze werden per Stichwort-Regeln Kategorien zugeordnet. Ordnest du etwas von Hand zu, lernt wimg daraus.
+wimg ordnet Umsätze per Stichwort-Regeln Kategorien zu. Ordnest du etwas von Hand zu, lernt wimg daraus.
 
 DEINE DATEN BLEIBEN BEI DIR
-• Alles liegt in einer Datenbank auf deinem Gerät. wimg funktioniert komplett offline.
-• Kein Konto, keine Anmeldung bei uns, keine Werbung, kein Tracking, keine Analyse-Dienste.
+• Alles wird auf deinem Gerät gespeichert. wimg funktioniert komplett offline.
+• Kein Konto, keine Werbung, kein Tracking, keine Analyse-Dienste.
 • Deine Bank-PIN wird nur auf Wunsch gespeichert, verschlüsselt im Android-Schlüsselspeicher.
 • Optionaler Abgleich zwischen deinen Geräten, Ende-zu-Ende-verschlüsselt: der Server sieht nur unlesbare Daten.
 • App-Sperre mit Fingerabdruck oder Geräte-PIN.
@@ -45,24 +45,24 @@ wimg ist quelloffen (MIT-Lizenz). Den Code findest du auf GitHub.
 ### Full description (EN)
 
 ```
-wimg shows you where your money goes – and keeps your data where it belongs: on your phone.
+wimg shows you where your money goes. Your data stays on your phone.
 
 STRAIGHT FROM YOUR BANK
-Fetch your transactions directly from your bank via FinTS, with no service in between. About 1,700 German banks, with TAN, photoTAN or approval in your banking app. Several banks at once. Or import a CSV file from Comdirect, Trade Republic or Scalable.
+Fetch your transactions directly from your bank via FinTS, with no service in between. About 1,700 German banks, with TAN, photoTAN or approval in your banking app. Several banks at once. Or import a bank statement (MT940, CAMT) from any bank, or a CSV file from Comdirect, Trade Republic or Scalable.
 
-OVERVIEW
+WHAT YOU SEE
 • Overview: what's left this month, savings rate, spending by category compared with last month
 • Transactions: every booking by day, with search and filters, pending bookings shown apart
-• Recurring: detects fixed costs and subscriptions and flags price increases
-• Review: your month in a few lines – what was left over and what stood out
+• Recurring: detects fixed costs and subscriptions and tells you when a price goes up
+• Review: what was left over at the end of the month and what stood out
 • Home screen widgets, optionally without amounts
 
 SORTED AUTOMATICALLY
-Transactions are assigned to categories by keyword rules. When you change one by hand, wimg learns from it.
+wimg sorts transactions into categories by keyword rules. When you change one by hand, wimg learns from it.
 
 YOUR DATA STAYS WITH YOU
-• Everything lives in a database on your device. wimg works fully offline.
-• No account, no sign-up with us, no ads, no tracking, no analytics.
+• Everything is stored on your device. wimg works fully offline.
+• No account, no ads, no tracking, no analytics.
 • Your bank PIN is only saved if you want, encrypted in the Android keystore.
 • Optional sync between your devices, end-to-end encrypted: the server only sees unreadable data.
 • App lock with fingerprint or device PIN.
