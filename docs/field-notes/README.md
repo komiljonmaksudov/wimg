@@ -20,6 +20,7 @@ Plain words, real numbers, no marketing, no real bank data (amounts and merchant
 A note about a security bug stays out of anything public until the fix has shipped to every device, and never shows the exact steps to exploit it.
 
 ## Index
+- [2026-11-17 · A learned rule on "BELASTUNG" filed 1,899 bookings as "Essen gehen"](2026-11-17-learned-rule-on-a-booking-word.md)
 - [2026-11-16 · Comdirect stopped delivering: a '+' in a random id, then a failing MT940 side](2026-11-16-comdirect-random-ids-and-mt940.md)
 - [2026-11-16 · Any error at sign-in deleted the saved PIN](2026-11-16-any-signin-error-deleted-the-pin.md)
 - [2026-11-15 · The squirrel's moment cancelled itself halfway](2026-11-15-moment-cancelled-by-its-own-mark.md)

@@ -88,6 +88,10 @@ export fn wimg_init(path: [*:0]const u8) i32 {
         return -1;
     };
 
+    // Rules learned from a booking word ("BELASTUNG") filed whole kinds of
+    // bookings into one category: undo them, then sort those bookings again.
+    if (global_db.?.dropGenericLearnedRules() > 0) _ = wimg_auto_categorize();
+
     return 0;
 }
 
@@ -3482,4 +3486,23 @@ test "statement file: imported into the bank's account, the same file twice adds
     try std.testing.expectEqual(c.SQLITE_ROW, c.sqlite3_step(stmt.?));
     try std.testing.expectEqual(@as(i64, 94191), c.sqlite3_column_int64(stmt.?, 0));
     _ = &database;
+}
+
+test "start-up drops a learned rule on a booking word and sorts its bookings again" {
+    try std.testing.expectEqual(@as(i32, 0), wimg_init(":memory:"));
+    const c = @import("sqlite_c.zig");
+    var database = global_db.?;
+    try database.exec("INSERT INTO rules (pattern, category, priority) VALUES ('BELASTUNG', 4, 1);");
+    try database.exec("INSERT INTO transactions (id, date_year, date_month, date_day, description, amount_cents, category) VALUES ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 2026, 11, 3, 'LASTSCHRIFT / BELASTUNG MUSTERSTREAM', -999, 4);");
+    std.testing.expectEqual(@as(u32, 1), database.dropGenericLearnedRules()) catch |e| {
+        wimg_close();
+        return e;
+    };
+    var st: ?*c.sqlite3_stmt = null;
+    _ = c.sqlite3_prepare_v2(database.handle, "SELECT (SELECT COUNT(*) FROM rules WHERE pattern = 'BELASTUNG'), (SELECT category FROM transactions);", -1, &st, null);
+    defer _ = c.sqlite3_finalize(st.?);
+    _ = c.sqlite3_step(st.?);
+    try std.testing.expectEqual(@as(c_int, 0), c.sqlite3_column_int(st.?, 0));
+    try std.testing.expectEqual(@as(c_int, 0), c.sqlite3_column_int(st.?, 1));
+    wimg_close();
 }

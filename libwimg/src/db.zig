@@ -2664,6 +2664,30 @@ pub const Db = struct {
 
     /// Deletes a rule. With [reset], transactions it sorted (same category and
     /// the pattern in the text) become uncategorised again; otherwise they stay.
+    /// Learned rules on a generic word ("BELASTUNG", "KARTENVERFÜGUNG"), from
+    /// before extractKeyword skipped them: the bookings they put into a
+    /// category go back to none, then the rule goes. Returns how many went;
+    /// the caller sorts the reset bookings again with the remaining rules.
+    pub fn dropGenericLearnedRules(self: *Db) u32 {
+        var ids: [64]i64 = undefined;
+        var n: usize = 0;
+        {
+            var st: ?*c.sqlite3_stmt = null;
+            if (c.sqlite3_prepare_v2(self.handle, "SELECT id, pattern FROM rules WHERE priority = 1;", -1, &st, null) != c.SQLITE_OK or st == null) return 0;
+            defer _ = c.sqlite3_finalize(st.?);
+            while (n < ids.len and c.sqlite3_step(st.?) == c.SQLITE_ROW) {
+                const p = c.sqlite3_column_text(st.?, 1) orelse continue;
+                const len: usize = @intCast(c.sqlite3_column_bytes(st.?, 1));
+                if (categories.isGenericWord(p[0..len])) {
+                    ids[n] = c.sqlite3_column_int64(st.?, 0);
+                    n += 1;
+                }
+            }
+        }
+        for (ids[0..n]) |id| self.deleteRule(id, true) catch {};
+        return @intCast(n);
+    }
+
     pub fn deleteRule(self: *Db, id: i64, reset: bool) DbError!void {
         if (reset) {
             const sql =
