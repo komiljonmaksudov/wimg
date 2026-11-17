@@ -93,6 +93,23 @@ fun BarPlaygroundScreen(navController: NavController?) {
                 RowDivider()
                 WimgRow("Chip aktiv (schwarz) umschalten", onClick = { chipActive = !chipActive })
             }
+            GroupLabel("Eichhörnchen")
+            WimgGroup {
+                // Each one plays once on Übersicht (files/moment, read by pendingMoment).
+                listOf("gehalt" to "Moment: Gehalt ist da", "nospend" to "Moment: Heute kein Euro raus (Abend)", "price" to "Moment: Preis erwischt",
+                    "knapp" to "Moment: Knapp", "leer" to "Moment: Leer").forEachIndexed { i, (key, title) ->
+                    if (i > 0) RowDivider()
+                    WimgRow(title, chevron = true, onClick = {
+                        java.io.File(context.filesDir, "moment").writeText(key)
+                        navController?.navigate("dashboard") { popUpTo("dashboard") }
+                    })
+                }
+                RowDivider()
+                WimgRow("Rückblick-Karten", desc = "Wenn der Zeitraum Karten hat", chevron = true, onClick = {
+                    java.io.File(context.filesDir, "opener").writeText("1")
+                    navController?.navigate("review") { popUpTo("dashboard") }
+                })
+            }
             GroupLabel("Angedockte Zeile")
             WimgGroup {
                 WimgRow("Mitteilung: neue Umsätze", onClick = { com.wimg.app.services.BackgroundRefresh.notify(context, com.wimg.app.services.BackgroundRefresh.Outcome.Imported(3, "Musterbank")) })

@@ -314,7 +314,7 @@ fun SettingsScreen(navController: NavController? = null) {
             RowDivider()
             WimgRow(L("FAQ und Datenschutz"), chevron = true, onClick = { navController?.navigate("about/faq") })
             // Debug builds only: every floating-bar state on one page.
-            if (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            if (com.wimg.app.ui.components.devTools(context)) {
                 RowDivider()
                 WimgRow("Leiste testen", desc = "Nur in Test-Builds", chevron = true, onClick = { navController?.navigate("dev/bar") })
             }

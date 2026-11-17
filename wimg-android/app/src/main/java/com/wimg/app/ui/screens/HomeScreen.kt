@@ -89,6 +89,7 @@ import com.wimg.app.ui.theme.categoryBar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import java.text.DateFormatSymbols
 import java.util.Calendar
 import java.util.Locale
@@ -1057,8 +1058,8 @@ internal fun pendingMoment(
             L("Hab dich. %s kostet jetzt %s statt %s.", rise.name, eur(rise.new), eur(rise.old)), L("Ansehen"), { openRecurring(rise.id) }, eur(rise.old) to eur(rise.new)))
         if (hour >= 20 && !spentToday && pose != SquirrelPose.LEER) add(PendingMoment("nospend:$today", SquirrelMoment.NO_SPEND, L("Heute kein Euro raus.")))
     }
-    // Debug builds: `files/moment` holding gehalt|leer|knapp|price|nospend plays that one once (for checking).
-    val forced = if (LocalContext.current.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) java.io.File(LocalContext.current.filesDir, "moment").takeIf { it.exists() }?.let { f ->
+    // Test builds: `files/moment` holding gehalt|leer|knapp|price|nospend plays that one once (Settings › Leiste testen).
+    val forced = if (com.wimg.app.ui.components.devTools(LocalContext.current)) java.io.File(LocalContext.current.filesDir, "moment").takeIf { it.exists() }?.let { f ->
         val name = f.readText().trim(); f.delete()
         when (name) {
             "gehalt" -> PendingMoment("dbg", SquirrelMoment.GEHALT, L("Gehalt ist da. Neuer Gehaltsmonat."))
@@ -1077,6 +1078,9 @@ private suspend fun playMoment(m: PendingMoment, set: (com.wimg.app.ui.component
     if (android.animation.ValueAnimator.getDurationScale() == 0f) { set(m.moment.endFrame()); return }
     var cur = m.moment.startFrame()
     set(cur)
+    // On a cold start the pocket's launch animation still covers the page: the
+    // moment played (and ended) underneath it. Wait until it's gone.
+    androidx.compose.runtime.snapshotFlow { com.wimg.app.ui.components.LaunchIntroState.done }.first { it }
     kotlinx.coroutines.delay(500) // let the page settle first
     for (st in m.moment.steps) {
         val target = st.to(cur)

@@ -305,6 +305,15 @@ fun Modifier.pressable(enabled: Boolean = true, role: Role = Role.Button, label:
  * moment on Übersicht and reset when it leaves. A blue-night tint over the band's
  * background only; text and sheet keep their colours.
  */
+/**
+ * Test tools (Settings › "Leiste testen", forced squirrel moments, forced
+ * Rückblick opener): debug builds and wimg Test (com.wimg.app.tester), never the
+ * real app from Play.
+ */
+fun devTools(context: android.content.Context): Boolean =
+    (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0 ||
+        context.packageName.endsWith(".tester")
+
 object BandDusk {
     var amount by androidx.compose.runtime.mutableFloatStateOf(0f)
 }

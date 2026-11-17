@@ -232,7 +232,7 @@ fun ReviewScreen(selectedAccount: String?, navController: NavController? = null)
     LaunchedEffect(loadedKey) {
         if (loadedKey != cacheKey || cards.isEmpty()) return@LaunchedEffect
         val prefs = context.getSharedPreferences("wimg_moments", 0)
-        val forced = context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 &&
+        val forced = com.wimg.app.ui.components.devTools(context) &&
             java.io.File(context.filesDir, "opener").let { f -> f.exists().also { f.delete() } }
         val closed = if (period != null) !period.current else !isCurrent
         val sd = data?.summary; val pv = data?.previous
