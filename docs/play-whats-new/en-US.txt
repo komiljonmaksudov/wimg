@@ -1,0 +1,6 @@
+# 0.9.12
+• Import bank statements (MT940, CAMT) from any bank, and Revolut CSV files
+• A category given to one transaction also sorts the merchant's other uncategorised ones
+• A calmer filter in Transactions
+• Bank search: ING and big banks first
+• Categories are no longer learned from words like "BELASTUNG"

@@ -1,0 +1,6 @@
+# 0.9.12
+• Kontoauszüge (MT940, CAMT) von jeder Bank und Revolut-CSV importieren
+• Eine Kategorie für einen Umsatz gilt auch für die unsortierten Umsätze desselben Händlers
+• Ruhigerer Filter in Umsätze
+• Bankensuche: ING und große Banken zuerst
+• Kategorien werden nicht mehr aus Wörtern wie „BELASTUNG“ gelernt

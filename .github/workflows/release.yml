@@ -284,9 +284,8 @@ jobs:
           ./gradlew assembleGithub -PwimgVersionCode=${{ github.run_number }}
           rm -f "$WIMG_APK_KEYSTORE_FILE"
 
-      # Signed Play bundle. versionCode is a Unix timestamp so every upload is
-      # strictly higher than the last, like CURRENT_PROJECT_VERSION on iOS.
-      # Skipped (not failed) until the keystore secrets exist.
+      # Signed Play bundle. versionCode is the run counter (see below), so every
+      # upload is higher than the last. Skipped (not failed) without the keystore secrets.
       - name: Build signed Play bundle
         working-directory: wimg-android
         env:
@@ -307,8 +306,26 @@ jobs:
           ./gradlew bundleRelease -PwimgVersionCode=${{ github.run_number }}
           rm -f "$WIMG_KEYSTORE_FILE"
 
-      # Kept out of the GitHub Release on purpose: the .aab is only for the
-      # Play Console upload. Download it from the workflow run's artifacts.
+      # To the closed test track "alpha", like TestFlight on iOS. Notes from
+      # docs/play-whats-new/*.txt; if their "# <version>" line isn't this
+      # version, it goes up as a draft (finish it in Play Console). The service
+      # account may only release to testing tracks, never production.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: hashFiles('wimg-android/app/build/outputs/bundle/release/app-release.aab') != ''
+
+      - name: Upload to Google Play (closed test)
+        if: hashFiles('wimg-android/app/build/outputs/bundle/release/app-release.aab') != ''
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -z "$PLAY_SERVICE_ACCOUNT_JSON" ]; then
+            echo "::warning::PLAY_SERVICE_ACCOUNT_JSON not set, upload the bundle by hand"
+            exit 0
+          fi
+          bun scripts/play-upload.ts wimg-android/app/build/outputs/bundle/release/app-release.aab alpha
+
+      # Kept out of the GitHub Release on purpose: the .aab is only for Play.
+      # Also kept as a run artifact, for a manual upload.
       - name: Upload Play bundle
         if: hashFiles('wimg-android/app/build/outputs/bundle/release/app-release.aab') != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

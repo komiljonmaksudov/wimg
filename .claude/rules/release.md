@@ -71,6 +71,9 @@ build-ios          → archive + TestFlight upload (macos-26; skipped without AS
 build-android      → libwimg.so + GitHub APK (`github` build type: release code, permanent key
                      `WIMG_APK_*` secrets from `scripts/make-apk-key.sh`; fails without them)
                      + signed Play bundle if the upload keystore secrets exist
+                     + upload to the closed track "alpha" (scripts/play-upload.ts,
+                       secret PLAY_SERVICE_ACCOUNT_JSON). Notes: docs/play-whats-new/
+                       <lang>.txt, first line "# <version>"; stale → uploaded as draft
   ↓
 release            → GitHub Release: XCFramework, .so, APK
 ```
