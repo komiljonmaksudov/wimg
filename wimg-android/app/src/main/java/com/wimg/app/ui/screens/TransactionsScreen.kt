@@ -93,6 +93,8 @@ object TxTarget {
     var period: TxPeriod? = null
     /** Show only this account (from a bank page). */
     var account: String? = null
+    /** Bookings containing this text (from Search: "In Umsätzen →"). */
+    var query: String? = null
 }
 
 private fun iso(c: Calendar) = "%04d-%02d-%02d".format(c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH))
@@ -211,9 +213,10 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
     // Weitere (board 36/14): only bookings of a recurring payment; hidden accounts' bookings too.
     var recurringOnly by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var showHidden by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var text by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(TxTarget.query.orEmpty()) }
     LaunchedEffect(Unit) {
         TxTarget.account?.let { onSelectAccount(it) }
-        TxTarget.category = null; TxTarget.period = null; TxTarget.account = null
+        TxTarget.category = null; TxTarget.period = null; TxTarget.account = null; TxTarget.query = null
     }
     var filterOpen by remember { mutableStateOf(false) }
     val periods = com.wimg.app.ui.components.rememberPeriods()
@@ -247,10 +250,11 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
         }
         return type && (categories.isEmpty() || tx.category in categories) &&
             (period == null || tx.date in period!!.from..period!!.to) && amount.contains(tx.amount) &&
-            (!recurringOnly || recurringIds?.contains(tx.id) == true)
+            (!recurringOnly || recurringIds?.contains(tx.id) == true) &&
+            (text.isEmpty() || tx.description.contains(text, ignoreCase = true) || tx.displayTitle.contains(text, ignoreCase = true))
     }
-    val filterActive = filter != TxFilter.ALL || categories.isNotEmpty() || period != null || !amount.isAny || recurringOnly || hiddenOn
-    val pending = remember(data, filter, categories, period, amount, recurringIds) { data?.pending.orEmpty().filter { matches(it) } }
+    val filterActive = filter != TxFilter.ALL || categories.isNotEmpty() || period != null || !amount.isAny || recurringOnly || hiddenOn || text.isNotEmpty()
+    val pending = remember(data, filter, categories, period, amount, recurringIds, text) { data?.pending.orEmpty().filter { matches(it) } }
     // Filtering, grouping and the running sums of 3,000+ rows ran on the main
     // thread every time the page opened (measured: the biggest part of opening
     // Umsätze). Unfiltered they come ready-made with the data; filtered they're
@@ -259,7 +263,7 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
     // filtered list): build that view before the first frame. Without it the
     // big sum started empty and rolled to its value, changing width as it went.
     val firstView = remember { data?.let { d -> if (filterActive) TxView.of(d.transactions.filter { matches(it) }) else d.view } }
-    val view by produceState(firstView, data, filter, categories, period, amount, recurringIds, withHidden) {
+    val view by produceState(firstView, data, filter, categories, period, amount, recurringIds, withHidden, text) {
         val d = data ?: return@produceState
         if (recurringOnly && recurringIds == null) return@produceState // still loading
         if (hiddenOn && withHidden == null) return@produceState
@@ -275,7 +279,8 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
     val anchored = balance != null && !filterActive
 
     val accountName = if (selectedAccount != null && allAccounts.size > 1) allAccounts.firstOrNull { it.id == selectedAccount }?.name else null
-    val tags = filterTags(filter, categories, period, accountName) + listOfNotNull(
+    val tags = listOfNotNull(text.takeIf { it.isNotEmpty() }?.let { if (com.wimg.app.ui.theme.LocaleState.locale == "en") "“$it”" else "„$it“" }) +
+        filterTags(filter, categories, period, accountName) + listOfNotNull(
         amountTag(amount),
         if (recurringOnly) __t("nur wiederkehrende") else null,
         if (hiddenOn) __t("mit ausgeblendeten") else null,
@@ -329,7 +334,7 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
                     accountLabel = if (allAccounts.size > 1) (allAccounts.firstOrNull { it.id == selectedAccount }?.name ?: L("Alle Konten")) else null,
                     selectedAccount = selectedAccount, onAccount = onSelectAccount,
                     periods = periods,
-                    onReset = { filter = TxFilter.ALL; categories = emptySet(); period = null; amount = AmountRange(); recurringOnly = false; showHidden = false },
+                    onReset = { filter = TxFilter.ALL; categories = emptySet(); period = null; amount = AmountRange(); recurringOnly = false; showHidden = false; text = "" },
                     onDone = { filterOpen = false },
                 )
             }
@@ -341,7 +346,7 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
     val title = when {
         anchored && allAccounts.size > 1 -> L("Kontostand · %s", accounts.singleOrNull()?.takeIf { selectedAccount != null }?.name ?: L("alle Konten"))
         anchored -> L("Kontostand")
-        period?.key?.endsWith(":salary") == true && filter == TxFilter.ALL && categories.isEmpty() && amount.isAny && !recurringOnly && !hiddenOn ->
+        period?.key?.endsWith(":salary") == true && filter == TxFilter.ALL && categories.isEmpty() && amount.isAny && !recurringOnly && !hiddenOn && text.isEmpty() ->
             L("Seit dem Gehalt am %s", com.wimg.app.ui.components.PeriodLabels.dotted(period!!.from))
         filterActive -> L("Summe der Treffer")
         else -> L("Summe der Umsätze")

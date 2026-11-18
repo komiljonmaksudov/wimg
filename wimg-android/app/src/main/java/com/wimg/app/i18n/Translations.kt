@@ -1565,6 +1565,7 @@ private val translations: Map<String, String> = mapOf(
     "aus" to "off",
     "zuletzt %s" to "last %s",
     "Öffnen" to "Open",
+    "In Umsätzen →" to "In transactions →",
 )
 
 /** Composable lookup — recomposes when LocaleState.locale flips. */

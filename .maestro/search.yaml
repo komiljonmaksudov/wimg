@@ -21,8 +21,19 @@ name: Search
 - assertVisible: ".* transactions · ⌀ .*"
 - takeScreenshot: search-merchant
 
+# "In transactions →": the same search as a filter on Umsätze, then back to search.
+- tapOn: "In transactions →"
+- extendedWaitUntil:
+    visible: "Sum of matches"
+    timeout: 10000
+- assertVisible: ".*“supermarkt”.*"
+- back
+- extendedWaitUntil:
+    visible: "Search: supermarkt"
+    timeout: 10000
+- tapOn: "Clear"
+
 # A page word: the page comes first, Enter opens it.
-- eraseText: 20
 - inputText: "einst"
 - extendedWaitUntil:
     visible: "Enter opens the page."

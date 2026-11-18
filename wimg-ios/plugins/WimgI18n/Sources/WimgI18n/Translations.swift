@@ -1559,4 +1559,5 @@ internal let translations: [String: String] = [
     "aus": "off",
     "zuletzt %s": "last %s",
     "Öffnen": "Open",
+    "In Umsätzen →": "In transactions →",
 ]

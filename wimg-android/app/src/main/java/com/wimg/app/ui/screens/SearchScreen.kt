@@ -249,7 +249,8 @@ fun SearchScreen(selectedAccount: String?, navController: NavController, initial
     var all by remember { mutableStateOf(com.wimg.app.ui.components.ScreenCache.get<TxData>(txKey(selectedAccount))?.transactions.orEmpty()) }
     var accounts by remember { mutableStateOf<Map<String, Account>>(emptyMap()) }
     var recurringCount by remember { mutableStateOf<Int?>(null) }
-    var query by remember { mutableStateOf(initialQuery) }
+    // Saveable: Back from a booking or from Umsätze returns to the same search.
+    var query by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(initialQuery) }
     var quick by remember { mutableStateOf<Quick?>(null) }
     var question by remember { mutableStateOf<Question?>(null) }
     var recent by remember { mutableStateOf(loadRecent(ctx)) }
@@ -265,7 +266,7 @@ fun SearchScreen(selectedAccount: String?, navController: NavController, initial
         all = t; accounts = a
         recurringCount = withContext(Dispatchers.IO) { LibWimg.getRecurring().count { !it.isHidden && it.active != 0 } }
     }
-    LaunchedEffect(Unit) { if (initialQuery.isBlank()) runCatching { focus.requestFocus() } }
+    LaunchedEffect(Unit) { if (query.isBlank()) runCatching { focus.requestFocus() } }
 
     val q = query.trim()
     val active = q.isNotEmpty() || quick != null || question != null
@@ -320,7 +321,20 @@ fun SearchScreen(selectedAccount: String?, navController: NavController, initial
                             question == Question.BIGGEST -> L("Größte Ausgaben diesen Monat")
                             else -> listOfNotNull(q.takeIf { it.isNotEmpty() }?.let { searchLabel(it) }, quick?.let { L(it.label) }).joinToString(" · ")
                         }
-                        Text(over, style = WimgType.bandOver, color = c.bandSub, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(over, style = WimgType.bandOver, color = c.bandSub, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            // Board 03: the same search as a filter on Umsätze.
+                            if (q.isNotEmpty() && question == null && quick == null && hits.isNotEmpty()) {
+                                Text(
+                                    L("In Umsätzen →"), style = WimgType.chip, color = c.accentLight,
+                                    modifier = Modifier.clip(WimgShape.button).clickable {
+                                        keepRecent(q); keyboard?.hide()
+                                        TxTarget.query = q
+                                        navController.navigate("transactions")
+                                    }.padding(horizontal = 6.dp, vertical = 4.dp),
+                                )
+                            }
+                        }
                         val sum = hits.sumOf { it.amount }
                         Amount(sum, WimgType.amountHero, WimgType.amountHeroCents, if (sum > 0) c.bandPos else Color.White, Modifier.padding(top = 2.dp))
                         val line = if (hits.isEmpty()) L("Keine Treffer") else listOf(

@@ -1803,4 +1803,5 @@ export const en: Record<string, string> = {
   "aus": "off",
   "zuletzt %s": "last %s",
   "Öffnen": "Open",
+  "In Umsätzen →": "In transactions →",
 };
