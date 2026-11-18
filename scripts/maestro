@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# Maestro for wimg: end-to-end journeys on the emulator with "wimg Test" (com.wimg.app.tester).
+#
+#   scripts/maestro flow [file…]   build + install wimg Test, run .maestro/*.yaml (or the given files)
+#   scripts/maestro mcp            Maestro MCP server for Claude Code (.mcp.json)
+#   scripts/maestro …              any Maestro CLI command
+#
+# Same Maestro as Eigenheim's scripts/emu: version 2.11.0, checksum-checked, in ~/.local/maestro/
+# (installed there by Eigenheim; this script installs it the same way if it's missing).
+# Privacy: analytics and update checks off, and the JVM's outbound HTTPS goes to a closed local
+# port (2.11.0 posts a "screen report" per session with no switch). Never 'maestro login' or
+# the cloud commands. Emulator only (emulator-5554), never a phone with real data.
+#
+# The emulator is shared with Eigenheim: /tmp/eh-emulator.lock says who holds it.
+# Rules for flows: .maestro/README.md.
+set -euo pipefail
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SERIAL=${WIMG_SERIAL:-emulator-5554}
+LOCK=/tmp/eh-emulator.lock
+OUT=${TMPDIR:-/tmp}/wimg-maestro
+
+MAESTRO_VERSION=2.11.0
+MAESTRO_URL="https://github.com/mobile-dev-inc/Maestro/releases/download/cli-$MAESTRO_VERSION/maestro.zip"
+MAESTRO_SHA256=5384593cb4e7a106489e75a821d157dd43f4e438df6bc308b72e82c685e1283a
+MAESTRO_HOME=$HOME/.local/maestro/$MAESTRO_VERSION
+MAESTRO="$MAESTRO_HOME/maestro/bin/maestro"
+
+export JAVA_HOME=${JAVA_HOME:-"/Applications/Android Studio.app/Contents/jbr/Contents/Home"}
+export ANDROID_HOME=${ANDROID_HOME:-$HOME/Library/Android/sdk}
+export MAESTRO_CLI_NO_ANALYTICS=1 MAESTRO_CLI_ANALYSIS_NOTIFICATION_DISABLED=true MAESTRO_DISABLE_UPDATE_CHECK=true
+export MAESTRO_OPTS="${MAESTRO_OPTS:-} -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=9 -Dhttp.nonProxyHosts=localhost|127.0.0.1"
+
+say() { echo "maestro: $*" >&2; }
+die() { say "$*"; exit 1; }
+
+install_maestro() {
+  [[ -x $MAESTRO ]] && return
+  local tmp; tmp=$(mktemp -d)
+  say "installing Maestro $MAESTRO_VERSION into $MAESTRO_HOME (checksum-checked)"
+  curl -sSL -o "$tmp/maestro.zip" "$MAESTRO_URL"
+  [[ $(shasum -a 256 "$tmp/maestro.zip" | cut -d' ' -f1) == "$MAESTRO_SHA256" ]] || die "checksum mismatch"
+  mkdir -p "$MAESTRO_HOME" && unzip -q "$tmp/maestro.zip" -d "$MAESTRO_HOME" && rm -rf "$tmp"
+}
+
+take_lock() {
+  if [[ -f $LOCK ]] && ! grep -q '^wimg' "$LOCK"; then die "emulator held by: $(cat "$LOCK") — wait or ask"; fi
+  echo "wimg scripts/maestro $(date +%H:%M)" > "$LOCK"
+  trap 'rm -f "$LOCK"' EXIT
+}
+
+boot() {
+  adb devices | grep -q "^$SERIAL" && return
+  say "starting the emulator"
+  "$ANDROID_HOME/emulator/emulator" -avd "$("$ANDROID_HOME/emulator/emulator" -list-avds | head -1)" \
+    -no-snapshot-save -no-boot-anim >/dev/null 2>&1 &
+  adb -s "$SERIAL" wait-for-device
+  until [[ $(adb -s "$SERIAL" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r') == 1 ]]; do sleep 2; done
+}
+
+install_app() {
+  local gradle; gradle=$(ls -d "$HOME"/.gradle/wrapper/dists/gradle-9.8*/*/gradle-9.8*/bin/gradle | head -1)
+  (cd "$ROOT/wimg-android" && "$gradle" -q assemblePreview -x lintVitalAnalyzePreview -x lintVitalReportPreview -x lintVitalPreview)
+  adb -s "$SERIAL" install -r "$ROOT/wimg-android/app/build/outputs/apk/preview/app-preview.apk" >/dev/null
+  # Compile ahead of time, as a phone does after a store update. Freshly installed, the app runs
+  # interpreted at first: the first flow took ~180 s instead of ~40 and the Undo Dock ran out.
+  adb -s "$SERIAL" shell cmd package compile -m speed -f com.wimg.app.tester >/dev/null
+}
+
+case "${1:-help}" in
+  flow)
+    shift
+    install_maestro; take_lock; boot; install_app
+    files=("$@"); [[ ${#files[@]} -gt 0 ]] || files=("$ROOT"/.maestro/*.yaml)
+    mkdir -p "$OUT"; failed=()
+    for f in "${files[@]}"; do
+      name=$(basename "$f" .yaml); t0=$SECONDS
+      if "$MAESTRO" --device "$SERIAL" test --test-output-dir "$OUT/$name" "$f" >"$OUT/$name.log" 2>&1
+      then say "ok    $name ($((SECONDS - t0)) s)"
+      else say "FAIL  $name ($((SECONDS - t0)) s) → $OUT/$name.log"; failed+=("$name"); fi
+    done
+    say "screenshots and logs: $OUT"
+    [[ ${#failed[@]} -eq 0 ]]
+    ;;
+  mcp)
+    [[ -x $MAESTRO ]] || die "Maestro $MAESTRO_VERSION isn't installed — run scripts/maestro --version once"
+    exec "$MAESTRO" mcp --no-viewer --working-dir "$ROOT"
+    ;;
+  help|-h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) install_maestro; exec "$MAESTRO" --device "$SERIAL" "$@" ;;
+esac

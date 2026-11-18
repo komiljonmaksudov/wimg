@@ -1,0 +1,17 @@
+# Fresh wimg Test → onboarding → "Start empty" → demo data, ending on Overview.
+# The emulator speaks English, so flows use the English labels.
+appId: com.wimg.app.tester
+---
+- launchApp:
+    clearState: true
+# A cold-booted emulator sometimes shows Android's own "System UI isn't responding".
+- tapOn:
+    text: "Wait"
+    optional: true
+- tapOn: "Let.s go"
+- tapOn: "Start empty"
+- tapOn: "Next"
+- tapOn: "Look at demo data"
+- extendedWaitUntil:
+    visible: "Left until payday"
+    timeout: 15000

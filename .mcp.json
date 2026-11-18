@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "maestro": {
+      "command": "scripts/maestro",
+      "args": ["mcp"]
+    }
+  }
+}

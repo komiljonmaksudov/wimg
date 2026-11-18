@@ -1,0 +1,34 @@
+# Changing a booking's category (2026-11-18 fix): Undo puts it back, and a change that stays
+# moves it out of Uncategorised. Demo data is random (DemoDataService), so this checks
+# WOCHENMARKT itself, never a count. The Dock's Undo lasts a few seconds: tap it right away.
+appId: com.wimg.app.tester
+name: Category change and Undo
+---
+- runFlow: common/demo.yaml
+- tapOn: "Uncategorised"
+- extendedWaitUntil:
+    visible: "WOCHENMARKT"
+    timeout: 10000
+
+# 1. Change, then Undo at once: back on the list, WOCHENMARKT is still uncategorised.
+- tapOn: "WOCHENMARKT"
+- tapOn: "Choose category"
+- tapOn: "Groceries"
+- tapOn: "Apply"
+- tapOn: "Undo"
+- back
+- extendedWaitUntil:
+    visible: "WOCHENMARKT"
+    timeout: 10000
+
+# 2. Change and keep it: WOCHENMARKT leaves the Uncategorised list.
+- tapOn: "WOCHENMARKT"
+- tapOn: "Choose category"
+- tapOn: "Groceries"
+- tapOn: "Apply"
+- assertVisible: "Category changed"
+- takeScreenshot: category-changed
+- back
+- extendedWaitUntil:
+    notVisible: "WOCHENMARKT"
+    timeout: 10000

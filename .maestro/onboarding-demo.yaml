@@ -1,0 +1,22 @@
+# A new tester's first minute: welcome, source choice (the import option names statement
+# files and Revolut), empty Overview, demo data.
+appId: com.wimg.app.tester
+name: Onboarding into demo data
+---
+- launchApp:
+    clearState: true
+# A cold-booted emulator sometimes shows Android's own "System UI isn't responding".
+- tapOn:
+    text: "Wait"
+    optional: true
+- assertVisible: ".*Or import a bank statement or a CSV file.*"
+- tapOn: "Let.s go"
+- assertVisible: "Import a file"
+- tapOn: "Start empty"
+- tapOn: "Next"
+- assertVisible: "Bank statement or CSV, also Revolut"
+- tapOn: "Look at demo data"
+- extendedWaitUntil:
+    visible: "Left until payday"
+    timeout: 15000
+- takeScreenshot: onboarding-demo

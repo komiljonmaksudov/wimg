@@ -1,0 +1,25 @@
+# The filter panel (brief 19, option A): a category from Overview opens Transactions filtered;
+# the panel's rows open their lists and come back; "Show n transactions" closes it, and the
+# band still names the filters.
+appId: com.wimg.app.tester
+name: Filter panel
+---
+- runFlow: common/demo.yaml
+- tapOn: "Groceries"
+- extendedWaitUntil:
+    visible: "Sum of matches"
+    timeout: 10000
+- assertVisible: ".*Groceries · since.*"
+- tapOn: "Filter"
+- assertVisible: "Reset"
+- tapOn: "Category"
+- assertVisible: "All categories"
+- takeScreenshot: filter-category
+- tapOn: "Back"
+- tapOn: "Period"
+- assertVisible: "Current pay period"
+- tapOn: "Back"
+- tapOn: "Show .* transactions"
+- assertNotVisible: "Reset"
+- assertVisible: "Sum of matches"
+- takeScreenshot: filter-closed
