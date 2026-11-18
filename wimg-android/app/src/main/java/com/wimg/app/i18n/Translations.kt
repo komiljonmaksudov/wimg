@@ -1566,6 +1566,12 @@ private val translations: Map<String, String> = mapOf(
     "zuletzt %s" to "last %s",
     "Öffnen" to "Open",
     "In Umsätzen →" to "In transactions →",
+    "Neue Suche: Sie zeigt gleich die Summe, die Anzahl und den Durchschnitt, dazu den Händler und die Umsätze nach Monaten." to "New search: it shows the total, the count and the average right away, plus the merchant and the transactions by month.",
+    "Seiten wie „Einstellungen“ oder „Sync“ findest du über die Suche, Enter öffnet sie." to "Pages like “Settings” or “Sync” can be found with search, Enter opens them.",
+    "Filter nach Betrag, „Nur wiederkehrende“ und „Ausgeblendete zeigen“ in Umsätze." to "Filter by amount, “Recurring only” and “Show hidden” in Transactions.",
+    "„In Umsätzen“ öffnet eine Suche als Filter in Umsätze." to "“In transactions” opens a search as a filter in Transactions.",
+    "Zurück aus einem Umsatz führt wieder zur selben Suche." to "Back from a transaction returns to the same search.",
+    "Das Suchfeld ist für Screenreader beschriftet." to "The search field is labelled for screen readers.",
 )
 
 /** Composable lookup — recomposes when LocaleState.locale flips. */

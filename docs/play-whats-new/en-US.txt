@@ -1,6 +1,5 @@
-# 0.9.12
-• Import bank statements (MT940, CAMT) from any bank, and Revolut CSV files
-• A category given to one transaction also sorts the merchant's other uncategorised ones
-• A calmer filter in Transactions
-• Bank search: ING and big banks first
-• Categories are no longer learned from words like "BELASTUNG"
+# 0.9.13
+• New search: it shows the total right away, for example what you spent at a shop
+• Pages like "Settings" or "Sync" can be found with search, Enter opens them
+• Filter by amount and "Recurring only" in Transactions
+• Import names bank statements and Revolut

@@ -133,6 +133,17 @@ private class Release(val version: String, val dateIso: String, val notes: List<
 
 private val RELEASES = listOf(
     Release(
+        "0.9.13", "2026-11-18",
+        listOf(
+            NoteKind.New to "Neue Suche: Sie zeigt gleich die Summe, die Anzahl und den Durchschnitt, dazu den Händler und die Umsätze nach Monaten.",
+            NoteKind.New to "Seiten wie „Einstellungen“ oder „Sync“ findest du über die Suche, Enter öffnet sie.",
+            NoteKind.New to "Filter nach Betrag, „Nur wiederkehrende“ und „Ausgeblendete zeigen“ in Umsätze.",
+            NoteKind.Better to "„In Umsätzen“ öffnet eine Suche als Filter in Umsätze.",
+            NoteKind.Fixed to "Zurück aus einem Umsatz führt wieder zur selben Suche.",
+            NoteKind.Fixed to "Das Suchfeld ist für Screenreader beschriftet.",
+        ),
+    ),
+    Release(
         "0.9.12", "2026-11-18",
         listOf(
             NoteKind.New to "Kontoauszüge (MT940, CAMT) von jeder Bank importieren.",

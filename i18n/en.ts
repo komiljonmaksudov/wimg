@@ -1804,4 +1804,10 @@ export const en: Record<string, string> = {
   "zuletzt %s": "last %s",
   "Öffnen": "Open",
   "In Umsätzen →": "In transactions →",
+  "Neue Suche: Sie zeigt gleich die Summe, die Anzahl und den Durchschnitt, dazu den Händler und die Umsätze nach Monaten.": "New search: it shows the total, the count and the average right away, plus the merchant and the transactions by month.",
+  "Seiten wie „Einstellungen“ oder „Sync“ findest du über die Suche, Enter öffnet sie.": "Pages like “Settings” or “Sync” can be found with search, Enter opens them.",
+  "Filter nach Betrag, „Nur wiederkehrende“ und „Ausgeblendete zeigen“ in Umsätze.": "Filter by amount, “Recurring only” and “Show hidden” in Transactions.",
+  "„In Umsätzen“ öffnet eine Suche als Filter in Umsätze.": "“In transactions” opens a search as a filter in Transactions.",
+  "Zurück aus einem Umsatz führt wieder zur selben Suche.": "Back from a transaction returns to the same search.",
+  "Das Suchfeld ist für Screenreader beschriftet.": "The search field is labelled for screen readers.",
 };

@@ -14,6 +14,8 @@ release notes that name the change.
 | Date | Version (code) | What changed | Why |
 | --- | --- | --- | --- |
 | 2026-11-17 | 0.9.11 (116) | First test build: demo month as a salary month, English throughout (dates, wording), first start without flicker, phone language, 2×2 widget, merchant names for card payments, price-rise notification, squirrel moments, back through places, bank login says it goes straight to the bank | Own pass before the test (developer's phone, emulator, English sweep) |
+| 2026-11-18 | 0.9.12 (117) | Statement files and Revolut import, category change moves the merchant's uncategorised bookings, calmer filter, bank search, rules fix | Tester feedback (Revolut, bank search) and own test |
+| 2026-11-18 | 0.9.13 | New search with the total, pages by name, filter by amount / recurring / hidden | Own design pass (briefs 19, 21) |
 
 ## Next update: "What's new" for Play (paste with the release)
 
