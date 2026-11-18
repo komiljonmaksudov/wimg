@@ -33,6 +33,7 @@ import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.LocalOffer
 import androidx.compose.material.icons.outlined.Euro
+import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -207,6 +208,9 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
     }
     var period by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = PeriodSaver) { mutableStateOf(TxTarget.period) }
     var amount by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = AmountSaver) { mutableStateOf(AmountRange()) }
+    // Weitere (board 36/14): only bookings of a recurring payment; hidden accounts' bookings too.
+    var recurringOnly by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var showHidden by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         TxTarget.account?.let { onSelectAccount(it) }
         TxTarget.category = null; TxTarget.period = null; TxTarget.account = null
@@ -219,6 +223,20 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
         data = withContext(Dispatchers.IO) { loadTx(selectedAccount) }.also { com.wimg.app.ui.components.ScreenCache.put(txKey(selectedAccount), it) }
     }
 
+    // Ids of the bookings that belong to a (not hidden) recurring payment, loaded on demand.
+    val recurringIds by produceState<Set<String>?>(null, recurringOnly, Changes.version) {
+        value = if (!recurringOnly) null else withContext(Dispatchers.IO) {
+            LibWimg.getRecurring().filter { !it.isHidden }
+                .flatMap { p -> LibWimg.getRecurringPayments(p.id).filter { !it.oneoff }.map { it.id } }.toSet()
+        }
+    }
+    // "Alle Konten" leaves hidden accounts out; with "Ausgeblendete zeigen" every account counts.
+    val hiddenOn = showHidden && selectedAccount == null
+    val withHidden by produceState<List<Transaction>?>(null, hiddenOn, Changes.version) {
+        value = if (!hiddenOn) null else withContext(Dispatchers.IO) { LibWimg.getTransactions().sortedByDescending { it.date } }
+    }
+    val base = withHidden ?: data?.transactions ?: emptyList()
+
     val all = data?.transactions ?: emptyList()
     fun matches(tx: Transaction): Boolean {
         val type = when (filter) {
@@ -228,10 +246,11 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
             TxFilter.MANUAL -> tx.manual
         }
         return type && (categories.isEmpty() || tx.category in categories) &&
-            (period == null || tx.date in period!!.from..period!!.to) && amount.contains(tx.amount)
+            (period == null || tx.date in period!!.from..period!!.to) && amount.contains(tx.amount) &&
+            (!recurringOnly || recurringIds?.contains(tx.id) == true)
     }
-    val filterActive = filter != TxFilter.ALL || categories.isNotEmpty() || period != null || !amount.isAny
-    val pending = remember(data, filter, categories, period, amount) { data?.pending.orEmpty().filter { matches(it) } }
+    val filterActive = filter != TxFilter.ALL || categories.isNotEmpty() || period != null || !amount.isAny || recurringOnly || hiddenOn
+    val pending = remember(data, filter, categories, period, amount, recurringIds) { data?.pending.orEmpty().filter { matches(it) } }
     // Filtering, grouping and the running sums of 3,000+ rows ran on the main
     // thread every time the page opened (measured: the biggest part of opening
     // Umsätze). Unfiltered they come ready-made with the data; filtered they're
@@ -240,9 +259,11 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
     // filtered list): build that view before the first frame. Without it the
     // big sum started empty and rolled to its value, changing width as it went.
     val firstView = remember { data?.let { d -> if (filterActive) TxView.of(d.transactions.filter { matches(it) }) else d.view } }
-    val view by produceState(firstView, data, filter, categories, period, amount) {
+    val view by produceState(firstView, data, filter, categories, period, amount, recurringIds, withHidden) {
         val d = data ?: return@produceState
-        value = if (!filterActive) d.view else withContext(Dispatchers.Default) { TxView.of(d.transactions.filter { matches(it) }) }
+        if (recurringOnly && recurringIds == null) return@produceState // still loading
+        if (hiddenOn && withHidden == null) return@produceState
+        value = if (!filterActive) d.view else withContext(Dispatchers.Default) { TxView.of(base.filter { matches(it) }) }
     }
     val filtered = view?.list ?: emptyList()
 
@@ -254,7 +275,11 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
     val anchored = balance != null && !filterActive
 
     val accountName = if (selectedAccount != null && allAccounts.size > 1) allAccounts.firstOrNull { it.id == selectedAccount }?.name else null
-    val tags = filterTags(filter, categories, period, accountName) + listOfNotNull(amountTag(amount))
+    val tags = filterTags(filter, categories, period, accountName) + listOfNotNull(
+        amountTag(amount),
+        if (recurringOnly) __t("nur wiederkehrende") else null,
+        if (hiddenOn) __t("mit ausgeblendeten") else null,
+    )
 
     val listState = rememberLazyListState()
     // Running value at the topmost visible row: with a bank balance it is the
@@ -286,21 +311,25 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
                     categories = categories, onCategories = { categories = it },
                     period = period, onPeriod = { period = it },
                     amount = amount, onAmount = { amount = it },
+                    recurringOnly = recurringOnly, onRecurringOnly = { recurringOnly = it },
+                    showHidden = showHidden, onShowHidden = { showHidden = it },
+                    hasHidden = selectedAccount == null && allAccounts.any { it.isHidden },
                     resultCount = filtered.size,
                     categoryTotals = {
                         // Every filter but the category one, summed per category.
                         val d = data
-                        if (d == null) emptyList() else d.transactions.asSequence()
+                        if (d == null) emptyList() else base.asSequence()
                             .filter { tx ->
                                 (when (filter) { TxFilter.ALL -> true; TxFilter.EXPENSES -> tx.isExpense; TxFilter.INCOME -> tx.isIncome; TxFilter.MANUAL -> tx.manual }) &&
-                                    (period == null || tx.date in period!!.from..period!!.to) && amount.contains(tx.amount) && !tx.isExcluded
+                                    (period == null || tx.date in period!!.from..period!!.to) && amount.contains(tx.amount) && !tx.isExcluded &&
+                                    (!recurringOnly || recurringIds?.contains(tx.id) == true)
                             }
                             .groupBy { it.category }.map { (k, v) -> k to v.sumOf { it.amount } }
                     },
                     accountLabel = if (allAccounts.size > 1) (allAccounts.firstOrNull { it.id == selectedAccount }?.name ?: L("Alle Konten")) else null,
                     selectedAccount = selectedAccount, onAccount = onSelectAccount,
                     periods = periods,
-                    onReset = { filter = TxFilter.ALL; categories = emptySet(); period = null; amount = AmountRange() },
+                    onReset = { filter = TxFilter.ALL; categories = emptySet(); period = null; amount = AmountRange(); recurringOnly = false; showHidden = false },
                     onDone = { filterOpen = false },
                 )
             }
@@ -312,7 +341,7 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
     val title = when {
         anchored && allAccounts.size > 1 -> L("Kontostand · %s", accounts.singleOrNull()?.takeIf { selectedAccount != null }?.name ?: L("alle Konten"))
         anchored -> L("Kontostand")
-        period?.key?.endsWith(":salary") == true && filter == TxFilter.ALL && categories.isEmpty() ->
+        period?.key?.endsWith(":salary") == true && filter == TxFilter.ALL && categories.isEmpty() && amount.isAny && !recurringOnly && !hiddenOn ->
             L("Seit dem Gehalt am %s", com.wimg.app.ui.components.PeriodLabels.dotted(period!!.from))
         filterActive -> L("Summe der Treffer")
         else -> L("Summe der Umsätze")
@@ -441,7 +470,7 @@ private fun TxRow(tx: Transaction, last: Boolean, pending: Boolean = false, onCl
 // their current value; a row opens a short list in the same panel.
 // ---------------------------------------------------------------------------
 
-private enum class FilterPage { MAIN, TYPE, ACCOUNT, PERIOD, CATEGORY, AMOUNT }
+private enum class FilterPage { MAIN, TYPE, ACCOUNT, PERIOD, CATEGORY, AMOUNT, MORE }
 
 /** What the closed panel shows as tags under the sum, and counts on the button. */
 internal fun filterTags(filter: TxFilter, categories: Set<Int>, period: TxPeriod?, accountName: String?): List<String> = buildList {
@@ -469,6 +498,11 @@ private fun FilterPanel(
     onPeriod: (TxPeriod?) -> Unit,
     amount: AmountRange,
     onAmount: (AmountRange) -> Unit,
+    recurringOnly: Boolean,
+    onRecurringOnly: (Boolean) -> Unit,
+    showHidden: Boolean,
+    onShowHidden: (Boolean) -> Unit,
+    hasHidden: Boolean,
     resultCount: Int,
     /** Category → sum of the rows that pass every filter but the category one. */
     categoryTotals: () -> List<Pair<Int, Double>>,
@@ -517,6 +551,9 @@ private fun FilterPanel(
                 FilterRow(Icons.Outlined.LocalOffer, L("Kategorie"), catValue, categories.isNotEmpty()) { page = FilterPage.CATEGORY }
                 HorizontalDivider(thickness = 1.dp, color = c.line)
                 FilterRow(Icons.Outlined.Euro, L("Betrag"), amountTag(amount) ?: L("Beliebig"), !amount.isAny) { page = FilterPage.AMOUNT }
+                HorizontalDivider(thickness = 1.dp, color = c.line)
+                val more = listOfNotNull(if (recurringOnly) L("Wiederkehrende") else null, if (showHidden && hasHidden) L("Ausgeblendete") else null)
+                FilterRow(Icons.Outlined.MoreHoriz, L("Weitere"), more.joinToString(", ").ifEmpty { L("Aus") }, more.isNotEmpty()) { page = FilterPage.MORE }
             }
             FilterPage.TYPE -> {
                 SubHeader(L("Art")) { page = FilterPage.MAIN }
@@ -532,6 +569,11 @@ private fun FilterPanel(
                 SubHeader(L("Kategorie")) { page = FilterPage.MAIN }
                 Text(L("Nur was in diesem Zeitraum vorkommt, nach Ausgaben sortiert"), style = WimgType.desc, color = c.text2, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
                 CategoryList(remember(filter, period, selectedAccount) { categoryTotals() }, categories, onCategories)
+            }
+            FilterPage.MORE -> {
+                SubHeader(L("Weitere")) { page = FilterPage.MAIN }
+                CheckRow(L("Nur wiederkehrende"), L("Miete, Strom, Abos"), recurringOnly) { onRecurringOnly(!recurringOnly) }
+                if (hasHidden) CheckRow(L("Ausgeblendete zeigen"), L("Konten, die sonst nicht in Summen zählen"), showHidden) { onShowHidden(!showHidden) }
             }
             FilterPage.AMOUNT -> {
                 SubHeader(L("Betrag")) { page = FilterPage.MAIN }
@@ -743,5 +785,26 @@ private fun AmountPicker(amount: AmountRange, onAmount: (AmountRange) -> Unit) {
     Row(Modifier.padding(start = 4.dp, end = 4.dp, top = 12.dp), verticalAlignment = Alignment.Top) {
         Icon(Icons.Outlined.Info, contentDescription = null, tint = c.text3, modifier = Modifier.padding(top = 2.dp, end = 8.dp).size(16.dp))
         Text(L("Gilt für den Betrag ohne Vorzeichen. Einen genauen Betrag findest du schneller über die Suche."), style = WimgType.desc, color = c.text2)
+    }
+}
+
+/** A switch-like row in Weitere: a check box, a title and one line of explanation. */
+@Composable
+private fun CheckRow(title: String, desc: String, on: Boolean, onClick: () -> Unit) {
+    val c = Wimg.colors
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(22.dp).clip(RoundedCornerShape(6.dp)).background(if (on) c.accent else Color.Transparent)
+                .border(1.5.dp, if (on) c.accent else c.text3, RoundedCornerShape(6.dp)),
+            contentAlignment = Alignment.Center,
+        ) { if (on) Icon(Icons.Outlined.Check, contentDescription = null, tint = c.onAccent, modifier = Modifier.size(16.dp)) }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = WimgType.rowTitle, color = c.text)
+            Text(desc, style = WimgType.desc, color = c.text2)
+        }
     }
 }

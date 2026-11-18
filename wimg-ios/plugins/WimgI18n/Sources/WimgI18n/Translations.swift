@@ -1513,4 +1513,13 @@ internal let translations: [String: String] = [
     "Beliebig": "Any",
     "beliebig": "any",
     "Gilt für den Betrag ohne Vorzeichen. Einen genauen Betrag findest du schneller über die Suche.": "Applies to the amount without its sign. An exact amount is quicker to find with search.",
+    "nur wiederkehrende": "recurring only",
+    "mit ausgeblendeten": "with hidden",
+    "Wiederkehrende": "Recurring",
+    "Ausgeblendete": "Hidden",
+    "Weitere": "More",
+    "Nur wiederkehrende": "Recurring only",
+    "Miete, Strom, Abos": "Rent, power, subscriptions",
+    "Ausgeblendete zeigen": "Show hidden",
+    "Konten, die sonst nicht in Summen zählen": "Accounts that otherwise don't count in sums",
 ]

@@ -27,9 +27,28 @@ name: Filter panel
 - tapOn: "Show .* transactions"
 - assertVisible: ".*Groceries · since .* · over 20 €"
 - takeScreenshot: filter-closed
+# Weitere: "Recurring only" keeps the rent (a fixed monthly payment in the demo).
+- tapOn: "Filter"
+- tapOn: "Category"
+- tapOn: "All categories"
+- tapOn: "Back"
+- tapOn: "Amount"
+- tapOn: "Any"
+- tapOn: "Back"
+- tapOn: "More"
+- tapOn: "Recurring only"
+- tapOn: "Back"
+- tapOn: "Show .* transactions"
+- extendedWaitUntil:
+    visible: "Sum of matches"
+    timeout: 10000
+- scrollUntilVisible:
+    element: ".*MIETE.*"
+- takeScreenshot: filter-recurring
 # Reset clears every filter, the amount too.
 - tapOn: "Filter"
 - tapOn: "Reset"
 - tapOn: "Show .* transactions"
 - assertNotVisible: "Reset"
 - assertNotVisible: ".*over 20 €.*"
+- assertNotVisible: ".*recurring only.*"

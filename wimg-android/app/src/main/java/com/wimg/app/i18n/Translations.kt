@@ -1519,6 +1519,15 @@ private val translations: Map<String, String> = mapOf(
     "Beliebig" to "Any",
     "beliebig" to "any",
     "Gilt für den Betrag ohne Vorzeichen. Einen genauen Betrag findest du schneller über die Suche." to "Applies to the amount without its sign. An exact amount is quicker to find with search.",
+    "nur wiederkehrende" to "recurring only",
+    "mit ausgeblendeten" to "with hidden",
+    "Wiederkehrende" to "Recurring",
+    "Ausgeblendete" to "Hidden",
+    "Weitere" to "More",
+    "Nur wiederkehrende" to "Recurring only",
+    "Miete, Strom, Abos" to "Rent, power, subscriptions",
+    "Ausgeblendete zeigen" to "Show hidden",
+    "Konten, die sonst nicht in Summen zählen" to "Accounts that otherwise don't count in sums",
 )
 
 /** Composable lookup — recomposes when LocaleState.locale flips. */
