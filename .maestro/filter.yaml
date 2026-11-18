@@ -19,7 +19,17 @@ name: Filter panel
 - tapOn: "Period"
 - assertVisible: "Current pay period"
 - tapOn: "Back"
+# Betrag (board 36/13): a preset narrows the list and shows up under the sum.
+- tapOn: "Amount"
+- tapOn: "over 20 €"
+- tapOn: "Back"
+- assertVisible: "over 20 €"
+- tapOn: "Show .* transactions"
+- assertVisible: ".*Groceries · since .* · over 20 €"
+- takeScreenshot: filter-closed
+# Reset clears every filter, the amount too.
+- tapOn: "Filter"
+- tapOn: "Reset"
 - tapOn: "Show .* transactions"
 - assertNotVisible: "Reset"
-- assertVisible: "Sum of matches"
-- takeScreenshot: filter-closed
+- assertNotVisible: ".*over 20 €.*"

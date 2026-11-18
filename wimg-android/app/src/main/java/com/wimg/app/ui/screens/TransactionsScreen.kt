@@ -32,6 +32,8 @@ import androidx.compose.material.icons.outlined.SwapVert
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.LocalOffer
+import androidx.compose.material.icons.outlined.Euro
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
@@ -126,6 +128,32 @@ private val PeriodSaver = androidx.compose.runtime.saveable.Saver<TxPeriod?, Any
     restore = { v -> (v as? List<*>)?.let { TxPeriod(it[0] as String, it[1] as String, it[2] as String, it[3] as String) } },
 )
 
+/** Betrag filter (board 36/13): the amount without its sign, both ends inclusive; null = open. */
+data class AmountRange(val min: Double? = null, val max: Double? = null) {
+    val isAny get() = min == null && max == null
+    fun contains(euros: Double) = kotlin.math.abs(euros).let { a -> (min == null || a >= min - 0.004) && (max == null || a <= max + 0.004) }
+}
+
+private val AmountSaver = androidx.compose.runtime.saveable.Saver<AmountRange, DoubleArray>(
+    save = { doubleArrayOf(it.min ?: -1.0, it.max ?: -1.0) },
+    restore = { AmountRange(it[0].takeIf { v -> v >= 0 }, it[1].takeIf { v -> v >= 0 }) },
+)
+
+/** "20", "49,90" (German) or "49.90" (English). */
+private fun euroNumber(v: Double): String {
+    val whole = kotlin.math.abs(v - kotlin.math.round(v)) < 0.004
+    val s = if (whole) "%d".format(kotlin.math.round(v).toLong()) else "%.2f".format(java.util.Locale.ROOT, v)
+    return if (com.wimg.app.ui.theme.LocaleState.locale == "en") s else s.replace('.', ',')
+}
+
+/** "über 20 €", "unter 10 €", "20–50 €"; null when any amount. */
+internal fun amountTag(r: AmountRange): String? = when {
+    r.min != null && r.max != null -> "${euroNumber(r.min)}–${euroNumber(r.max)} €"
+    r.min != null -> __t("über %s €").format(euroNumber(r.min))
+    r.max != null -> __t("unter %s €").format(euroNumber(r.max))
+    else -> null
+}
+
 enum class TxFilter(val label: String) {
     ALL("Alle"),
     EXPENSES("Ausgaben"),
@@ -178,6 +206,7 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
         mutableStateOf(TxTarget.category?.let { setOf(it) } ?: emptySet())
     }
     var period by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = PeriodSaver) { mutableStateOf(TxTarget.period) }
+    var amount by androidx.compose.runtime.saveable.rememberSaveable(stateSaver = AmountSaver) { mutableStateOf(AmountRange()) }
     LaunchedEffect(Unit) {
         TxTarget.account?.let { onSelectAccount(it) }
         TxTarget.category = null; TxTarget.period = null; TxTarget.account = null
@@ -199,10 +228,10 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
             TxFilter.MANUAL -> tx.manual
         }
         return type && (categories.isEmpty() || tx.category in categories) &&
-            (period == null || tx.date in period!!.from..period!!.to)
+            (period == null || tx.date in period!!.from..period!!.to) && amount.contains(tx.amount)
     }
-    val filterActive = filter != TxFilter.ALL || categories.isNotEmpty() || period != null
-    val pending = remember(data, filter, categories, period) { data?.pending.orEmpty().filter { matches(it) } }
+    val filterActive = filter != TxFilter.ALL || categories.isNotEmpty() || period != null || !amount.isAny
+    val pending = remember(data, filter, categories, period, amount) { data?.pending.orEmpty().filter { matches(it) } }
     // Filtering, grouping and the running sums of 3,000+ rows ran on the main
     // thread every time the page opened (measured: the biggest part of opening
     // Umsätze). Unfiltered they come ready-made with the data; filtered they're
@@ -211,7 +240,7 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
     // filtered list): build that view before the first frame. Without it the
     // big sum started empty and rolled to its value, changing width as it went.
     val firstView = remember { data?.let { d -> if (filterActive) TxView.of(d.transactions.filter { matches(it) }) else d.view } }
-    val view by produceState(firstView, data, filter, categories, period) {
+    val view by produceState(firstView, data, filter, categories, period, amount) {
         val d = data ?: return@produceState
         value = if (!filterActive) d.view else withContext(Dispatchers.Default) { TxView.of(d.transactions.filter { matches(it) }) }
     }
@@ -225,7 +254,7 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
     val anchored = balance != null && !filterActive
 
     val accountName = if (selectedAccount != null && allAccounts.size > 1) allAccounts.firstOrNull { it.id == selectedAccount }?.name else null
-    val tags = filterTags(filter, categories, period, accountName)
+    val tags = filterTags(filter, categories, period, accountName) + listOfNotNull(amountTag(amount))
 
     val listState = rememberLazyListState()
     // Running value at the topmost visible row: with a bank balance it is the
@@ -256,6 +285,7 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
                     filter = filter, onFilter = { filter = it },
                     categories = categories, onCategories = { categories = it },
                     period = period, onPeriod = { period = it },
+                    amount = amount, onAmount = { amount = it },
                     resultCount = filtered.size,
                     categoryTotals = {
                         // Every filter but the category one, summed per category.
@@ -263,14 +293,14 @@ fun TransactionsScreen(selectedAccount: String?, navController: NavController? =
                         if (d == null) emptyList() else d.transactions.asSequence()
                             .filter { tx ->
                                 (when (filter) { TxFilter.ALL -> true; TxFilter.EXPENSES -> tx.isExpense; TxFilter.INCOME -> tx.isIncome; TxFilter.MANUAL -> tx.manual }) &&
-                                    (period == null || tx.date in period!!.from..period!!.to) && !tx.isExcluded
+                                    (period == null || tx.date in period!!.from..period!!.to) && amount.contains(tx.amount) && !tx.isExcluded
                             }
                             .groupBy { it.category }.map { (k, v) -> k to v.sumOf { it.amount } }
                     },
                     accountLabel = if (allAccounts.size > 1) (allAccounts.firstOrNull { it.id == selectedAccount }?.name ?: L("Alle Konten")) else null,
                     selectedAccount = selectedAccount, onAccount = onSelectAccount,
                     periods = periods,
-                    onReset = { filter = TxFilter.ALL; categories = emptySet(); period = null },
+                    onReset = { filter = TxFilter.ALL; categories = emptySet(); period = null; amount = AmountRange() },
                     onDone = { filterOpen = false },
                 )
             }
@@ -411,7 +441,7 @@ private fun TxRow(tx: Transaction, last: Boolean, pending: Boolean = false, onCl
 // their current value; a row opens a short list in the same panel.
 // ---------------------------------------------------------------------------
 
-private enum class FilterPage { MAIN, TYPE, ACCOUNT, PERIOD, CATEGORY }
+private enum class FilterPage { MAIN, TYPE, ACCOUNT, PERIOD, CATEGORY, AMOUNT }
 
 /** What the closed panel shows as tags under the sum, and counts on the button. */
 internal fun filterTags(filter: TxFilter, categories: Set<Int>, period: TxPeriod?, accountName: String?): List<String> = buildList {
@@ -437,6 +467,8 @@ private fun FilterPanel(
     onCategories: (Set<Int>) -> Unit,
     period: TxPeriod?,
     onPeriod: (TxPeriod?) -> Unit,
+    amount: AmountRange,
+    onAmount: (AmountRange) -> Unit,
     resultCount: Int,
     /** Category → sum of the rows that pass every filter but the category one. */
     categoryTotals: () -> List<Pair<Int, Double>>,
@@ -483,6 +515,8 @@ private fun FilterPanel(
                     else -> L("%d Kategorien", categories.size)
                 }
                 FilterRow(Icons.Outlined.LocalOffer, L("Kategorie"), catValue, categories.isNotEmpty()) { page = FilterPage.CATEGORY }
+                HorizontalDivider(thickness = 1.dp, color = c.line)
+                FilterRow(Icons.Outlined.Euro, L("Betrag"), amountTag(amount) ?: L("Beliebig"), !amount.isAny) { page = FilterPage.AMOUNT }
             }
             FilterPage.TYPE -> {
                 SubHeader(L("Art")) { page = FilterPage.MAIN }
@@ -498,6 +532,10 @@ private fun FilterPanel(
                 SubHeader(L("Kategorie")) { page = FilterPage.MAIN }
                 Text(L("Nur was in diesem Zeitraum vorkommt, nach Ausgaben sortiert"), style = WimgType.desc, color = c.text2, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
                 CategoryList(remember(filter, period, selectedAccount) { categoryTotals() }, categories, onCategories)
+            }
+            FilterPage.AMOUNT -> {
+                SubHeader(L("Betrag")) { page = FilterPage.MAIN }
+                AmountPicker(amount, onAmount)
             }
             FilterPage.ACCOUNT -> {}
         }
@@ -649,5 +687,61 @@ private fun CategoryList(totals: List<Pair<Int, Double>>, selected: Set<Int>, on
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { more = true }.padding(horizontal = 14.dp, vertical = 12.dp),
             )
         }
+    }
+}
+
+/** Betrag (board 36/13): four presets, then Von / Bis for anything else. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AmountPicker(amount: AmountRange, onAmount: (AmountRange) -> Unit) {
+    val c = Wimg.colors
+    fun field(v: Double?) = v?.let { euroNumber(it) } ?: ""
+    var from by remember(amount) { mutableStateOf(field(amount.min)) }
+    var to by remember(amount) { mutableStateOf(field(amount.max)) }
+    fun parse(t: String) = t.replace(" ", "").replace(".", ",").replace(',', '.').toDoubleOrNull()?.takeIf { it >= 0 }
+    val presets = listOf(
+        L("Beliebig") to AmountRange(),
+        L("unter %s €", euroNumber(10.0)) to AmountRange(max = 10.0),
+        L("über %s €", euroNumber(20.0)) to AmountRange(min = 20.0),
+        L("über %s €", euroNumber(100.0)) to AmountRange(min = 100.0),
+    )
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(start = 4.dp, bottom = 14.dp)) {
+        presets.forEach { (label, r) ->
+            val on = r == amount
+            Box(
+                Modifier.height(38.dp).clip(CircleShape).background(if (on) c.ink else c.neutralTint).clickable { onAmount(r) }.padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text(label, style = WimgType.chip, color = if (on) c.inkText else c.text) }
+        }
+    }
+    Row(Modifier.padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        listOf(L("Von") to from, L("Bis") to to).forEachIndexed { i, (label, text) ->
+            Column(Modifier.weight(1f)) {
+                Text(label, style = WimgType.desc, color = c.text2, modifier = Modifier.padding(bottom = 6.dp))
+                androidx.compose.foundation.text.BasicTextField(
+                    value = text,
+                    onValueChange = { raw ->
+                        val t = raw.filter { ch -> ch.isDigit() || ch == ',' || ch == '.' }.take(9)
+                        if (i == 0) from = t else to = t
+                        onAmount(AmountRange(parse(if (i == 0) t else from), parse(if (i == 1) t else to)))
+                    },
+                    singleLine = true,
+                    textStyle = WimgType.rowTitle.copy(color = c.text),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(c.accent),
+                    modifier = Modifier.fillMaxWidth().clip(WimgShape.button).border(1.dp, if (text.isNotEmpty()) c.accent else c.line, WimgShape.button).padding(horizontal = 14.dp, vertical = 12.dp),
+                    decorationBox = { inner ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.weight(1f)) { if (text.isEmpty()) Text(L("beliebig"), style = WimgType.rowTitle, color = c.text3); inner() }
+                            Text("€", style = WimgType.rowTitle, color = c.text2)
+                        }
+                    },
+                )
+            }
+        }
+    }
+    Row(Modifier.padding(start = 4.dp, end = 4.dp, top = 12.dp), verticalAlignment = Alignment.Top) {
+        Icon(Icons.Outlined.Info, contentDescription = null, tint = c.text3, modifier = Modifier.padding(top = 2.dp, end = 8.dp).size(16.dp))
+        Text(L("Gilt für den Betrag ohne Vorzeichen. Einen genauen Betrag findest du schneller über die Suche."), style = WimgType.desc, color = c.text2)
     }
 }

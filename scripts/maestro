@@ -73,10 +73,10 @@ case "${1:-help}" in
     files=("$@"); [[ ${#files[@]} -gt 0 ]] || files=("$ROOT"/.maestro/*.yaml)
     mkdir -p "$OUT"; failed=()
     for f in "${files[@]}"; do
-      name=$(basename "$f" .yaml); t0=$SECONDS
-      if "$MAESTRO" --device "$SERIAL" test --test-output-dir "$OUT/$name" "$f" >"$OUT/$name.log" 2>&1
+      name=$(basename "$f" .yaml); t0=$SECONDS; log="$OUT/$name-$(date +%H%M%S).log"
+      if "$MAESTRO" --device "$SERIAL" test --test-output-dir "$OUT/$name" "$f" >"$log" 2>&1
       then say "ok    $name ($((SECONDS - t0)) s)"
-      else say "FAIL  $name ($((SECONDS - t0)) s) → $OUT/$name.log"; failed+=("$name"); fi
+      else say "FAIL  $name ($((SECONDS - t0)) s) → $log"; failed+=("$name"); fi
     done
     say "screenshots and logs: $OUT"
     [[ ${#failed[@]} -eq 0 ]]

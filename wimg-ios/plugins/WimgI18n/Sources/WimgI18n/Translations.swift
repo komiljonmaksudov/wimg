@@ -1508,4 +1508,9 @@ internal let translations: [String: String] = [
     "Kontoauszug von jeder Bank oder CSV von Comdirect, Trade Republic, Scalable oder Revolut.": "A bank statement from any bank, or a CSV from Comdirect, Trade Republic, Scalable or Revolut.",
     "Kontoauszug oder CSV, auch Revolut": "Bank statement or CSV, also Revolut",
     "Verbinde deine Bank oder importiere eine Datei von ihr. Alles bleibt auf diesem Telefon.": "Connect your bank or import a file from it. Everything stays on this phone.",
+    "über %s €": "over %s €",
+    "unter %s €": "under %s €",
+    "Beliebig": "Any",
+    "beliebig": "any",
+    "Gilt für den Betrag ohne Vorzeichen. Einen genauen Betrag findest du schneller über die Suche.": "Applies to the amount without its sign. An exact amount is quicker to find with search.",
 ]

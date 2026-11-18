@@ -1514,6 +1514,11 @@ private val translations: Map<String, String> = mapOf(
     "Kontoauszug von jeder Bank oder CSV von Comdirect, Trade Republic, Scalable oder Revolut." to "A bank statement from any bank, or a CSV from Comdirect, Trade Republic, Scalable or Revolut.",
     "Kontoauszug oder CSV, auch Revolut" to "Bank statement or CSV, also Revolut",
     "Verbinde deine Bank oder importiere eine Datei von ihr. Alles bleibt auf diesem Telefon." to "Connect your bank or import a file from it. Everything stays on this phone.",
+    "über %s €" to "over %s €",
+    "unter %s €" to "under %s €",
+    "Beliebig" to "Any",
+    "beliebig" to "any",
+    "Gilt für den Betrag ohne Vorzeichen. Einen genauen Betrag findest du schneller über die Suche." to "Applies to the amount without its sign. An exact amount is quicker to find with search.",
 )
 
 /** Composable lookup — recomposes when LocaleState.locale flips. */
