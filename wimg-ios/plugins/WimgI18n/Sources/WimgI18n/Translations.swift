@@ -268,7 +268,7 @@ internal let translations: [String: String] = [
     "Umsätze ansehen": "View transactions",
     "Umsätze des Girokontos öffnen und als CSV exportieren.": "Open the current account's transactions and export them as CSV.",
     "Umsätze direkt von der Bank holen, ca. 1.700 deutsche Banken. Mit TAN.": "Fetch transactions straight from your bank, about 1,700 German banks. With TAN.",
-    "Umsätze per FinTS abrufen, ohne Dienst dazwischen. Oder eine CSV-Datei importieren.": "Fetch transactions via FinTS, with no service in between. Or import a CSV file.",
+    "Umsätze per FinTS abrufen, ohne Dienst dazwischen. Oder einen Kontoauszug oder eine CSV-Datei importieren.": "Fetch transactions via FinTS, with no service in between. Or import a bank statement or a CSV file.",
     "Unter Transaktionen den Export als CSV anfordern.": "Request the CSV export under transactions.",
     "Unter Transaktionen die Umsätze als CSV exportieren.": "Export the transactions as CSV under transactions.",
     "Verrechnungskonto": "Clearing account",
@@ -1504,4 +1504,8 @@ internal let translations: [String: String] = [
     "wimg startet in der Sprache des Telefons, ohne Flackern.": "wimg starts in the phone's language, without flicker.",
     "Das Englisch ist überarbeitet: Datum, Wortwahl, Groß- und Kleinschreibung.": "The English is reworked: dates, wording, capitalisation.",
     "Zurück führt durch die zuletzt geöffneten Seiten statt direkt zur Übersicht.": "Back goes through the pages you opened instead of straight to Overview.",
+    "Datei importieren": "Import a file",
+    "Kontoauszug von jeder Bank oder CSV von Comdirect, Trade Republic, Scalable oder Revolut.": "A bank statement from any bank, or a CSV from Comdirect, Trade Republic, Scalable or Revolut.",
+    "Kontoauszug oder CSV, auch Revolut": "Bank statement or CSV, also Revolut",
+    "Verbinde deine Bank oder importiere eine Datei von ihr. Alles bleibt auf diesem Telefon.": "Connect your bank or import a file from it. Everything stays on this phone.",
 ]

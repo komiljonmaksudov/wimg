@@ -101,7 +101,7 @@ private fun Welcome(onStart: () -> Unit, onHaveWimg: () -> Unit) {
             Text(L("Sieh, wohin dein Geld geht. Ohne Konto, ohne Cloud-Zwang."), style = WimgType.body.copy(fontSize = WimgType.body.fontSize * 1.1f), color = c.bandSub, modifier = Modifier.padding(top = 14.dp))
             Spacer(Modifier.height(36.dp))
             Feature(Icons.Outlined.Lock, L("Bleibt auf deinem Gerät"), L("Kein Konto nötig. Deine Daten gehören dir."))
-            Feature(Icons.Outlined.AccountBalance, L("Direkt von deiner Bank"), L("Umsätze per FinTS abrufen, ohne Dienst dazwischen. Oder eine CSV-Datei importieren."))
+            Feature(Icons.Outlined.AccountBalance, L("Direkt von deiner Bank"), L("Umsätze per FinTS abrufen, ohne Dienst dazwischen. Oder einen Kontoauszug oder eine CSV-Datei importieren."))
             Feature(Icons.Outlined.Sync, L("Sync zwischen deinen Geräten"), L("Ende-zu-Ende-verschlüsselt, mit einem Schlüssel statt Passwort."))
         }
         OnboardingBar(Modifier.align(Alignment.BottomCenter)) {
@@ -146,7 +146,7 @@ private fun SourceChoice(onBack: () -> Unit, onPick: (String) -> Unit) {
     val c = Wimg.colors
     val choices = listOf(
         Choice("fints", "Bank verbinden", "Umsätze direkt von der Bank holen, ca. 1.700 deutsche Banken. Mit TAN.", recommended = true),
-        Choice("import", "CSV importieren", "Datei von Comdirect, Trade Republic oder Scalable."),
+        Choice("import", "Datei importieren", "Kontoauszug von jeder Bank oder CSV von Comdirect, Trade Republic, Scalable oder Revolut."),
         Choice("dashboard", "Leer starten", "Erstmal umsehen. Daten kannst du später hinzufügen."),
     )
     var selected by remember { mutableIntStateOf(0) }

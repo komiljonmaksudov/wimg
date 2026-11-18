@@ -274,7 +274,7 @@ private val translations: Map<String, String> = mapOf(
     "Umsätze ansehen" to "View transactions",
     "Umsätze des Girokontos öffnen und als CSV exportieren." to "Open the current account's transactions and export them as CSV.",
     "Umsätze direkt von der Bank holen, ca. 1.700 deutsche Banken. Mit TAN." to "Fetch transactions straight from your bank, about 1,700 German banks. With TAN.",
-    "Umsätze per FinTS abrufen, ohne Dienst dazwischen. Oder eine CSV-Datei importieren." to "Fetch transactions via FinTS, with no service in between. Or import a CSV file.",
+    "Umsätze per FinTS abrufen, ohne Dienst dazwischen. Oder einen Kontoauszug oder eine CSV-Datei importieren." to "Fetch transactions via FinTS, with no service in between. Or import a bank statement or a CSV file.",
     "Unter Transaktionen den Export als CSV anfordern." to "Request the CSV export under transactions.",
     "Unter Transaktionen die Umsätze als CSV exportieren." to "Export the transactions as CSV under transactions.",
     "Verrechnungskonto" to "Clearing account",
@@ -1510,6 +1510,10 @@ private val translations: Map<String, String> = mapOf(
     "wimg startet in der Sprache des Telefons, ohne Flackern." to "wimg starts in the phone's language, without flicker.",
     "Das Englisch ist überarbeitet: Datum, Wortwahl, Groß- und Kleinschreibung." to "The English is reworked: dates, wording, capitalisation.",
     "Zurück führt durch die zuletzt geöffneten Seiten statt direkt zur Übersicht." to "Back goes through the pages you opened instead of straight to Overview.",
+    "Datei importieren" to "Import a file",
+    "Kontoauszug von jeder Bank oder CSV von Comdirect, Trade Republic, Scalable oder Revolut." to "A bank statement from any bank, or a CSV from Comdirect, Trade Republic, Scalable or Revolut.",
+    "Kontoauszug oder CSV, auch Revolut" to "Bank statement or CSV, also Revolut",
+    "Verbinde deine Bank oder importiere eine Datei von ihr. Alles bleibt auf diesem Telefon." to "Connect your bank or import a file from it. Everything stays on this phone.",
 )
 
 /** Composable lookup — recomposes when LocaleState.locale flips. */

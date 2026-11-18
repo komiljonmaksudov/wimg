@@ -636,14 +636,14 @@ private fun EmptyHome(onBank: () -> Unit, onImport: () -> Unit, onDemo: () -> Un
         band = {
             Text(L("Noch keine Umsätze"), style = WimgType.title, color = Color.White)
             Text(
-                L("Verbinde deine Bank oder lade eine CSV deiner Bank. Alles bleibt auf diesem Telefon."),
+                L("Verbinde deine Bank oder importiere eine Datei von ihr. Alles bleibt auf diesem Telefon."),
                 style = WimgType.desc, color = c.bandSub, modifier = Modifier.padding(top = 6.dp),
             )
         },
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             EmptyAction(Icons.Outlined.AccountBalance, L("Bank verbinden"), L("Umsätze direkt per FinTS holen"), accent = true, onClick = onBank)
-            EmptyAction(Icons.Outlined.FileUpload, L("CSV importieren"), L("Comdirect, Trade Republic, Scalable"), onClick = onImport)
+            EmptyAction(Icons.Outlined.FileUpload, L("Datei importieren"), L("Kontoauszug oder CSV, auch Revolut"), onClick = onImport)
             Text(
                 L("Beispieldaten ansehen"),
                 style = WimgType.button, color = c.accent,

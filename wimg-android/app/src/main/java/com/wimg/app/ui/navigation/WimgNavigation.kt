@@ -426,7 +426,7 @@ private fun NavHostController.goTo(route: String) {
 private fun AddMenu(modifier: Modifier = Modifier, onPick: (String) -> Unit) {
     com.wimg.app.ui.components.BarMenu(modifier) {
         com.wimg.app.ui.components.MenuRow(Icons.Outlined.AccountBalance, L("Bank verbinden"), L("Umsätze per FinTS abrufen")) { onPick("fints") }
-        com.wimg.app.ui.components.MenuRow(Icons.Outlined.FileUpload, L("CSV importieren"), L("Comdirect, Trade Republic, Scalable")) { onPick("import") }
+        com.wimg.app.ui.components.MenuRow(Icons.Outlined.FileUpload, L("Datei importieren"), L("Kontoauszug oder CSV, auch Revolut")) { onPick("import") }
         com.wimg.app.ui.components.MenuRow(androidx.compose.material.icons.Icons.Outlined.Edit, L("Umsatz von Hand"), L("Z. B. Bargeld")) { onPick("manual") }
     }
 }

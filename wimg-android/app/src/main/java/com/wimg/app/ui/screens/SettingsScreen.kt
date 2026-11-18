@@ -298,7 +298,7 @@ fun SettingsScreen(navController: NavController? = null) {
         WimgGroup {
             WimgRow(L("Exportieren und sichern"), chevron = true, onClick = { navController?.navigate("settings/data") }, trailing = { ValueText(L("CSV, Backup")) })
             RowDivider()
-            WimgRow(L("Importieren"), desc = L("Comdirect, Trade Republic, Scalable"), chevron = true, onClick = { navController?.navigate("import") }, trailing = { ValueText("CSV") })
+            WimgRow(L("Importieren"), desc = L("Kontoauszug oder CSV, auch Revolut"), chevron = true, onClick = { navController?.navigate("import") })
         }
 
         GroupLabel(L("Danger Zone"), Modifier)
