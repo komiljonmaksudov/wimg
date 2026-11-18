@@ -1,0 +1,34 @@
+# Search, option A (boards 38/03, 05, 15, 18): the start screen, a merchant's answer in the
+# band, and a page word that opens the page.
+appId: com.wimg.app.tester
+name: Search
+---
+- runFlow: common/demo.yaml
+- tapOn: "Search"
+- extendedWaitUntil:
+    visible: "What do you want to know?"
+    timeout: 10000
+- assertVisible: "Jump to"
+- assertVisible: "Biggest spending this month"
+- takeScreenshot: search-start
+
+# A merchant: the answer is in the band.
+- tapOn: "Search: merchant, amount, page"
+- inputText: "supermarkt"
+- extendedWaitUntil:
+    visible: "Search: supermarkt"
+    timeout: 10000
+- assertVisible: ".* transactions · ⌀ .*"
+- takeScreenshot: search-merchant
+
+# A page word: the page comes first, Enter opens it.
+- eraseText: 20
+- inputText: "einst"
+- extendedWaitUntil:
+    visible: "Enter opens the page."
+    timeout: 10000
+- takeScreenshot: search-page
+- pressKey: Enter
+- extendedWaitUntil:
+    visible: "Appearance"
+    timeout: 10000
