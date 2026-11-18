@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.9.13 (2026-11-18)
+
+- docs: notes for 0.9.13 (Neuigkeiten, Play What's new, test log)
+- feat: "In Umsätzen" opens a search as a filter on Umsätze; Back returns to the same search
+- feat: new search: the answer in the band (total, count, average), the merchant, bookings by month; page names open with Enter; jump-to tiles and questions on the start screen
+- feat: filter Umsätze to recurring payments only, or include hidden accounts (Weitere)
+- feat: filter by amount on Umsätze: under 10 €, over 20 €, over 100 € or your own range, shown under the sum
+- docs: TODO, the next Maestro flows
+- test: Maestro journeys on the emulator (onboarding into demo data, filter panel, category change and Undo), run with scripts/maestro flow
+- fix: onboarding, the empty Übersicht, the + menu and Settings name statement files and Revolut, not only three CSV banks
+- docs: TODO, Play upload from CI
+
 ## v0.9.12 (2026-11-18)
 
 - docs: Neuigkeiten for 0.9.12 and 0.9.9–0.9.11, Play "What's new" for the next update
