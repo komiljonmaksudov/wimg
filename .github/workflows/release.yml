@@ -42,7 +42,13 @@ jobs:
             echo "android=true" >> $GITHUB_OUTPUT
             exit 0
           fi
-          CHANGED=$(git diff --name-only "$PREV..HEAD")
+          # The release commit bumps both apps' versions (release.sh): leave it out,
+          # or every tag rebuilds iOS and Android even when only one changed.
+          END=HEAD
+          if git log -1 --format=%s HEAD | grep -q '^release: '; then END=HEAD^; fi
+          # Generated translation tables change on both sides with every new text
+          # (en.ts): they ship with the platform's next real change.
+          CHANGED=$(git diff --name-only "$PREV..$END" | grep -vE '/(Translations\.swift|Translations\.kt)$' || true)
           echo "Changed files since $PREV:"
           echo "$CHANGED"
           if echo "$CHANGED" | grep -qE '^(libwimg/|wimg-ios/|scripts/build-ios|scripts/gen-xcodeproj|\.github/workflows/release\.yml)'; then

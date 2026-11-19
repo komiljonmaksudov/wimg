@@ -27,12 +27,12 @@ realign_archive() {
 
 echo "=== Building for aarch64-ios ==="
 cd "$LIBWIMG"
-zig build -Dtarget=aarch64-ios --release=small
+zig build -Dtarget=aarch64-ios.17.0 --release=small
 cp zig-out/lib/libwimg.a "$BUILD_DIR/ios/libwimg.a"
 realign_archive "$BUILD_DIR/ios/libwimg.a"
 
 echo "=== Building for aarch64-ios-simulator ==="
-zig build -Dtarget=aarch64-ios-simulator --release=small
+zig build -Dtarget=aarch64-ios.17.0-simulator --release=small
 cp zig-out/lib/libwimg.a "$BUILD_DIR/sim/libwimg.a"
 realign_archive "$BUILD_DIR/sim/libwimg.a"
 

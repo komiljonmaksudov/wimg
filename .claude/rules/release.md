@@ -63,6 +63,7 @@ Triggered on tag push (`v*`) or manual dispatch:
 
 ```
 detect-changes     → iOS/Android builds only if the tag touched libwimg/ or the platform dir
+                     (the release commit's version bump and the generated translation tables don't count)
 check              → zig fmt + zig build test -Doptimize=ReleaseFast (libwimg, wimg-sync-zig),
                      translation tables match i18n/en.ts (codegen + git diff)
   ↓
