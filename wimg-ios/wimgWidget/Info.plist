@@ -25,5 +25,18 @@
 		<key>NSExtensionPointIdentifier</key>
 		<string>com.apple.widgetkit-extension</string>
 	</dict>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Fonts/Inter-Regular.ttf</string>
+		<string>Fonts/Inter-Medium.ttf</string>
+		<string>Fonts/Inter-SemiBold.ttf</string>
+		<string>Fonts/Inter-Bold.ttf</string>
+		<string>Fonts/Manrope-Medium.ttf</string>
+		<string>Fonts/Manrope-SemiBold.ttf</string>
+		<string>Fonts/Manrope-Bold.ttf</string>
+		<string>Fonts/Manrope-ExtraBold.ttf</string>
+		<string>Fonts/JetBrainsMono-Regular.ttf</string>
+		<string>Fonts/JetBrainsMono-Medium.ttf</string>
+	</array>
 </dict>
 </plist>

@@ -89,6 +89,12 @@ targets:
     platform: iOS
     sources:
       - path: wimgWidget
+      # Shared with the app: colour/font tokens, category ids, the widget JSON, fonts.
+      - path: wimg/Components/Wimg.swift
+      - path: wimg/Models/Category.swift
+      - path: wimg/Services/WidgetPayload.swift
+      - path: wimg/Fonts
+        type: folder
     entitlements:
       path: wimgWidget/wimgWidget.entitlements
       properties:
@@ -114,6 +120,17 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        UIAppFonts:
+          - Fonts/Inter-Regular.ttf
+          - Fonts/Inter-Medium.ttf
+          - Fonts/Inter-SemiBold.ttf
+          - Fonts/Inter-Bold.ttf
+          - Fonts/Manrope-Medium.ttf
+          - Fonts/Manrope-SemiBold.ttf
+          - Fonts/Manrope-Bold.ttf
+          - Fonts/Manrope-ExtraBold.ttf
+          - Fonts/JetBrainsMono-Regular.ttf
+          - Fonts/JetBrainsMono-Medium.ttf
 
 schemes:
   wimg:
