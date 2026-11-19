@@ -15,6 +15,7 @@ struct ReviewView: View {
     @State private var data: ReviewData?
     @State private var accounts: [Account] = []
     @State private var showPeriod = false
+    @State private var showOpener = false
     private var periods: PeriodState { PeriodState.shared }
 
     private var selection: HomeSelection {
@@ -37,6 +38,9 @@ struct ReviewView: View {
         } sheet: {
             sheet
         }
+        .fullScreenCover(isPresented: $showOpener) {
+            ReviewOpenerView(title: L("Rückblick %s", openerLabel), cards: openerCards) { showOpener = false }
+        }
         .sheet(isPresented: $showPeriod) {
             PeriodSheet(selection: selection, allowCustom: false, selectedAccount: $selectedAccount, accounts: accounts) { chosen = $0 }
         }
@@ -44,6 +48,33 @@ struct ReviewView: View {
         .task { accounts = await Task.detached { LibWimg.getAccounts() }.value }
         .task(id: LoadKey(sel: selection, account: selectedAccount)) { await load() }
         .onReceive(NotificationCenter.default.publisher(for: .wimgDataChanged)) { _ in Task { await load() } }
+    }
+
+    // MARK: Opener
+
+    private var openerLabel: String {
+        if case let .month(_, m) = selection.kind { return WimgDates.months()[m - 1] }
+        return PeriodLabels.short(.init(from: selection.from, to: selection.to, days: 0))
+    }
+
+    private var openerCards: [OpenerCard] {
+        guard let d = data else { return [] }
+        var prev: String?
+        if case let .month(_, m) = selection.kind { prev = WimgDates.months()[(m + 10) % 12] }
+        return ReviewOpenerCards.cards(d, label: openerLabel, prevLabel: prev, salaryMode: salaryMode)
+    }
+
+    /// Once per finished period, when it went at least as well as the one before.
+    private func maybeOpen() {
+        guard !selection.isCurrent, !openerCards.isEmpty, let s = data?.summary, s.income > 0 else { return }
+        let rate = (s.income - abs(s.expenses)) / s.income
+        if let p = data?.previous, p.income > 0, rate < (p.income - abs(p.expenses)) / p.income { return }
+        let key = "opener:\(selection.from):\(selectedAccount ?? "")"
+        var played = Set(UserDefaults.standard.stringArray(forKey: "wimg_moments") ?? [])
+        guard !played.contains(key) else { return }
+        played.insert(key)
+        UserDefaults.standard.set(Array(played.suffix(60)), forKey: "wimg_moments")
+        showOpener = true
     }
 
     // MARK: Band
@@ -125,6 +156,14 @@ struct ReviewView: View {
     @ViewBuilder private var sheet: some View {
         if let d = data, let s = d.summary, s.tx_count > 0 {
             let expenses = abs(s.expenses)
+            if !selection.isCurrent && !openerCards.isEmpty {
+                WimgGroup {
+                    WimgRow(title: L("Rückblick als Karten ansehen"), chevron: true, action: { showOpener = true }) {
+                        Image(SquirrelPose.voll.image).resizable().scaledToFit().frame(width: 40, height: 40)
+                    }
+                }
+                .padding(.bottom, 12)
+            }
             HStack(spacing: 10) {
                 tile(L("Einnahmen"), amountText(s.income), Wimg.pos)
                 tile(L("Ausgaben"), amountText(-expenses), Wimg.text)
@@ -212,6 +251,7 @@ struct ReviewView: View {
         let sel = selection, account = selectedAccount, salary = salaryMode
         let prev = sel.previous(in: periods.data)
         data = await Task.detached { ReviewData.load(sel, prev: prev, account: account, salaryMode: salary) }.value
+        maybeOpen()
     }
 }
 
@@ -223,13 +263,18 @@ struct ReviewData {
     var fixedPaid: [(String, Double)] = []
     /// Gehaltsmonat: the largest income that is not the salary.
     var otherIncome: Transaction?
+    /// For the opener: days without spending (this and the range before), a price rise.
+    var noSpend = 0
+    var prevNoSpend: Int?
+    var priceRise: PriceRise?
 
     nonisolated static func load(_ sel: HomeSelection, prev: HomeSelection?, account: String?, salaryMode: Bool) -> ReviewData {
         let summary = LibWimg.getSummaryRange(from: sel.from, to: sel.to, account: account)
         let previous = prev.flatMap { LibWimg.getSummaryRange(from: $0.from, to: $0.to, account: account) }
         let today = WimgDates.todayIso()
         // Up to today only: scheduled (and demo) bookings dated later don't count yet.
-        let inRange = ((try? LibWimg.getTransactionsFiltered(account: account)) ?? [])
+        let all = (try? LibWimg.getTransactionsFiltered(account: account)) ?? []
+        let inRange = all
             .filter { $0.date >= sel.from && $0.date <= sel.to && !$0.isExcluded && $0.date <= today }
         let fixed = LibWimg.getRecurring()
             .filter { $0.isActive && !$0.isHidden && $0.amount < 0 && $0.last_seen >= sel.from && $0.last_seen <= sel.to }
@@ -244,7 +289,10 @@ struct ReviewData {
             biggest: inRange.filter { $0.amount < 0 }.min { $0.amount < $1.amount },
             lastDate: inRange.map(\.date).max(),
             fixedPaid: fixed,
-            otherIncome: other
+            otherIncome: other,
+            noSpend: ReviewOpenerCards.noSpendCount(from: sel.from, to: sel.to, txs: all),
+            prevNoSpend: prev.map { ReviewOpenerCards.noSpendCount(from: $0.from, to: $0.to, txs: all) },
+            priceRise: ReviewOpenerCards.priceRise(from: sel.from, to: sel.to)
         )
     }
 }
