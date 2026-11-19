@@ -40,12 +40,12 @@ struct CategoryEditorSheet: View {
     private var transactionHeader: some View {
         VStack(spacing: 8) {
             Text(transaction.description)
-                .font(.system(.headline, design: .rounded, weight: .bold))
+                .font(WimgFont.font(.manrope, .bold, 17, relativeTo: .headline))
                 .foregroundStyle(WimgTheme.heroText)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
             Text(formatAmount(transaction.amount))
-                .font(.system(.title2, design: .rounded, weight: .black))
+                .font(WimgFont.font(.manrope, .black, 22, relativeTo: .title2))
                 .foregroundStyle(transaction.isIncome ? .green : WimgTheme.heroText)
         }
         .frame(maxWidth: .infinity)
@@ -57,7 +57,7 @@ struct CategoryEditorSheet: View {
     private var categoryList: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(#L("Kategorie wählen"))
-                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                 .foregroundStyle(WimgTheme.textSecondary)
                 .textCase(.uppercase)
                 .tracking(0.5)
@@ -97,7 +97,7 @@ struct CategoryEditorSheet: View {
                 }
 
                 Text(L(cat.name))
-                    .font(.system(.subheadline, design: .rounded, weight: .medium))
+                    .font(WimgFont.font(.inter, .medium, 15, relativeTo: .subheadline))
                     .foregroundStyle(WimgTheme.text)
 
                 Spacer()

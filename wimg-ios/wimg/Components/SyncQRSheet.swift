@@ -16,10 +16,10 @@ struct SyncQRSheet: View {
 
             VStack(spacing: 6) {
                 Text(#L("Sync-Schlüssel teilen"))
-                    .font(.system(.title3, design: .rounded, weight: .heavy))
+                    .font(WimgFont.font(.manrope, .heavy, 20, relativeTo: .title3))
                     .foregroundStyle(WimgTheme.text)
                 Text(#L("Scanne diesen Code auf deinem anderen Gerät, um es zu verknüpfen."))
-                    .font(.system(.subheadline, design: .rounded))
+                    .font(WimgFont.font(.inter, .regular, 15, relativeTo: .subheadline))
                     .foregroundStyle(WimgTheme.textSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
@@ -54,7 +54,7 @@ struct SyncQRSheet: View {
                     UIPasteboard.general.string = syncKey
                 } label: {
                     Label(#L("Kopieren"), systemImage: "doc.on.doc")
-                        .font(.system(.subheadline, design: .rounded, weight: .bold))
+                        .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                         .foregroundStyle(WimgTheme.text)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
@@ -70,7 +70,7 @@ struct SyncQRSheet: View {
                     dismiss()
                 } label: {
                     Text(#L("Schließen"))
-                        .font(.system(.subheadline, design: .rounded, weight: .bold))
+                        .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                         .foregroundStyle(WimgTheme.bg)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
@@ -86,7 +86,7 @@ struct SyncQRSheet: View {
                     .foregroundStyle(.orange)
                     .font(.caption)
                 Text(#L("Nur an deine eigenen Geräte weitergeben — wer den Schlüssel hat, kann auf deine Finanzdaten zugreifen."))
-                    .font(.system(.caption2, design: .rounded))
+                    .font(WimgFont.font(.inter, .regular, 11, relativeTo: .caption2))
                     .foregroundStyle(WimgTheme.textSecondary)
             }
             .padding(12)

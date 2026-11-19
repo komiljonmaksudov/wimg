@@ -40,80 +40,49 @@ class ThemeManager {
 
 }
 
-// MARK: - Friendly Finance Design System
+// MARK: - Old theme names, now on the redesign tokens
+//
+// Screens not yet rebuilt (FinTS, Import, Settings, About, …) still use these
+// names. They point at the wimg tokens in Wimg.swift, so every old screen gets
+// the new colours at once: denim instead of yellow, hairlines instead of shadows.
 
 enum WimgTheme {
-    // Colors — adaptive for light/dark
-    static let accent = Color(red: 1.0, green: 0.914, blue: 0.49)        // #FFE97D
-    /// Always-dark text for use on accent/hero cards (yellow bg needs dark text in both themes)
-    static let heroText = Color(red: 0.102, green: 0.102, blue: 0.102)   // #1A1A1A
+    static var accent: Color { Wimg.accent }
+    /// Text on accent and hero fills (denim and the dark band): white.
+    static let heroText = Color.white
 
-    static var bg: Color {
-        Color(UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(red: 0.067, green: 0.067, blue: 0.078, alpha: 1) // #111114
-                : UIColor(red: 0.98, green: 0.976, blue: 0.965, alpha: 1) // #FAF9F6
-        })
-    }
+    static var bg: Color { Wimg.sheet }
+    static var text: Color { Wimg.text }
+    static var textSecondary: Color { Wimg.text2 }
+    static var border: Color { Wimg.line }
+    static var cardBg: Color { Wimg.card }
 
-    static var text: Color {
-        Color(UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor.white
-                : UIColor(red: 0.102, green: 0.102, blue: 0.102, alpha: 1) // #1A1A1A
-        })
-    }
-
-    static var textSecondary: Color {
-        Color(UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(red: 0.6, green: 0.6, blue: 0.62, alpha: 1)
-                : UIColor(red: 0.557, green: 0.557, blue: 0.576, alpha: 1) // #8E8E93
-        })
-    }
-
-    static var border: Color {
-        Color(UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(red: 1, green: 1, blue: 1, alpha: 0.05)
-                : UIColor(red: 0.941, green: 0.925, blue: 0.902, alpha: 1) // #f0ece6
-        })
-    }
-
-    static var cardBg: Color {
-        Color(UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(red: 0.11, green: 0.11, blue: 0.12, alpha: 1) // #1c1c1e
-                : UIColor.white
-        })
-    }
-
-    // Corner Radii
-    static let radiusSmall: CGFloat = 20
-    static let radiusMedium: CGFloat = 24
-    static let radiusLarge: CGFloat = 28
-    static let radiusXL: CGFloat = 32
+    // Corner radii, closer to the redesign's groups (16) and sheets (20).
+    static let radiusSmall: CGFloat = 13
+    static let radiusMedium: CGFloat = 16
+    static let radiusLarge: CGFloat = 20
+    static let radiusXL: CGFloat = 24
 }
 
-// MARK: - Card Style Modifier
+// MARK: - Card style: white group with a hairline, no shadow
 
 struct WimgCardStyle: ViewModifier {
     var radius: CGFloat = WimgTheme.radiusMedium
 
     func body(content: Content) -> some View {
         content
-            .background(WimgTheme.cardBg)
+            .background(Wimg.card)
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(Wimg.line, lineWidth: 1))
     }
 }
 
+/// The old yellow hero card is the dark band colour now.
 struct WimgHeroStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .background(WimgTheme.accent)
+            .background(Wimg.band)
             .clipShape(RoundedRectangle(cornerRadius: WimgTheme.radiusXL, style: .continuous))
-            .shadow(color: .black.opacity(0.08), radius: 16, y: 4)
     }
 }
 

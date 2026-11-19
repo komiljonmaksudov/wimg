@@ -7,10 +7,6 @@ struct MoreView: View {
     var popToRoot: UUID
     @State private var path = NavigationPath()
 
-    enum Destination: Hashable {
-        case review, banks, import_, settings, about
-    }
-
     private var version: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
     }
@@ -34,25 +30,35 @@ struct MoreView: View {
                     row(.about, #L("Über wimg"), "Version \(version)", "info.circle", Wimg.text2)
                 }
             }
-            .navigationDestination(for: Destination.self) { destination($0) }
+            .navigationDestination(for: MorePage.self) { destination($0) }
             .onChange(of: popToRoot) { path = NavigationPath() }
+            .onChange(of: AppNav.shared.morePage, initial: true) {
+                // Another tab (Suche) asked for a page under Mehr.
+                guard let page = AppNav.shared.morePage else { return }
+                path = NavigationPath()
+                path.append(page)
+                AppNav.shared.morePage = nil
+            }
         }
     }
 
-    private func row(_ d: Destination, _ title: String, _ desc: String, _ icon: String, _ tint: Color) -> some View {
+    private func row(_ d: MorePage, _ title: String, _ desc: String, _ icon: String, _ tint: Color) -> some View {
         WimgRow(title: title, desc: desc, chevron: true, action: { path.append(d) }) {
             IconTile(systemImage: icon, tint: tint)
         }
     }
 
     @ViewBuilder
-    private func destination(_ d: Destination) -> some View {
+    private func destination(_ d: MorePage) -> some View {
         switch d {
         case .review: ReviewView(selectedAccount: $selectedAccount)
         case .banks: FinTSView()
         case .import_: ImportView()
         case .settings: SettingsView()
         case .about: AboutView()
+        case .accounts: AccountsView()
+        case .rules: RulesView()
+        case .devices: SyncDevicesView()
         }
     }
 }

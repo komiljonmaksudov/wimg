@@ -27,7 +27,7 @@ struct TransactionCard: View {
                 // Description + category
                 VStack(alignment: .leading, spacing: 3) {
                     Text(transaction.description)
-                        .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                        .font(WimgFont.font(.inter, .semibold, 15, relativeTo: .subheadline))
                         .lineLimit(1)
                         .foregroundStyle(WimgTheme.text)
 
@@ -40,7 +40,7 @@ struct TransactionCard: View {
 
                 // Amount
                 Text(formatAmount(transaction.amount))
-                    .font(.system(.subheadline, design: .rounded, weight: .bold))
+                    .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                     .foregroundStyle(transaction.isIncome ? .green : WimgTheme.text)
             }
             .padding(.vertical, 10)

@@ -78,7 +78,7 @@ struct AccountPicker: View {
                         .frame(width: 8, height: 8)
                 }
                 Text(label)
-                    .font(.system(.subheadline, design: .rounded, weight: .bold))
+                    .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                 Image(systemName: "chevron.down")
                     .font(.caption2.bold())
             }
@@ -168,7 +168,7 @@ struct AccountFormSheet: View {
             Form {
                 Section(#L("Name")) {
                     TextField("z.B. Bargeld, Haushalt...", text: $name)
-                        .font(.system(.body, design: .rounded))
+                        .font(WimgFont.font(.inter, .regular, 17, relativeTo: .body))
                 }
 
                 Section(#L("Farbe")) {

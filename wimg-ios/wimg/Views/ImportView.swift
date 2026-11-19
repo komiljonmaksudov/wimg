@@ -20,6 +20,8 @@ struct ImportView: View {
     // Preview state
     @State private var parseResult: ParseResult?
     @State private var csvData: Data?
+    /// The chosen file is an MT940 or CAMT statement, not a CSV.
+    @State private var isStatement = false
 
     // Post-import state
     @State private var importResult: ImportResult?
@@ -47,7 +49,7 @@ struct ImportView: View {
                 VStack(spacing: 20) {
                     if fileQueue.count > 1 {
                         Text(#L("Datei \(queueIndex + 1) von \(fileQueue.count)"))
-                            .font(.system(.subheadline, design: .rounded, weight: .bold))
+                            .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                             .foregroundStyle(WimgTheme.textSecondary)
                     }
 
@@ -79,7 +81,9 @@ struct ImportView: View {
             .navigationTitle("Import")
             .fileImporter(
                 isPresented: $isPickerPresented,
-                allowedContentTypes: [.commaSeparatedText, UTType(filenameExtension: "csv")!],
+                // CSV, and statement files: MT940 (.sta, .mt940, .txt) and CAMT (.xml).
+                allowedContentTypes: [.commaSeparatedText, .xml, .plainText]
+                    + ["csv", "sta", "mt940", "camt"].compactMap { UTType(filenameExtension: $0) },
                 allowsMultipleSelection: true
             ) { result in
                 handleFileImport(result)
@@ -100,12 +104,12 @@ struct ImportView: View {
             }
 
             VStack(spacing: 6) {
-                Text(#L("CSV-Datei importieren"))
-                    .font(.system(.title3, design: .rounded, weight: .bold))
+                Text(#L("Kontoauszug oder CSV"))
+                    .font(WimgFont.font(.manrope, .bold, 20, relativeTo: .title3))
                     .foregroundStyle(WimgTheme.text)
 
-                Text(#L("Comdirect, Trade Republic oder Scalable Capital"))
-                    .font(.system(.subheadline, design: .rounded))
+                Text(#L("Kontoauszug als MT940 oder CAMT, oder eine CSV von Comdirect, Trade Republic oder Scalable Capital"))
+                    .font(WimgFont.font(.inter, .regular, 15, relativeTo: .subheadline))
                     .foregroundStyle(WimgTheme.textSecondary)
                     .multilineTextAlignment(.center)
             }
@@ -114,7 +118,7 @@ struct ImportView: View {
                 isPickerPresented = true
             } label: {
                 Label(#L("Datei auswählen"), systemImage: "folder")
-                    .font(.system(.headline, design: .rounded, weight: .bold))
+                    .font(WimgFont.font(.manrope, .bold, 17, relativeTo: .headline))
                     .frame(maxWidth: .infinity)
                     .padding(16)
                     .background(WimgTheme.text)
@@ -125,7 +129,7 @@ struct ImportView: View {
 
             if isParsing {
                 ProgressView("Analysiere...")
-                    .font(.system(.caption, design: .rounded))
+                    .font(WimgFont.font(.inter, .regular, 12, relativeTo: .caption))
             }
         }
         .padding(28)
@@ -150,10 +154,10 @@ struct ImportView: View {
                     }
                     VStack(alignment: .leading, spacing: 3) {
                         Text(#L("\(formatLabel(result.format)) CSV erkannt"))
-                            .font(.system(.subheadline, design: .rounded, weight: .bold))
+                            .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                             .foregroundStyle(WimgTheme.text)
                         Text(#L("\(result.total_rows) Zeilen gelesen"))
-                            .font(.system(.caption, design: .rounded))
+                            .font(WimgFont.font(.inter, .regular, 12, relativeTo: .caption))
                             .foregroundStyle(WimgTheme.textSecondary)
                     }
                     Spacer()
@@ -167,18 +171,18 @@ struct ImportView: View {
             // Summary
             VStack(spacing: 8) {
                 Text(#L("\(result.transactions.count) Buchungen gefunden"))
-                    .font(.system(.headline, design: .rounded, weight: .bold))
+                    .font(WimgFont.font(.manrope, .bold, 17, relativeTo: .headline))
                     .foregroundStyle(WimgTheme.text)
 
                 HStack(spacing: 16) {
                     if previewTotals.income > 0 {
                         Label(formatAmountShort(previewTotals.income), systemImage: "arrow.down.circle.fill")
-                            .font(.system(.caption, design: .rounded, weight: .medium))
+                            .font(WimgFont.font(.inter, .medium, 12, relativeTo: .caption))
                             .foregroundStyle(.green)
                     }
                     if previewTotals.expenses < 0 {
                         Label(formatAmountShort(previewTotals.expenses), systemImage: "arrow.up.circle.fill")
-                            .font(.system(.caption, design: .rounded, weight: .medium))
+                            .font(WimgFont.font(.inter, .medium, 12, relativeTo: .caption))
                             .foregroundStyle(.red)
                     }
                 }
@@ -199,7 +203,7 @@ struct ImportView: View {
 
                 if result.transactions.count > 10 {
                     Text(#L("... und \(result.transactions.count - 10) weitere"))
-                        .font(.system(.caption, design: .rounded, weight: .medium))
+                        .font(WimgFont.font(.inter, .medium, 12, relativeTo: .caption))
                         .foregroundStyle(WimgTheme.textSecondary)
                         .padding(.vertical, 14)
                 }
@@ -220,7 +224,7 @@ struct ImportView: View {
                             Text(#L("Importieren (\(result.transactions.count))"))
                         }
                     }
-                    .font(.system(.headline, design: .rounded, weight: .bold))
+                    .font(WimgFont.font(.manrope, .bold, 17, relativeTo: .headline))
                     .frame(maxWidth: .infinity)
                     .padding(16)
                     .background(WimgTheme.accent)
@@ -233,7 +237,7 @@ struct ImportView: View {
                     cancelPreview()
                 } label: {
                     Text(#L("Abbrechen"))
-                        .font(.system(.headline, design: .rounded, weight: .bold))
+                        .font(WimgFont.font(.manrope, .bold, 17, relativeTo: .headline))
                         .padding(.horizontal, 20)
                         .padding(.vertical, 16)
                         .background(Color(.systemGray5))
@@ -262,7 +266,7 @@ struct ImportView: View {
                 }
 
                 Text(#L("Import erfolgreich!"))
-                    .font(.system(.headline, design: .rounded, weight: .bold))
+                    .font(WimgFont.font(.manrope, .bold, 17, relativeTo: .headline))
                     .foregroundStyle(WimgTheme.text)
 
                 Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 8) {
@@ -304,7 +308,7 @@ struct ImportView: View {
                         }
                     }
                 }
-                .font(.system(.subheadline, design: .rounded))
+                .font(WimgFont.font(.inter, .regular, 15, relativeTo: .subheadline))
             }
             .padding(24)
             .wimgCard(radius: WimgTheme.radiusLarge)
@@ -316,7 +320,7 @@ struct ImportView: View {
                     loadNextFile()
                 } label: {
                     Text(#L("Nächste Datei laden (\(queueIndex + 2)/\(fileQueue.count))"))
-                        .font(.system(.subheadline, design: .rounded, weight: .bold))
+                        .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                         .frame(maxWidth: .infinity)
                         .padding(16)
                         .background(WimgTheme.text)
@@ -333,7 +337,7 @@ struct ImportView: View {
                 resetToIdle()
             } label: {
                 Label(#L("Weitere Datei importieren"), systemImage: "plus.circle")
-                    .font(.system(.subheadline, design: .rounded, weight: .bold))
+                    .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                     .frame(maxWidth: .infinity)
                     .padding(16)
                     .background(Color(.systemGray5))
@@ -347,7 +351,7 @@ struct ImportView: View {
                     onViewTransactions()
                 } label: {
                     Label(#L("Transaktionen ansehen"), systemImage: "list.bullet")
-                        .font(.system(.subheadline, design: .rounded, weight: .bold))
+                        .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                         .frame(maxWidth: .infinity)
                         .padding(16)
                         .background(WimgTheme.accent)
@@ -364,7 +368,7 @@ struct ImportView: View {
     private var categorizationSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(#L("Kategorisierung"))
-                .font(.system(.title3, design: .rounded, weight: .bold))
+                .font(WimgFont.font(.manrope, .bold, 20, relativeTo: .title3))
                 .foregroundStyle(WimgTheme.text)
                 .padding(.horizontal)
 
@@ -382,10 +386,10 @@ struct ImportView: View {
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(#L("Regel-Engine"))
-                            .font(.system(.subheadline, design: .rounded, weight: .bold))
+                            .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                             .foregroundStyle(WimgTheme.text)
                         Text(#L("Keyword-Regeln anwenden"))
-                            .font(.system(.caption, design: .rounded))
+                            .font(WimgFont.font(.inter, .regular, 12, relativeTo: .caption))
                             .foregroundStyle(WimgTheme.textSecondary)
                     }
 
@@ -398,7 +402,7 @@ struct ImportView: View {
                             NotificationCenter.default.post(name: .wimgDataChanged, object: nil)
                         }
                     }
-                    .font(.system(.caption, design: .rounded, weight: .bold))
+                    .font(WimgFont.font(.inter, .bold, 12, relativeTo: .caption))
                     .foregroundStyle(WimgTheme.heroText)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
@@ -408,7 +412,7 @@ struct ImportView: View {
 
                 if let count = rulesCategorizedCount {
                     Text(#L("\(count) Buchungen kategorisiert"))
-                        .font(.system(.caption, design: .rounded, weight: .medium))
+                        .font(WimgFont.font(.inter, .medium, 12, relativeTo: .caption))
                         .foregroundStyle(.green)
                         .padding(.leading, 58)
                 }
@@ -428,7 +432,7 @@ struct ImportView: View {
                 .font(.system(size: 28))
                 .foregroundStyle(.red)
             Text(error)
-                .font(.system(.subheadline, design: .rounded))
+                .font(WimgFont.font(.inter, .regular, 15, relativeTo: .subheadline))
                 .foregroundStyle(WimgTheme.textSecondary)
                 .multilineTextAlignment(.center)
         }
@@ -442,9 +446,10 @@ struct ImportView: View {
     private var supportedFormats: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(#L("Unterstützte Formate"))
-                .font(.system(.title3, design: .rounded, weight: .bold))
+                .font(WimgFont.font(.manrope, .bold, 20, relativeTo: .title3))
                 .foregroundStyle(WimgTheme.text)
 
+            formatRow(icon: "doc.text", name: #L("Kontoauszug"), detail: "MT940 / CAMT", color: Wimg.accent)
             formatRow(icon: "building.columns", name: "Comdirect", detail: "Semikolon, ISO-8859-1", color: .blue)
             formatRow(icon: "chart.line.uptrend.xyaxis", name: "Trade Republic", detail: "Komma, UTF-8", color: .green)
             formatRow(icon: "arrow.up.right", name: "Scalable Capital", detail: "Semikolon, UTF-8", color: .purple)
@@ -466,10 +471,10 @@ struct ImportView: View {
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text(L(name))
-                    .font(.system(.subheadline, design: .rounded, weight: .bold))
+                    .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                     .foregroundStyle(WimgTheme.text)
                 Text(L(detail))
-                    .font(.system(.caption, design: .rounded))
+                    .font(WimgFont.font(.inter, .regular, 12, relativeTo: .caption))
                     .foregroundStyle(WimgTheme.textSecondary)
             }
             Spacer()
@@ -504,7 +509,14 @@ struct ImportView: View {
         do {
             let data = try Data(contentsOf: url)
             csvData = data
-            parseResult = try LibWimg.parseCSV(data)
+            // A statement file (MT940 / CAMT) first; libwimg says nil when it isn't one.
+            if let statement = LibWimg.parseStatement(data) {
+                isStatement = true
+                parseResult = statement
+            } else {
+                isStatement = false
+                parseResult = try LibWimg.parseCSV(data)
+            }
             stage = .preview
         } catch {
             errorMessage = error.localizedDescription
@@ -530,7 +542,8 @@ struct ImportView: View {
         errorMessage = nil
 
         do {
-            let result = try LibWimg.importCSV(data)
+            // Statements go into the bank's account; twins already here are skipped.
+            let result = isStatement ? try LibWimg.importStatement(data) : try LibWimg.importCSV(data)
             importResult = result
             csvData = nil
             parseResult = nil
@@ -566,6 +579,8 @@ struct ImportView: View {
         case "comdirect": "Comdirect"
         case "trade_republic": "Trade Republic"
         case "scalable_capital": "Scalable Capital"
+        case "mt940": "MT940"
+        case "camt": "CAMT"
         default: format
         }
     }

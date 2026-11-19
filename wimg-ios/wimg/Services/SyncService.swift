@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// URLSession-based sync client with real-time WebSocket support + E2E encryption.
 actor SyncService {
@@ -32,6 +33,7 @@ actor SyncService {
 
     nonisolated func setSyncKey(_ key: String) {
         KeychainService.set(KeychainService.syncKey, value: key)
+        UserDefaults.standard.removeObject(forKey: SyncService.removedKey)
     }
 
     nonisolated func clearSyncKey() {
@@ -119,10 +121,94 @@ actor SyncService {
     }
 
     func syncFull() async throws -> (pushed: Int, pulled: Int) {
+        // Another device removed this one (or replaced the key): stop, keep the data.
+        if !touchDevice() {
+            leaveRemoved()
+            return (0, 0)
+        }
         let pushed = try await push()
         let pulled = try await pull()
+        // A pull can bring this device's own removal mark.
+        if !touchDevice() {
+            leaveRemoved()
+            return (pushed, pulled)
+        }
         setLastSync(Int(Date().timeIntervalSince1970 * 1000))
+        UserDefaults.standard.set(Int(Date().timeIntervalSince1970 * 1000), forKey: Self.lastSyncAtKey)
         return (pushed, pulled)
+    }
+
+    // MARK: - Devices (board 21)
+
+    static let deviceIdKey = "wimg_device_id"
+    static let removedKey = "wimg_sync_removed"
+    static let lastSyncAtKey = "wimg_sync_last_at"
+
+    /// This device's id in the device list (random, only inside the E2E data).
+    nonisolated static var deviceId: String {
+        if let id = UserDefaults.standard.string(forKey: deviceIdKey) { return id }
+        let id = UUID().uuidString.lowercased()
+        UserDefaults.standard.set(id, forKey: deviceIdKey)
+        return id
+    }
+
+    /// iOS gives apps only the model name ("iPhone"), not the user's device name.
+    nonisolated static var deviceName: String { UIDevice.current.model }
+
+    nonisolated static var deviceKind: String {
+        UIDevice.current.userInterfaceIdiom == .pad ? "tablet" : "phone"
+    }
+
+    /// Set when another device removed this one or the key was replaced.
+    nonisolated static var wasRemoved: Bool { UserDefaults.standard.bool(forKey: removedKey) }
+
+    /// Unix ms of the last full sync, 0 if never.
+    nonisolated static var lastSyncAt: Int { UserDefaults.standard.integer(forKey: lastSyncAtKey) }
+
+    /// Marks this device as still linked. False: another device removed it.
+    private func touchDevice() -> Bool {
+        (try? LibWimg.touchDevice(id: Self.deviceId, name: Self.deviceName, kind: Self.deviceKind)) ?? true
+    }
+
+    private func leaveRemoved() {
+        disconnectWebSocket()
+        clearSyncKey()
+        UserDefaults.standard.set(true, forKey: Self.removedKey)
+    }
+
+    /// "Neuen Schlüssel erstellen": the other devices are marked removed, the
+    /// server copy under the old key is deleted, only the removal marks are
+    /// written back there (so the others learn they are out), and everything is
+    /// pushed again under a fresh key. False: nothing changed, the old key stays.
+    func replaceKey() async -> Bool {
+        guard let old = syncKey else { return false }
+        do {
+            let me = Self.deviceId
+            for d in LibWimg.getDevices() where d.id != me { try? LibWimg.removeDevice(id: d.id) }
+            _ = try await push()
+            var del = URLRequest(url: URL(string: "\(baseURL)/sync/\(old)")!)
+            del.httpMethod = "DELETE"
+            let (_, resp) = try await URLSession.shared.data(for: del)
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return false }
+            let marks = encryptRows(LibWimg.getChanges(sinceMs: 0).filter { $0.table == "sync_devices" })
+            if !marks.isEmpty {
+                var post = URLRequest(url: URL(string: "\(baseURL)/sync/\(old)")!)
+                post.httpMethod = "POST"
+                post.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                post.httpBody = try JSONEncoder().encode(WirePayload(rows: marks))
+                _ = try await URLSession.shared.data(for: post)
+            }
+            disconnectWebSocket()
+            setSyncKey(UUID().uuidString.lowercased())
+            encryptionKey = nil
+            setLastSync(0)
+            _ = try await push()
+            UserDefaults.standard.set(Int(Date().timeIntervalSince1970 * 1000), forKey: Self.lastSyncAtKey)
+            connectWebSocket()
+            return true
+        } catch {
+            return false
+        }
     }
 
     // MARK: - E2E Encryption

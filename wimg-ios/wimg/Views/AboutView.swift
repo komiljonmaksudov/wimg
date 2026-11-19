@@ -58,9 +58,8 @@ struct AboutView: View {
                 VStack(spacing: 16) {
                     ZStack(alignment: .bottomTrailing) {
                         RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(WimgTheme.heroText)
+                            .fill(Wimg.band)
                             .frame(width: 80, height: 80)
-                            .shadow(color: .black.opacity(0.1), radius: 12, y: 4)
                             .overlay {
                                 Image(systemName: "creditcard")
                                     .font(.system(size: 32, weight: .light))
@@ -68,7 +67,7 @@ struct AboutView: View {
                             }
 
                         Circle()
-                            .fill(.green)
+                            .fill(Wimg.pos)
                             .frame(width: 28, height: 28)
                             .overlay {
                                 Image(systemName: "checkmark")
@@ -80,10 +79,10 @@ struct AboutView: View {
 
                     VStack(spacing: 4) {
                         Text("wimg")
-                            .font(.system(.title, design: .rounded, weight: .bold))
+                            .font(WimgFont.font(.manrope, .bold, 28, relativeTo: .title))
                             .foregroundStyle(WimgTheme.text)
 
-                        Text(#L("Persönliche Finanzverwaltung.\nLokal. Privat. Offen."))
+                        Text(#L("Persönliche Finanzverwaltung.") + "\n" + #L("Lokal. Privat. Offen."))
                             .font(.subheadline)
                             .foregroundStyle(WimgTheme.textSecondary)
                             .multilineTextAlignment(.center)
@@ -92,7 +91,8 @@ struct AboutView: View {
                 .padding(.top, 8)
 
                 // MARK: - About Text
-                Text(#L("Ein Open-Source-Projekt von **Komiljon Maksudov**. Gebaut mit **Zig**, **SwiftUI** und **SQLite**."))
+                // LocalizedStringKey: the bold parts are Markdown.
+                Text(LocalizedStringKey(#L("Ein Open-Source-Projekt von **Komiljon Maksudov**. Gebaut mit **Zig**, **SwiftUI** und **SQLite**.")))
                     .font(.subheadline)
                     .foregroundStyle(WimgTheme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -111,7 +111,7 @@ struct AboutView: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(#L("Privatsphäre zuerst"))
-                            .font(.system(.subheadline, design: .rounded, weight: .bold))
+                            .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                             .foregroundStyle(WimgTheme.text)
                         Text(#L("Keine Werbung. Kein Tracking. Niemals."))
                             .font(.caption)
@@ -126,7 +126,7 @@ struct AboutView: View {
                 // MARK: - Privacy Details
                 VStack(alignment: .leading, spacing: 12) {
                     Text(#L("Datenschutz im Detail"))
-                        .font(.system(.subheadline, design: .rounded, weight: .bold))
+                        .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                         .foregroundStyle(WimgTheme.text)
 
                     privacyRow("lock.fill", "Lokal gespeichert", "SQLite-Datenbank auf deinem Gerät. Kein Cloud-Konto nötig.")
@@ -147,7 +147,7 @@ struct AboutView: View {
                         Image(systemName: "chevron.left.forwardslash.chevron.right")
                             .font(.subheadline)
                         Text("GitHub")
-                            .font(.system(.subheadline, design: .rounded, weight: .bold))
+                            .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                     }
                     .foregroundStyle(WimgTheme.text)
                     .frame(maxWidth: .infinity)
@@ -165,7 +165,7 @@ struct AboutView: View {
                             .font(.title3)
                             .foregroundStyle(.purple)
                         Text(#L("MCP-Verbindung"))
-                            .font(.system(.title3, design: .rounded, weight: .bold))
+                            .font(WimgFont.font(.manrope, .bold, 20, relativeTo: .title3))
                             .foregroundStyle(WimgTheme.text)
                     }
 
@@ -213,7 +213,7 @@ struct AboutView: View {
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text(#L("Datenschutz-Hinweis"))
-                                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                                .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                                 .foregroundStyle(Color.orange.opacity(0.9))
                             Text(#L("Wenn du wimg mit einem MCP-Client verbindest, werden deine Finanzdaten an diesen Client weitergegeben. Die Daten sind Ende-zu-Ende verschlüsselt zwischen deinen Geräten und dem Server, aber der MCP-Client selbst kann die entschlüsselten Daten lesen. Verwende nur vertrauenswürdige MCP-Clients und teile deinen Sync-Schlüssel niemals mit Dritten."))
                                 .font(.caption)
@@ -236,7 +236,7 @@ struct AboutView: View {
                             .font(.title3)
                             .foregroundStyle(.pink)
                         Text(#L("Mit Hilfe von"))
-                            .font(.system(.title3, design: .rounded, weight: .bold))
+                            .font(WimgFont.font(.manrope, .bold, 20, relativeTo: .title3))
                             .foregroundStyle(WimgTheme.text)
                     }
 
@@ -273,7 +273,7 @@ struct AboutView: View {
                             .font(.title3)
                             .foregroundStyle(.orange)
                         Text(#L("Häufig gestellte Fragen"))
-                            .font(.system(.title3, design: .rounded, weight: .bold))
+                            .font(WimgFont.font(.manrope, .bold, 20, relativeTo: .title3))
                             .foregroundStyle(WimgTheme.text)
                     }
 
@@ -291,7 +291,7 @@ struct AboutView: View {
                                     .padding(.bottom, 4)
                             } label: {
                                 Text(L(faq.q))
-                                    .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                                    .font(WimgFont.font(.inter, .semibold, 15, relativeTo: .subheadline))
                                     .foregroundStyle(WimgTheme.text)
                                     .multilineTextAlignment(.leading)
                             }
@@ -306,7 +306,7 @@ struct AboutView: View {
                 VStack(spacing: 8) {
                     Link(destination: URL(string: WimgConfig.releasesURL)!) {
                         Text(#L("Was ist neu?"))
-                            .font(.system(.caption, design: .rounded, weight: .bold))
+                            .font(WimgFont.font(.inter, .bold, 12, relativeTo: .caption))
                             .foregroundStyle(.orange)
                     }
 
@@ -343,10 +343,10 @@ struct AboutView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(L(title))
-                    .font(.system(.caption, design: .rounded, weight: .semibold))
+                    .font(WimgFont.font(.inter, .semibold, 12, relativeTo: .caption))
                     .foregroundStyle(WimgTheme.text)
                 Text(L(detail))
-                    .font(.system(.caption2, design: .rounded))
+                    .font(WimgFont.font(.inter, .regular, 11, relativeTo: .caption2))
                     .foregroundStyle(WimgTheme.textSecondary)
             }
         }
@@ -362,10 +362,10 @@ struct AboutView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(L(title))
-                    .font(.system(.caption, design: .rounded, weight: .semibold))
+                    .font(WimgFont.font(.inter, .semibold, 12, relativeTo: .caption))
                     .foregroundStyle(WimgTheme.text)
                 Text(L(detail))
-                    .font(.system(.caption2, design: .rounded))
+                    .font(WimgFont.font(.inter, .regular, 11, relativeTo: .caption2))
                     .foregroundStyle(WimgTheme.textSecondary)
             }
         }
@@ -374,7 +374,7 @@ struct AboutView: View {
     private func mcpStep(number: Int, title: String, detail: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Text("\(number)")
-                .font(.system(.caption, design: .rounded, weight: .bold))
+                .font(WimgFont.font(.inter, .bold, 12, relativeTo: .caption))
                 .foregroundStyle(WimgTheme.heroText)
                 .frame(width: 28, height: 28)
                 .background(WimgTheme.accent)
@@ -382,7 +382,7 @@ struct AboutView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(L(title))
-                    .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                    .font(WimgFont.font(.inter, .semibold, 15, relativeTo: .subheadline))
                     .foregroundStyle(WimgTheme.text)
                 Text(L(detail))
                     .font(.caption)

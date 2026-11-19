@@ -15,7 +15,7 @@ struct MonthPicker: View {
                 goBack()
             } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(.body, design: .rounded, weight: .bold))
+                    .font(WimgFont.font(.inter, .bold, 17, relativeTo: .body))
                     .foregroundStyle(WimgTheme.text)
                     .frame(width: 40, height: 40)
                     .background(WimgTheme.cardBg)
@@ -26,7 +26,7 @@ struct MonthPicker: View {
             Spacer()
 
             Text("\(monthNames[month - 1]) \(String(year))")
-                .font(.system(.headline, design: .rounded, weight: .bold))
+                .font(WimgFont.font(.manrope, .bold, 17, relativeTo: .headline))
                 .foregroundStyle(WimgTheme.text)
 
             Spacer()
@@ -35,7 +35,7 @@ struct MonthPicker: View {
                 goForward()
             } label: {
                 Image(systemName: "chevron.right")
-                    .font(.system(.body, design: .rounded, weight: .bold))
+                    .font(WimgFont.font(.inter, .bold, 17, relativeTo: .body))
                     .foregroundStyle(WimgTheme.text)
                     .frame(width: 40, height: 40)
                     .background(WimgTheme.cardBg)

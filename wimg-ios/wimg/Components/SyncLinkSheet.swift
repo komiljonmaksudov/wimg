@@ -30,10 +30,10 @@ struct SyncLinkSheet: View {
                         .foregroundStyle(.orange)
                 }
                 Text(#L("Mit anderem Gerät verknüpfen"))
-                    .font(.system(.title3, design: .rounded, weight: .heavy))
+                    .font(WimgFont.font(.manrope, .heavy, 20, relativeTo: .title3))
                     .foregroundStyle(WimgTheme.text)
                 Text(#L("Füge den Sync-Schlüssel deines anderen Geräts ein. Du findest ihn dort unter Einstellungen → Synchronisierung."))
-                    .font(.system(.subheadline, design: .rounded))
+                    .font(WimgFont.font(.inter, .regular, 15, relativeTo: .subheadline))
                     .foregroundStyle(WimgTheme.textSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
@@ -93,7 +93,7 @@ struct SyncLinkSheet: View {
                     }
                     Text(busy ? L("Verknüpfe...") : L("Verknüpfen"))
                 }
-                .font(.system(.headline, design: .rounded, weight: .bold))
+                .font(WimgFont.font(.manrope, .bold, 17, relativeTo: .headline))
                 .foregroundStyle(WimgTheme.bg)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
@@ -107,7 +107,7 @@ struct SyncLinkSheet: View {
                 dismiss()
             } label: {
                 Text(#L("Abbrechen"))
-                    .font(.system(.subheadline, design: .rounded, weight: .medium))
+                    .font(WimgFont.font(.inter, .medium, 15, relativeTo: .subheadline))
                     .foregroundStyle(WimgTheme.textSecondary)
             }
 

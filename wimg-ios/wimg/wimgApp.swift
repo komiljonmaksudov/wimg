@@ -16,7 +16,7 @@ struct wimgApp: App {
                             .font(.largeTitle)
                             .foregroundStyle(.red)
                         Text(#L("Initialisierung fehlgeschlagen"))
-                            .font(.system(.headline, design: .rounded, weight: .bold))
+                            .font(WimgFont.font(.manrope, .bold, 17, relativeTo: .headline))
                         Text(error)
                             .font(.caption)
                             .foregroundStyle(WimgTheme.textSecondary)
@@ -82,8 +82,8 @@ struct ContentView: View {
     @State private var accounts: [Account] = []
     @AppStorage("wimg_onboarding_completed") private var onboardingCompleted = false
     @AppStorage("wimg_locale") private var currentLocale = "de"
-    @State private var selectedTab = AppTab.overview
     @State private var popToRoot = UUID()
+    private var nav: AppNav { AppNav.shared }
     private var themeManager = ThemeManager.shared
 
     private var appLocale: Locale {
@@ -93,12 +93,12 @@ struct ContentView: View {
     /// Tapping the open tab again goes back to its first page.
     private var tabSelection: Binding<AppTab> {
         Binding {
-            selectedTab
+            nav.tab
         } set: { newTab in
-            if newTab == selectedTab {
+            if newTab == nav.tab {
                 popToRoot = UUID()
             }
-            selectedTab = newTab
+            nav.tab = newTab
         }
     }
 

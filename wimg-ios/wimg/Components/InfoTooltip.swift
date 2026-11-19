@@ -17,7 +17,7 @@ struct InfoTooltip: View {
             .onTapGesture { show.toggle() }
             .popover(isPresented: $show, arrowEdge: .top) {
                 Text(L(text))
-                    .font(.system(.footnote, design: .rounded))
+                    .font(WimgFont.font(.inter, .regular, 13, relativeTo: .footnote))
                     .foregroundStyle(WimgTheme.text)
                     .lineLimit(nil)
                     .multilineTextAlignment(.leading)

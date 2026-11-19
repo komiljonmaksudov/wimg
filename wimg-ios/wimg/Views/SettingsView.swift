@@ -37,6 +37,22 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
+                // Pages of the redesign (Konten, Gelernte Regeln, Geräte), as on Android.
+                WimgGroup {
+                    NavigationLink(value: MorePage.accounts) {
+                        settingsLinkRow(#L("Konten"), #L("Ausblenden, umbenennen"), "wallet.bifold")
+                    }
+                    RowDivider()
+                    NavigationLink(value: MorePage.rules) {
+                        settingsLinkRow(#L("Gelernte Regeln"), #L("Kategorien, die wimg sich gemerkt hat"), "list.bullet.rectangle")
+                    }
+                    RowDivider()
+                    NavigationLink(value: MorePage.devices) {
+                        settingsLinkRow(#L("wimg Sync"), #L("Geräte und Schlüssel"), "arrow.triangle.2.circlepath")
+                    }
+                }
+                .buttonStyle(.plain)
+
                 // MARK: - Sync Section
                 VStack(alignment: .leading, spacing: 16) {
                     HStack(spacing: 12) {
@@ -51,7 +67,7 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
                                 Text(#L("Synchronisierung"))
-                                    .font(.system(.subheadline, design: .rounded, weight: .bold))
+                                    .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                                     .foregroundStyle(WimgTheme.text)
                                 if syncEnabled {
                                     HStack(spacing: 4) {
@@ -59,7 +75,7 @@ struct SettingsView: View {
                                             .font(.system(size: 9))
                                         Text("E2E-verschlüsselt")
                                     }
-                                    .font(.system(.caption2, design: .rounded, weight: .bold))
+                                    .font(WimgFont.font(.inter, .bold, 11, relativeTo: .caption2))
                                     .foregroundStyle(.green)
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 3)
@@ -106,7 +122,7 @@ struct SettingsView: View {
                                         .font(.system(.caption, weight: .bold))
                                     Text(#L("Schon wimg-User? Sync-Schlüssel einfügen"))
                                 }
-                                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                                .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                                 .foregroundStyle(WimgTheme.text)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 14)
@@ -125,7 +141,7 @@ struct SettingsView: View {
                                     .fill(WimgTheme.border)
                                     .frame(height: 1)
                                 Text(#L("oder"))
-                                    .font(.system(.caption2, design: .rounded, weight: .heavy))
+                                    .font(WimgFont.font(.manrope, .heavy, 11, relativeTo: .caption2))
                                     .foregroundStyle(WimgTheme.textSecondary)
                                     .textCase(.uppercase)
                                     .tracking(1)
@@ -138,10 +154,10 @@ struct SettingsView: View {
                             // Info card: what generating a key does
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(#L("Neuen Sync-Schlüssel erstellen"))
-                                    .font(.system(.caption, design: .rounded, weight: .heavy))
+                                    .font(WimgFont.font(.manrope, .heavy, 12, relativeTo: .caption))
                                     .foregroundStyle(WimgTheme.text)
                                 Text(#L("Erstellt einen zufälligen Schlüssel und lädt deine Daten hoch. Du kannst ihn auf weiteren Geräten verwenden, um sie zu verknüpfen."))
-                                    .font(.system(.caption2, design: .rounded))
+                                    .font(WimgFont.font(.inter, .regular, 11, relativeTo: .caption2))
                                     .foregroundStyle(WimgTheme.textSecondary)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
@@ -164,7 +180,7 @@ struct SettingsView: View {
                                     }
                                     Text(syncing ? #L("Aktiviere...") : #L("Sync aktivieren"))
                                 }
-                                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                                .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                                 .foregroundStyle(WimgTheme.bg)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 14)
@@ -241,7 +257,7 @@ struct SettingsView: View {
                                     .foregroundStyle(WimgTheme.textSecondary)
                                 Spacer()
                                 Text(formatLastSync(lastSync))
-                                    .font(.system(.subheadline, design: .rounded, weight: .medium))
+                                    .font(WimgFont.font(.inter, .medium, 15, relativeTo: .subheadline))
                                     .foregroundStyle(WimgTheme.text)
                             }
                             .padding(.vertical, 4)
@@ -257,7 +273,7 @@ struct SettingsView: View {
                                     }
                                     Text(syncing ? #L("Synchronisiere...") : #L("Jetzt synchronisieren"))
                                 }
-                                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                                .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                                 .foregroundStyle(WimgTheme.bg)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 14)
@@ -283,7 +299,7 @@ struct SettingsView: View {
                                         Task { await handleLink() }
                                     } label: {
                                         Text(#L("Verknüpfen"))
-                                            .font(.system(.caption, design: .rounded, weight: .bold))
+                                            .font(WimgFont.font(.inter, .bold, 12, relativeTo: .caption))
                                             .foregroundStyle(.white)
                                             .padding(.horizontal, 14)
                                             .padding(.vertical, 10)
@@ -315,7 +331,7 @@ struct SettingsView: View {
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(#L("Design"))
-                                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                                .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                                 .foregroundStyle(WimgTheme.text)
                             Text(#L("Hell, Dunkel oder System"))
                                 .font(.caption2)
@@ -349,7 +365,7 @@ struct SettingsView: View {
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(#L("Sprache"))
-                                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                                .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                                 .foregroundStyle(WimgTheme.text)
                             Text(#L("Language / Sprache"))
                                 .font(.caption2)
@@ -388,7 +404,7 @@ struct SettingsView: View {
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(#L("Über"))
-                                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                                .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                                 .foregroundStyle(WimgTheme.text)
                             Text(#L("Version & Links"))
                                 .font(.caption2)
@@ -463,10 +479,10 @@ struct SettingsView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack(spacing: 6) {
                                     Text(#L("Demo-Daten"))
-                                        .font(.system(.subheadline, design: .rounded, weight: .bold))
+                                        .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                                         .foregroundStyle(WimgTheme.text)
                                     Text(#L("Aktiv"))
-                                        .font(.system(.caption2, design: .rounded, weight: .bold))
+                                        .font(WimgFont.font(.inter, .bold, 11, relativeTo: .caption2))
                                         .foregroundStyle(.orange)
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 3)
@@ -483,7 +499,7 @@ struct SettingsView: View {
                             handleResetData()
                         } label: {
                             Text(#L("Demo-Daten löschen"))
-                                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                                .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                                 .foregroundStyle(.orange)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 14)
@@ -505,7 +521,7 @@ struct SettingsView: View {
                         Image(systemName: "trash")
                             .font(.caption)
                         Text(#L("Alle Daten löschen"))
-                            .font(.system(.subheadline, design: .rounded, weight: .medium))
+                            .font(WimgFont.font(.inter, .medium, 15, relativeTo: .subheadline))
                     }
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity)
@@ -562,6 +578,21 @@ struct SettingsView: View {
     @AppStorage(BackgroundRefresh.enabledKey) private var bgRefreshEnabled = true
     @State private var hasSavedFintsCreds: Bool = KeychainService.hasFintsCredentials
 
+    private func settingsLinkRow(_ title: String, _ desc: String, _ icon: String) -> some View {
+        HStack(spacing: 12) {
+            IconTile(systemImage: icon, tint: Wimg.text2)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).wimgStyle(WimgType.rowTitle).foregroundStyle(Wimg.text)
+                Text(desc).wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2)
+            }
+            Spacer()
+            Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold)).foregroundStyle(Wimg.text3)
+        }
+        .padding(.horizontal, 16)
+        .frame(minHeight: 60)
+        .contentShape(Rectangle())
+    }
+
     private var backgroundRefreshSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
@@ -575,7 +606,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(#L("Automatische Bank-Aktualisierung"))
-                            .font(.system(.subheadline, design: .rounded, weight: .bold))
+                            .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                             .foregroundStyle(WimgTheme.text)
                         InfoTooltip(text: #L("iOS weckt die App regelmäßig (meist 1× pro Tag, abhängig von Akku, Netz und Nutzung) und ruft neue Umsätze von deiner Bank ab. Du bekommst eine Mitteilung bei neuen Umsätzen oder wenn eine TAN benötigt wird. Die PIN bleibt im Schlüsselbund deines Geräts. System­weit abschalten unter iOS-Einstellungen → wimg → Hintergrundaktualisierung."))
                     }
@@ -598,7 +629,7 @@ struct SettingsView: View {
                 }
             )) {
                 Text(#L("Schnellabfrage im Hintergrund"))
-                    .font(.system(.subheadline, design: .rounded, weight: .medium))
+                    .font(WimgFont.font(.inter, .medium, 15, relativeTo: .subheadline))
                     .foregroundStyle(WimgTheme.text)
             }
             .tint(WimgTheme.accent)
@@ -638,7 +669,7 @@ struct SettingsView: View {
                     }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(#L("App-Sperre"))
-                        .font(.system(.subheadline, design: .rounded, weight: .bold))
+                        .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
                         .foregroundStyle(WimgTheme.text)
                     Text(lockSubtitle)
                         .font(.caption2)
@@ -654,7 +685,7 @@ struct SettingsView: View {
                 }
             )) {
                 Text(#L("App beim Öffnen sperren"))
-                    .font(.system(.subheadline, design: .rounded, weight: .medium))
+                    .font(WimgFont.font(.inter, .medium, 15, relativeTo: .subheadline))
                     .foregroundStyle(WimgTheme.text)
             }
             .tint(WimgTheme.accent)
@@ -679,7 +710,7 @@ struct SettingsView: View {
             )) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(#L("Beträge in Widgets ausblenden"))
-                        .font(.system(.subheadline, design: .rounded, weight: .medium))
+                        .font(WimgFont.font(.inter, .medium, 15, relativeTo: .subheadline))
                         .foregroundStyle(WimgTheme.text)
                     Text(#L("Zeigt ••• € statt echter Beträge. Sperrbildschirm-Widget wird zusätzlich von iOS verdeckt, wenn das Gerät gesperrt ist."))
                         .font(.caption2)
