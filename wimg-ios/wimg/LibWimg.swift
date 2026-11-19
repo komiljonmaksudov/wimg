@@ -536,7 +536,205 @@ final class LibWimg {
         }
     }
 
+    // MARK: - Pending ("Vorgemerkt")
+
+    /// Not yet booked, from the last bank fetch. Device-only, never in totals.
+    static func getPending(account: String?) -> [Transaction] {
+        decodeOrEmpty { withAccountFilter(account) { wimg_get_pending($0, $1) } }
+    }
+
+    // MARK: - Statement files (MT940 / CAMT)
+
+    /// Preview of a statement file; nil when the bytes aren't one (then try CSV).
+    static func parseStatement(_ data: Data) -> ParseResult? {
+        withWimgAbi {
+            guard isInitialized, !isResetting, !data.isEmpty else { return nil }
+            let ptr = Array(data).withUnsafeBufferPointer { wimg_parse_statement($0.baseAddress!, UInt32($0.count)) }
+            guard let ptr else { return nil }
+            defer { wimg_free(ptr, 0) }
+            return try? decodeLengthPrefixed(ptr)
+        }
+    }
+
+    /// Imports into the bank's account (BLZ/IBAN); twins (account, day, amount) are skipped.
+    static func importStatement(_ data: Data) throws -> ImportResult {
+        try withWimgAbi {
+            try ensureInit()
+            guard !data.isEmpty else { throw WimgError.importFailed("empty file") }
+            let ptr = Array(data).withUnsafeBufferPointer { wimg_import_statement($0.baseAddress!, UInt32($0.count)) }
+            guard let ptr else { throw WimgError.importFailed(lastError()) }
+            defer { wimg_free(ptr, 0) }
+            return try decodeLengthPrefixed(ptr)
+        }
+    }
+
+    // MARK: - Manual entries (Umsatz von Hand)
+
+    /// `date` "YYYY-MM-DD", amount signed in cents.
+    static func addManualTransaction(date: String, description: String, amountCents: Int64, category: UInt8, account: String) throws {
+        try check("addManualTransaction") {
+            withBytes(date) { d, dl in withBytes(description) { s, sl in withBytes(account) { a, al in
+                wimg_add_manual_transaction(d, dl, s, sl, amountCents, category, a, al)
+            } } }
+        }
+    }
+
+    static func updateManualTransaction(id: String, date: String, description: String, amountCents: Int64, category: UInt8, account: String) throws {
+        try check("updateManualTransaction") {
+            withBytes(id) { i, il in withBytes(date) { d, dl in withBytes(description) { s, sl in withBytes(account) { a, al in
+                wimg_update_manual_transaction(i, il, d, dl, s, sl, amountCents, category, a, al)
+            } } } }
+        }
+    }
+
+    /// Manual entries only; the deletion reaches every synced device.
+    static func deleteTransaction(id: String) throws {
+        try check("deleteTransaction") { withBytes(id) { wimg_delete_transaction($0, $1) } }
+    }
+
+    // MARK: - Accounts (hide)
+
+    static func setAccountHidden(id: String, hidden: Bool) throws {
+        try check("setAccountHidden") { withBytes(id) { wimg_set_account_hidden($0, $1, hidden ? 1 : 0) } }
+    }
+
+    // MARK: - Gehaltsmonat (period.zig)
+
+    /// Periods (newest first) as of today.
+    static func getPeriods(count: Int = 12, today: Date = Date()) -> Periods? {
+        withWimgAbi {
+            guard isInitialized, !isResetting else { return nil }
+            guard let ptr = wimg_get_periods(ymd(today), UInt32(count)) else { return nil }
+            defer { wimg_free(ptr, 0) }
+            return try? decodeLengthPrefixed(ptr)
+        }
+    }
+
+    /// Summary of `from`…`to` (ISO dates, inclusive).
+    static func getSummaryRange(from: String, to: String, account: String?) -> MonthlySummary? {
+        withWimgAbi {
+            guard isInitialized, !isResetting,
+                  let f = UInt32(from.replacingOccurrences(of: "-", with: "")),
+                  let t = UInt32(to.replacingOccurrences(of: "-", with: "")) else { return nil }
+            guard let ptr = withAccountFilter(account, { wimg_get_summary_range(f, t, $0, $1) }) else { return nil }
+            defer { wimg_free(ptr, 0) }
+            return try? decodeLengthPrefixed(ptr)
+        }
+    }
+
+    /// "calendar", "salary" or "day" (with the start `day`, 1–28).
+    static func setPeriodMode(_ mode: String, day: Int = 0) throws {
+        try check("setPeriodMode") { withBytes(mode) { wimg_set_period_mode($0, $1, UInt32(day)) } }
+    }
+
+    enum SalaryAnswer: UInt8 { case no = 0, yes = 1, onlyThisPayer = 2 }
+
+    static func answerSalary(key: String, _ answer: SalaryAnswer) throws {
+        try check("answerSalary") { withBytes(key) { wimg_salary_answer($0, $1, answer.rawValue) } }
+    }
+
+    // MARK: - wimg Sync devices
+
+    private struct DeviceTouch: Encodable { let id, name, kind: String }
+
+    /// Records this device. Returns false when another device removed it
+    /// (then it must stop syncing).
+    static func touchDevice(id: String, name: String, kind: String) throws -> Bool {
+        try withWimgAbi {
+            try ensureInit()
+            let body = Array(try JSONEncoder().encode(DeviceTouch(id: id, name: name, kind: kind)))
+            let rc = body.withUnsafeBufferPointer { wimg_touch_device($0.baseAddress!, UInt32($0.count)) }
+            if rc < 0 { throw WimgError.operationFailed("touchDevice", lastError()) }
+            return rc != 1
+        }
+    }
+
+    static func getDevices() -> [SyncDevice] {
+        decodeOrEmpty { wimg_get_devices() }
+    }
+
+    static func removeDevice(id: String) throws {
+        try check("removeDevice") { withBytes(id) { wimg_remove_device($0, $1) } }
+    }
+
+    // MARK: - Rules (Einstellungen › Gelernte Regeln)
+
+    static func getRules() -> [Rule] {
+        decodeOrEmpty { wimg_get_rules() }
+    }
+
+    /// `reset`: the bookings it categorised go back to uncategorised.
+    static func deleteRule(id: Int64, reset: Bool) throws {
+        try check("deleteRule") { wimg_delete_rule(id, reset ? 1 : 0) }
+    }
+
+    // MARK: - Recurring: decisions (board 26)
+
+    /// "Nicht wiederkehrend" / "Wieder anzeigen".
+    static func setRecurringHidden(id: String, hidden: Bool) throws {
+        try check("setRecurringHidden") { withBytes(id) { wimg_set_recurring_hidden($0, $1, hidden ? 1 : 0) } }
+    }
+
+    /// Edit sheet; nil = as detected. `fixedCents` nil = automatic amount (last payment).
+    static func editRecurring(id: String, name: String?, category: Int?, interval: String?, fixedCents: Int64?) throws {
+        try check("editRecurring") {
+            withBytes(id) { i, il in withBytes(name ?? "") { n, nl in withBytes(interval ?? "") { v, vl in
+                wimg_edit_recurring(i, il, n, nl, Int32(category ?? -1), v, vl, fixedCents ?? Int64.min)
+            } } }
+        }
+    }
+
+    /// "Stimmt, neuer Preis".
+    static func acceptRecurringPrice(id: String) throws {
+        try check("acceptRecurringPrice") { withBytes(id) { wimg_accept_recurring_price($0, $1) } }
+    }
+
+    /// "Einmalige Zahlung" (true) or "gehört dazu" (false); detection runs again.
+    static func setRecurringOneoff(patternId: String, txId: String, oneoff: Bool) throws {
+        try check("setRecurringOneoff") {
+            withBytes(patternId) { p, pl in withBytes(txId) { t, tl in
+                wimg_set_recurring_oneoff(p, pl, t, tl, oneoff ? 1 : 0)
+            } }
+        }
+        detectRecurring()
+    }
+
+    /// Payments that belong to a recurring pattern, newest first.
+    static func getRecurringPayments(id: String) -> [RecurringPayment] {
+        decodeOrEmpty { withBytes(id) { wimg_get_recurring_payments($0, $1) } }
+    }
+
     // MARK: - Private Helpers
+
+    /// Runs `body` with the UTF-8 bytes of `s`; an empty string still gets a
+    /// valid pointer (length 0), which the C ABI expects.
+    private static func withBytes<T>(_ s: String, _ body: (UnsafePointer<UInt8>, UInt32) -> T) -> T {
+        withAccountFilter(s, body)
+    }
+
+    /// A call returning 0 on success; anything else throws with libwimg's error.
+    private static func check(_ name: String, _ call: () -> Int32) throws {
+        try withWimgAbi {
+            try ensureInit()
+            let rc = call()
+            if rc != 0 { throw WimgError.operationFailed(name, rc > 0 ? "rc \(rc)" : lastError()) }
+        }
+    }
+
+    /// A call returning a JSON array; empty when not initialised or on any error.
+    private static func decodeOrEmpty<T: Decodable>(_ call: () -> UnsafePointer<UInt8>?) -> [T] {
+        withWimgAbi {
+            guard isInitialized, !isResetting, let ptr = call() else { return [] }
+            defer { wimg_free(ptr, 0) }
+            return (try? decodeLengthPrefixed(ptr)) ?? []
+        }
+    }
+
+    private static func ymd(_ date: Date) -> UInt32 {
+        let c = Calendar(identifier: .gregorian).dateComponents([.year, .month, .day], from: date)
+        let y: Int = c.year ?? 1970, m: Int = c.month ?? 1, d: Int = c.day ?? 1
+        return UInt32(y * 10000 + m * 100 + d)
+    }
 
     private static func dbPath() -> String {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!

@@ -55,11 +55,6 @@ struct wimgApp: App {
         // iOS rejects late registrations.
         BackgroundRefresh.register()
 
-        // Opaque tab bar — prevent transparent flicker on navigation transitions
-        let tabAppearance = UITabBarAppearance()
-        tabAppearance.configureWithDefaultBackground()
-        UITabBar.appearance().scrollEdgeAppearance = tabAppearance
-
         // Log main thread hangs > 50ms
         #if DEBUG
         let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.afterWaiting.rawValue, true, 0) { _, activity in
@@ -87,7 +82,7 @@ struct ContentView: View {
     @State private var accounts: [Account] = []
     @AppStorage("wimg_onboarding_completed") private var onboardingCompleted = false
     @AppStorage("wimg_locale") private var currentLocale = "de"
-    @State private var selectedTab = 1
+    @State private var selectedTab = AppTab.overview
     @State private var popToRoot = UUID()
     private var themeManager = ThemeManager.shared
 
@@ -95,7 +90,8 @@ struct ContentView: View {
         Locale(identifier: currentLocale == "en" ? "en" : "de")
     }
 
-    private var tabSelection: Binding<Int> {
+    /// Tapping the open tab again goes back to its first page.
+    private var tabSelection: Binding<AppTab> {
         Binding {
             selectedTab
         } set: { newTab in
@@ -106,34 +102,13 @@ struct ContentView: View {
         }
     }
 
+    /// Brief 22, option A: four tabs + search. On iOS 26 the system draws the
+    /// search tab as its own round button next to the bar; before, it is a
+    /// fifth tab. The Dock sits directly above the bar on every tab.
     var body: some View {
-        TabView(selection: tabSelection) {
-            SearchView(selectedAccount: $selectedAccount, popToRoot: popToRoot)
-                .tabItem {
-                    Label(#L("Suche"), systemImage: "magnifyingglass")
-                }
-                .tag(0)
-
-            HomeView(selectedAccount: $selectedAccount, accounts: $accounts)
-                .tabItem {
-                    Label("Home", systemImage: "house")
-                }
-                .tag(1)
-
-            TransactionsView(selectedAccount: $selectedAccount)
-                .tabItem {
-                    Label(#L("Umsätze"), systemImage: "list.bullet")
-                }
-                .tag(2)
-
-            MoreView(selectedAccount: $selectedAccount, popToRoot: popToRoot)
-                .tabItem {
-                    Label(#L("Mehr"), systemImage: "square.grid.2x2")
-                }
-                .tag(3)
-        }
-        .tint(WimgTheme.text)
-        .environment(\.locale, appLocale)
+        tabs
+            .tint(Wimg.accent)
+            .environment(\.locale, appLocale)
         .preferredColorScheme(themeManager.mode.colorScheme)
         .onAppear {
             // Pre-warm keyboard to avoid ~300ms cold-start on first search tap
@@ -180,6 +155,68 @@ struct ContentView: View {
             set: { if !$0 { onboardingCompleted = true } }
         )) {
             OnboardingView()
+        }
+    }
+
+    @ViewBuilder
+    private var tabs: some View {
+        if #available(iOS 18, *) {
+            TabView(selection: tabSelection) {
+                ForEach(AppTab.main) { tab in
+                    Tab(L(tab.title), systemImage: tab.icon, value: tab) { page(tab) }
+                }
+                Tab(value: AppTab.search, role: .search) { page(.search) }
+            }
+        } else {
+            TabView(selection: tabSelection) {
+                ForEach(AppTab.allCases) { tab in
+                    page(tab)
+                        .tabItem { Label(L(tab.title), systemImage: tab.icon) }
+                        .tag(tab)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func page(_ tab: AppTab) -> some View {
+        Group {
+            switch tab {
+            case .overview: HomeView(selectedAccount: $selectedAccount, accounts: $accounts)
+            case .transactions: TransactionsView(selectedAccount: $selectedAccount, popToRoot: popToRoot)
+            case .recurring: NavigationStack { RecurringView() }
+            case .more: MoreView(selectedAccount: $selectedAccount, popToRoot: popToRoot)
+            case .search: SearchView(selectedAccount: $selectedAccount, popToRoot: popToRoot)
+            }
+        }
+        .wimgDock()
+    }
+}
+
+enum AppTab: String, CaseIterable, Identifiable, Hashable {
+    case overview, transactions, recurring, more, search
+
+    var id: String { rawValue }
+    static let main: [AppTab] = [.overview, .transactions, .recurring, .more]
+
+    /// German source string, translated with `L()` at the call site.
+    var title: String {
+        switch self {
+        case .overview: "Übersicht"
+        case .transactions: "Umsätze"
+        case .recurring: "Wiederkehrend"
+        case .more: "Mehr"
+        case .search: "Suche"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .overview: "house"
+        case .transactions: "list.bullet"
+        case .recurring: "arrow.triangle.2.circlepath"
+        case .more: "ellipsis"
+        case .search: "magnifyingglass"
         }
     }
 }

@@ -4,6 +4,17 @@
 // This file is regenerated on every codegen run. Edits here will be lost.
 
 internal let translations: [String: String] = [
+    "Deine Monate im Rückblick": "Your months in review",
+    "Bankverbindung und Abruf": "Bank connection and fetching",
+    "CSV oder Kontoauszug": "CSV or bank statement",
+    "Sync, App-Sperre, Export": "Sync, app lock, export",
+    "%s entfernen": "Remove %s",
+    "Andere Umsätze dieses Händlers ohne Kategorie ziehen mit, und wimg merkt sich die Wahl für neue.": "This merchant's other uncategorised transactions move too, and wimg remembers the choice for new ones.",
+    "Kalendermonat": "Calendar month",
+    "Kategorie suchen": "Search categories",
+    "Keine": "None",
+    "Vorschläge": "Suggestions",
+    "ausgeblendet": "hidden",
     "Noch keine Ausgaben in diesem Monat.": "No spending this month yet.",
     "Gestern": "Yesterday",
     "Vorheriges Jahr": "Previous year",

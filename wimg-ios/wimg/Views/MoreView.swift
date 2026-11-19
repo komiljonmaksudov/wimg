@@ -1,87 +1,58 @@
 import SwiftUI
 import WimgI18n
 
+/// Mehr (board 05 of brief 22): Rückblick, Banken, Import; Einstellungen, Über wimg.
 struct MoreView: View {
     @Binding var selectedAccount: String?
     var popToRoot: UUID
     @State private var path = NavigationPath()
 
-    private let items: [(title: String, icon: String, color: Color, destination: Destination)] = [
-        ("Wiederkehrend", "arrow.triangle.2.circlepath", .green, .recurring),
-        ("Import", "square.and.arrow.down", .blue, .import_),
-        ("Bankkonto", "building.columns", .teal, .fints),
-        ("Rückblick", "calendar", .purple, .review),
-        ("Einstellungen", "gearshape", .orange, .settings),
-        ("Über wimg", "info.circle", .gray, .about),
-    ]
+    enum Destination: Hashable {
+        case review, banks, import_, settings, about
+    }
 
-    enum Destination: String, Hashable {
-        case recurring, import_, fints, review, settings, about
+    private var version: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
     }
 
     var body: some View {
         NavigationStack(path: $path) {
-            ScrollView {
-                VStack(spacing: 20) {
-                    Text(#L("Mehr"))
-                        .font(.system(.title, design: .rounded, weight: .bold))
-                        .foregroundStyle(WimgTheme.text)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                    LazyVGrid(columns: [
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16),
-                    ], spacing: 16) {
-                        ForEach(items, id: \.title) { item in
-                            NavigationLink(value: item.destination) {
-                                VStack(spacing: 12) {
-                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                        .fill(item.color.opacity(0.15))
-                                        .frame(width: 48, height: 48)
-                                        .overlay {
-                                            Image(systemName: item.icon)
-                                                .font(.title3)
-                                                .foregroundStyle(item.color)
-                                        }
-
-                                    Text(L(item.title))
-                                        .font(.system(.subheadline, design: .rounded, weight: .bold))
-                                        .foregroundStyle(WimgTheme.text)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 20)
-                                .wimgCard()
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+            BandScreen(title: #L("Mehr"), largeTitle: true) {
+                EmptyView()
+            } sheet: {
+                WimgGroup {
+                    row(.review, #L("Rückblick"), #L("Deine Monate im Rückblick"), "chart.bar.xaxis", Wimg.category(2))
+                    RowDivider()
+                    row(.banks, #L("Banken"), #L("Bankverbindung und Abruf"), "building.columns", Wimg.accent)
+                    RowDivider()
+                    row(.import_, #L("Import"), #L("CSV oder Kontoauszug"), "square.and.arrow.down", Wimg.text2)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
+                Spacer().frame(height: 16)
+                WimgGroup {
+                    row(.settings, #L("Einstellungen"), #L("Sync, App-Sperre, Export"), "gearshape", Wimg.text2)
+                    RowDivider()
+                    row(.about, #L("Über wimg"), "Version \(version)", "info.circle", Wimg.text2)
+                }
             }
-            .background(WimgTheme.bg)
-            .navigationDestination(for: Destination.self) { dest in
-                destinationView(for: dest)
-            }
+            .navigationDestination(for: Destination.self) { destination($0) }
             .onChange(of: popToRoot) { path = NavigationPath() }
         }
     }
 
+    private func row(_ d: Destination, _ title: String, _ desc: String, _ icon: String, _ tint: Color) -> some View {
+        WimgRow(title: title, desc: desc, chevron: true, action: { path.append(d) }) {
+            IconTile(systemImage: icon, tint: tint)
+        }
+    }
+
     @ViewBuilder
-    private func destinationView(for destination: Destination) -> some View {
-        switch destination {
-        case .recurring:
-            RecurringView()
-        case .import_:
-            ImportView()
-        case .fints:
-            FinTSView()
-        case .review:
-            ReviewView(selectedAccount: $selectedAccount)
-        case .settings:
-            SettingsView()
-        case .about:
-            AboutView()
+    private func destination(_ d: Destination) -> some View {
+        switch d {
+        case .review: ReviewView(selectedAccount: $selectedAccount)
+        case .banks: FinTSView()
+        case .import_: ImportView()
+        case .settings: SettingsView()
+        case .about: AboutView()
         }
     }
 }

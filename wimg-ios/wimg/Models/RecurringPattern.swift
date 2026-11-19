@@ -12,7 +12,17 @@ struct RecurringPattern: Codable, Identifiable, Equatable {
     let active: Int
     let prev_amount: Double?
     let price_change: Double?
+    /// Name the user gave it (edit sheet); nil = the detected merchant.
+    var name: String? = nil
+    /// "Nicht wiederkehrend": listed only under Ausgeblendet.
+    var hidden: Int? = nil
+    /// What detection found, before a fixed amount.
+    var detected_amount: Double? = nil
+    /// 1 when the user set a fixed amount.
+    var fixed: Int? = nil
 
+    var displayName: String { name ?? merchant }
+    var isHidden: Bool { (hidden ?? 0) != 0 }
     var isActive: Bool { active != 0 }
     var hasPriceChange: Bool { price_change != nil && abs(price_change!) > 0 }
     var isPriceUp: Bool { (price_change ?? 0) > 0 }

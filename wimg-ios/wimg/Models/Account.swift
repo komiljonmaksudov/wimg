@@ -9,9 +9,13 @@ struct Account: Codable, Identifiable {
     // (e.g. CSV-only accounts that never carried a statement balance).
     let balanceCents: Int
     let balanceDate: String
+    /// "Ausgeblendet": left out of "Alle Konten" lists and sums, still fetched and searchable.
+    let hidden: Int
+
+    var isHidden: Bool { hidden != 0 }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, bank, color
+        case id, name, bank, color, hidden
         case balanceCents = "balance_cents"
         case balanceDate = "balance_date"
     }
@@ -24,6 +28,7 @@ struct Account: Codable, Identifiable {
         color = try c.decodeIfPresent(String.self, forKey: .color) ?? "#4361ee"
         balanceCents = try c.decodeIfPresent(Int.self, forKey: .balanceCents) ?? 0
         balanceDate = try c.decodeIfPresent(String.self, forKey: .balanceDate) ?? ""
+        hidden = try c.decodeIfPresent(Int.self, forKey: .hidden) ?? 0
     }
 
     /// Statement closing balance in major units (e.g. EUR), or nil if unknown.

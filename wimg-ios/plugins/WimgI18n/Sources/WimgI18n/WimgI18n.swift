@@ -24,6 +24,15 @@ public macro L(_ key: String) -> String =
 @inlinable
 public func L(_ key: String) -> String { __t(key) }
 
+/// Runtime lookup with arguments, for the same templates Android uses
+/// ("%d Umsätze", "Kontostand · %s"), so both apps share one key in en.ts.
+/// `%s` takes a String, `%d` an Int.
+public func L(_ key: String, _ args: CVarArg...) -> String {
+    let template = __t(key).replacingOccurrences(of: "%s", with: "%@")
+    let fixed: [CVarArg] = args.map { arg in (arg as? String).map { $0 as NSString } ?? arg }
+    return String(format: template, arguments: fixed)
+}
+
 /// Runtime lookup. Reads `wimg_locale` — prefers the App Group store so the
 /// widget extension (separate process, separate `UserDefaults.standard`) sees
 /// the same value the host app wrote. Falls back to standard defaults, then

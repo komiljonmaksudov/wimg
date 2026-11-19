@@ -1,972 +1,464 @@
 import SwiftUI
 import WimgI18n
 
+// Umsätze (brief 22, boards 03 and 10–12): the sum in the band, filters as
+// removable chips, bookings grouped by day. Same filters and maths as
+// Android's TransactionsScreen.kt.
+
+/// A date range for the filter; `to` inclusive, ISO dates.
+struct TxPeriod: Hashable {
+    let from: String
+    let to: String
+    let label: String
+    let key: String
+
+    /// One calendar month, labelled "Okt. 2026".
+    static func month(_ year: Int, _ month: Int) -> TxPeriod {
+        let cal = Calendar(identifier: .gregorian)
+        let start = cal.date(from: DateComponents(year: year, month: month, day: 1))!
+        let days = cal.range(of: .day, in: .month, for: start)!.count
+        let end = cal.date(from: DateComponents(year: year, month: month, day: days))!
+        return TxPeriod(from: WimgDates.iso(start), to: WimgDates.iso(end),
+                        label: "\(WimgDates.shortMonths()[month - 1]) \(year)", key: "m:\(year)-\(month)")
+    }
+
+    /// A Gehaltsmonat or "Fester Tag" period.
+    static func of(_ p: PeriodInfo, salary: Bool) -> TxPeriod {
+        let running = p.isCurrent && salary
+        return TxPeriod(from: p.from, to: p.to,
+                        label: running ? L("Seit %s", PeriodLabels.dotted(p.from)) : PeriodLabels.short(p),
+                        key: "p:\(p.from)" + (running ? ":salary" : ""))
+    }
+
+    static func lastDays(_ days: Int, label: String, key: String) -> TxPeriod {
+        let to = Date()
+        let from = Calendar(identifier: .gregorian).date(byAdding: .day, value: -days, to: to)!
+        return TxPeriod(from: WimgDates.iso(from), to: WimgDates.iso(to), label: label, key: key)
+    }
+
+    /// "seit 27.10." for the running Gehaltsmonat, the label otherwise.
+    var tag: String { key.hasSuffix(":salary") ? L("seit %s", PeriodLabels.dotted(from)) : label }
+    func same(_ o: TxPeriod?) -> Bool { from == o?.from && to == o?.to }
+}
+
+/// Betrag filter: the amount without its sign, both ends inclusive; nil = open.
+struct AmountRange: Equatable {
+    var min: Double? = nil
+    var max: Double? = nil
+    var isAny: Bool { min == nil && max == nil }
+    func contains(_ euros: Double) -> Bool {
+        let a = abs(euros)
+        return (min.map { a >= $0 - 0.004 } ?? true) && (max.map { a <= $0 + 0.004 } ?? true)
+    }
+
+    /// "20", "49,90" (German) or "49.90" (English).
+    static func number(_ v: Double) -> String {
+        let whole = abs(v - v.rounded()) < 0.004
+        let s = whole ? String(Int(v.rounded())) : String(format: "%.2f", v)
+        return UserDefaults.standard.string(forKey: "wimg_locale") == "en" ? s : s.replacingOccurrences(of: ".", with: ",")
+    }
+
+    /// "über 20 €", "unter 10 €", "20–50 €"; nil when any amount.
+    var tag: String? {
+        switch (min, max) {
+        case let (lo?, hi?): "\(Self.number(lo))–\(Self.number(hi)) €"
+        case let (lo?, nil): L("über %s €", Self.number(lo))
+        case let (nil, hi?): L("unter %s €", Self.number(hi))
+        default: nil
+        }
+    }
+}
+
+enum TxKind: String, CaseIterable, Identifiable {
+    case all = "Alle", expenses = "Ausgaben", income = "Einnahmen", manual = "Von Hand"
+    var id: String { rawValue }
+
+    func matches(_ tx: Transaction) -> Bool {
+        switch self {
+        case .all: true
+        case .expenses: tx.isExpense
+        case .income: tx.isIncome
+        case .manual: tx.isManual
+        }
+    }
+}
+
+/// Everything the Umsätze filter holds (the account lives in the app's selection).
+struct TxFilterState: Equatable {
+    var kind: TxKind = .all
+    var categories: Set<Int> = []
+    var period: TxPeriod? = nil
+    var amount = AmountRange()
+    /// Weitere: only bookings of a recurring payment; hidden accounts' bookings too.
+    var recurringOnly = false
+    var showHidden = false
+    /// Bookings containing this text (from Suche: "In Umsätzen").
+    var text = ""
+
+    var isActive: Bool {
+        kind != .all || !categories.isEmpty || period != nil || !amount.isAny || recurringOnly || showHidden || !text.isEmpty
+    }
+
+    /// Every filter except the category one (the category list sums with it).
+    func matchesExceptCategory(_ tx: Transaction, recurringIds: Set<String>?) -> Bool {
+        guard kind.matches(tx), amount.contains(tx.amount) else { return false }
+        if let p = period, !(p.from...p.to).contains(tx.date) { return false }
+        if recurringOnly && !(recurringIds?.contains(tx.id) ?? false) { return false }
+        if !text.isEmpty && !tx.description.localizedCaseInsensitiveContains(text)
+            && !tx.displayTitle.localizedCaseInsensitiveContains(text) { return false }
+        return true
+    }
+
+    func matches(_ tx: Transaction, recurringIds: Set<String>?) -> Bool {
+        (categories.isEmpty || categories.contains(tx.category)) && matchesExceptCategory(tx, recurringIds: recurringIds)
+    }
+}
+
+/// One removable chip under the band.
+private struct FilterTag: Identifiable {
+    enum Kind { case text, kind, account, categories, period, amount, recurring, hidden }
+    let kind: Kind
+    let label: String
+    var id: Kind { kind }
+}
+
+/// The Umsätze tab can be opened with a filter (a tap on Übersicht or Suche).
+@MainActor @Observable
+final class TxTarget {
+    static let shared = TxTarget()
+    var category: Int?
+    var period: TxPeriod?
+    var query: String?
+}
+
+struct TxRoute: Hashable { let id: String }
+
 struct TransactionsView: View {
     @Binding var selectedAccount: String?
+    var popToRoot: UUID = UUID()
+
     @State private var transactions: [Transaction] = []
-    @State private var loadError: String?
-    @State private var searchText = ""
-    @State private var filter: TxFilter = .all
-    @State private var selectedTransaction: Transaction?
-    @State private var undoMessage: String?
-    @State private var showExcluded = false
-    @State private var selectedCategory: Int?
-    @State private var showFilterSheet = false
-    @State private var filterCategorySet: Set<Int> = []
-    @State private var dateQuick: String?
-    @State private var dateFrom: Date?
-    @State private var dateTo: Date?
-    @State private var amountMin: Double = 0
-    @State private var amountMax: Double = 1000
+    @State private var pending: [Transaction] = []
+    @State private var accounts: [Account] = []
+    @State private var loaded = false
 
-    private let quickCategories: [WimgCategory] = [
-        .groceries, .dining, .transport, .shopping, .entertainment,
-    ]
+    @State private var filter = TxFilterState()
+    @State private var recurringIds: Set<String>?
+    @State private var withHidden: [Transaction]?
 
-    private let allFilterCategories: [WimgCategory] = [
-        .groceries, .dining, .transport, .housing, .utilities,
-        .entertainment, .shopping, .health, .insurance, .subscriptions,
-        .travel, .education, .cash, .transfer, .income, .other,
-    ]
+    @State private var filtered: [Transaction] = []
+    @State private var groups: [(date: String, txs: [Transaction])] = []
+    @State private var shownPending: [Transaction] = []
 
-    enum TxFilter: String, CaseIterable {
-        case all = "Alle"
-        case expenses = "Ausgaben"
-        case income = "Einnahmen"
-    }
+    @State private var showFilter = false
+    @State private var path = NavigationPath()
 
-    @State private var filteredGrouped: [(String, [Transaction])] = []
-    @State private var displayLimit = 30
-    @State private var refilterToken = UUID()
-    @State private var visibleTxIds: Set<String> = []
-    // Real account balance (latest FinTS statement closing balance) in cents.
-    // 0 = unknown (CSV-only); anchoring falls back to a plain transaction sum.
-    @State private var accountBalanceCents: Int = 0
-
-    /// Filter key excludes searchText (debounced separately).
-    private var filterKey: String {
-        "\(filter)|\(selectedCategory ?? -1)|\(showExcluded)|\(filterCategorySet.sorted())|\(dateQuick ?? "")|\(dateFrom?.timeIntervalSince1970 ?? 0)|\(dateTo?.timeIntervalSince1970 ?? 0)|\(amountMin)|\(amountMax)"
-    }
-
-    private var activeFilterCount: Int {
-        (dateQuick != nil || dateFrom != nil || dateTo != nil ? 1 : 0)
-            + (amountMin > 0 || amountMax < 1000 ? 1 : 0)
-            + (!filterCategorySet.isEmpty ? 1 : 0)
-            + (!searchText.isEmpty ? 1 : 0)
-    }
-
-    private static let isoDateFormatter: DateFormatter = {
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyy-MM-dd"
-        return fmt
-    }()
-
-    private func refilter() {
-        let token = UUID()
-        refilterToken = token
-        let txs = transactions
-        let excluded = showExcluded
-        let f = filter
-        let catSet = filterCategorySet
-        let cat = selectedCategory
-        let search = searchText
-        let dq = dateQuick
-        let dfrom = dateFrom
-        let dto = dateTo
-        let minAmt = amountMin
-        let maxAmt = amountMax
-        let fmt = Self.isoDateFormatter
-        Task.detached {
-            var result = txs
-            if !excluded { result = result.filter { !$0.isExcluded } }
-            switch f {
-            case .all: break
-            case .expenses: result = result.filter { $0.isExpense }
-            case .income: result = result.filter { $0.isIncome }
-            }
-            if !catSet.isEmpty {
-                result = result.filter { catSet.contains($0.category) }
-            } else if let cat {
-                result = result.filter { $0.category == cat }
-            }
-            if !search.isEmpty {
-                result = result.filter { $0.description.localizedCaseInsensitiveContains(search) }
-            }
-            if let dq {
-                let today = Date()
-                let calendar = Calendar.current
-                let fromDate: Date? = switch dq {
-                case "30d": calendar.date(byAdding: .day, value: -30, to: today)
-                case "month": calendar.date(from: calendar.dateComponents([.year, .month], from: today))
-                case "quarter": calendar.date(byAdding: .month, value: -3, to: today)
-                default: nil
-                }
-                if let fromDate {
-                    let fromStr = fmt.string(from: fromDate)
-                    result = result.filter { $0.date >= fromStr }
-                }
-            } else {
-                if let dfrom {
-                    let fromStr = fmt.string(from: dfrom)
-                    result = result.filter { $0.date >= fromStr }
-                }
-                if let dto {
-                    let toStr = fmt.string(from: dto)
-                    result = result.filter { $0.date <= toStr }
-                }
-            }
-            if minAmt > 0 || maxAmt < 1000 {
-                result = result.filter {
-                    let abs = Swift.abs($0.amount)
-                    return abs >= minAmt && (maxAmt >= 1000 || abs <= maxAmt)
-                }
-            }
-            let grouped = Dictionary(grouping: result) { $0.date }.sorted { $0.key > $1.key }
-            await MainActor.run {
-                guard refilterToken == token else { return }
-                filteredGrouped = grouped
-            }
-        }
-    }
+    private var target: TxTarget { TxTarget.shared }
 
     var body: some View {
-        NavigationStack {
-            mainContent
-                .background(WimgTheme.bg)
-                .navigationTitle(#L("Umsätze"))
-                .toolbar { filterToolbar }
-                .searchable(text: $searchText, prompt: #L("Suchen..."))
-                .task(id: searchText) {
-                    try? await Task.sleep(for: .milliseconds(300))
-                    guard !Task.isCancelled else { return }
-                    displayLimit = 30
-                    refilter()
+        NavigationStack(path: $path) {
+            BandScreen(title: L("Umsätze")) {
+                BandButton(systemImage: "slider.horizontal.3", label: L("Filter"), badge: tags.count) {
+                    showFilter = true
                 }
-                .onChange(of: selectedAccount) { reload() }
-                .onChange(of: filterKey) { displayLimit = 30; refilter() }
-                .onAppear { reload() }
-                .refreshable { reload() }
-                .onReceive(NotificationCenter.default.publisher(for: .wimgDataChanged)) { _ in
-                    reload()
-                }
-                .sheet(item: $selectedTransaction) { tx in
-                    CategoryEditorSheet(transaction: tx) {
-                        reload()
-                        showUndo("Kategorie geändert")
-                    }
-                }
-                .sheet(isPresented: $showFilterSheet) {
-                    AdvancedFilterSheet(
-                        searchText: $searchText,
-                        dateQuick: $dateQuick,
-                        dateFrom: $dateFrom,
-                        dateTo: $dateTo,
-                        amountMin: $amountMin,
-                        amountMax: $amountMax,
-                        filterCategorySet: $filterCategorySet,
-                        showExcluded: $showExcluded,
-                        allCategories: allFilterCategories
-                    )
-                }
-                .overlay(alignment: .bottom) {
-                    if let msg = undoMessage {
-                        UndoToast(message: msg) {
-                            performUndo()
-                        }
-                        .padding(.bottom, 8)
-                    }
-                }
-        }
-    }
-
-    // MARK: - Extracted Subviews
-
-    @ViewBuilder
-    private var mainContent: some View {
-        if let loadError {
-            VStack(spacing: 0) {
-                errorView(loadError)
+            } band: {
+                band
+            } sheet: {
+                sheet
             }
-        } else if filteredGrouped.isEmpty {
-            VStack(spacing: 0) {
-                segmentedFilter
-                quickCategoryBar
-                Spacer()
-                VStack(spacing: 8) {
-                    Text("📋")
-                        .font(.system(size: 48))
-                    Text(#L("Keine Umsätze"))
-                        .font(.system(.title3, design: .rounded, weight: .bold))
-                        .foregroundStyle(WimgTheme.text)
-                    Text(#L("Importiere eine CSV-Datei um loszulegen"))
-                        .font(.system(.subheadline, design: .rounded))
-                        .foregroundStyle(WimgTheme.textSecondary)
-
-                    NavigationLink(destination: ImportView()) {
-                        Text(#L("CSV importieren"))
-                            .font(.system(.subheadline, design: .rounded, weight: .bold))
-                            .foregroundStyle(WimgTheme.bg)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 10)
-                            .background(WimgTheme.text)
-                            .clipShape(Capsule())
-                    }
-                    .padding(.top, 4)
-                }
-                Spacer()
+            .navigationDestination(for: TxRoute.self) { TransactionDetailView(id: $0.id) }
+            .sheet(isPresented: $showFilter) {
+                TransactionFilterSheet(
+                    filter: $filter,
+                    selectedAccount: $selectedAccount,
+                    accounts: accounts,
+                    resultCount: filtered.count,
+                    categoryTotals: categoryTotals
+                )
             }
-        } else {
-            transactionList
         }
+        .onAppear(perform: takeTarget)
+        .onChange(of: target.category) { takeTarget() }
+        .onChange(of: target.period) { takeTarget() }
+        .onChange(of: target.query) { takeTarget() }
+        .onChange(of: popToRoot) { path = NavigationPath() }
+        .task(id: selectedAccount) { await reload() }
+        .onReceive(NotificationCenter.default.publisher(for: .wimgDataChanged)) { _ in
+            Task { await reload() }
+        }
+        .onChange(of: filter) { Task { await refilter() } }
     }
 
-    private var flatTransactions: [Transaction] {
-        filteredGrouped.flatMap { $0.1 }
+    // MARK: Band
+
+    /// Hidden accounts count only with "Ausgeblendete zeigen" and all accounts.
+    private var hiddenOn: Bool { filter.showHidden && selectedAccount == nil }
+
+    private var shownAccounts: [Account] {
+        accounts.filter { selectedAccount == nil ? !$0.isHidden : $0.id == selectedAccount }
     }
 
-    /// Anchor the running balance to the real account balance only in the
-    /// unfiltered "Alle" view — a filtered subset would make the math wrong.
-    private var balanceAnchorActive: Bool {
-        accountBalanceCents != 0
-            && filter == .all
-            && selectedCategory == nil
-            && activeFilterCount == 0
-            && !showExcluded
+    /// The bank's closing balance, only when every shown account has one (FinTS).
+    private var balance: Double? {
+        let a = shownAccounts
+        guard !a.isEmpty, a.allSatisfy({ $0.balance != nil }) else { return nil }
+        return a.reduce(0) { $0 + ($1.balance ?? 0) }
     }
 
-    private var visibleSumStats: (sum: Double, count: Int) {
-        let flat = flatTransactions
-        guard !flat.isEmpty else { return (0, 0) }
+    private var anchored: Bool { balance != nil && !filter.isActive }
 
-        if balanceAnchorActive {
-            // Real, bank-accurate running balance: at the topmost visible row it
-            // equals the statement closing balance, then walks back through
-            // history as you scroll (Comdirect-style).
-            let anchor = Double(accountBalanceCents) / 100
-            guard !visibleTxIds.isEmpty else { return (anchor, flat.count) }
-            var topIdx = flat.count
-            for (i, tx) in flat.enumerated() where visibleTxIds.contains(tx.id) {
-                if i < topIdx { topIdx = i }
+    private var title: String {
+        if anchored {
+            if accounts.count > 1 {
+                let name = selectedAccount != nil ? (shownAccounts.first?.name ?? "") : L("alle Konten")
+                return L("Kontostand · %s", name)
             }
-            guard topIdx < flat.count else { return (anchor, 0) }
-            // Subtract the transactions newer than the topmost visible row
-            // (indices above it — list is newest-first).
-            var newer: Double = 0
-            for i in 0..<topIdx { newer += flat[i].amount }
-            return (anchor - newer, flat.count - topIdx)
+            return L("Kontostand")
         }
-
-        // Fallback (CSV-only or filtered view): plain sum, no opening balance.
-        // Before any row reports visible, fall back to the full filtered set —
-        // matches the web behavior so the card shows the lifetime balance on mount.
-        guard !visibleTxIds.isEmpty else {
-            return (flat.reduce(0) { $0 + $1.amount }, flat.count)
+        if let p = filter.period, p.key.hasSuffix(":salary"),
+           filter == TxFilterState(period: p) {
+            return L("Seit dem Gehalt am %s", PeriodLabels.dotted(p.from))
         }
-        // Find topmost visible row (smallest index — list is newest-first).
-        // Running balance = sum from that point back through history (older).
-        var topIdx = flat.count
-        for (i, tx) in flat.enumerated() where visibleTxIds.contains(tx.id) {
-            if i < topIdx { topIdx = i }
-        }
-        guard topIdx < flat.count else { return (0, 0) }
-        var total: Double = 0
-        for i in topIdx..<flat.count {
-            total += flat[i].amount
-        }
-        return (total, flat.count - topIdx)
+        return filter.isActive ? L("Summe der Treffer") : L("Summe der Umsätze")
     }
 
-    private var gesamtsaldoCard: some View {
-        let stats = visibleSumStats
-        let amountColor: Color = stats.sum > 0 ? .green : (stats.sum < 0 ? .red : WimgTheme.text)
-        return VStack(alignment: .leading, spacing: 4) {
-            Text(balanceAnchorActive ? L("Kontostand") : L("Gesamtsaldo"))
-                .font(.system(size: 10, weight: .bold, design: .rounded))
-                .foregroundStyle(WimgTheme.textSecondary)
-                .textCase(.uppercase)
-                .tracking(0.8)
-            Text(formatAmountSigned(stats.sum))
-                .font(.system(size: 32, weight: .black, design: .rounded))
-                .foregroundStyle(amountColor)
-                .monospacedDigit()
-                .tracking(-0.5)
-                .contentTransition(.numericText(value: stats.sum))
-                .animation(.easeInOut(duration: 0.2), value: stats.sum)
-            HStack(spacing: 4) {
-                Text("\(stats.count)")
-                Text(stats.count == 1 ? #L("Transaktion im Blickfeld") : #L("Transaktionen im Blickfeld"))
+    private var total: Double {
+        anchored ? (balance ?? 0) : filtered.reduce(0) { $0 + $1.amount }
+    }
+
+    private var countLine: String {
+        var parts: [String] = []
+        if anchored {
+            if let a = shownAccounts.first, shownAccounts.count == 1 { parts.append(a.bank.isEmpty ? a.name : a.bank) }
+            if let d = shownAccounts.map(\.balanceDate).filter({ !$0.isEmpty }).max() {
+                parts.append(L("Stand %s", WimgDates.short(d)))
             }
-            .font(.system(.caption, design: .rounded, weight: .medium))
-            .foregroundStyle(WimgTheme.textSecondary)
+        }
+        parts.append(filtered.count == 1 ? L("1 Umsatz") : L("%d Umsätze", filtered.count))
+        return parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder private var band: some View {
+        BandOver(text: title).padding(.top, 10)
+        Amount(euros: total, style: WimgType.amountHero, centsStyle: WimgType.amountHeroCents,
+               color: .white, showPlus: !anchored, rolls: true)
             .padding(.top, 2)
+        Text(countLine).wimgStyle(WimgType.desc).foregroundStyle(Wimg.bandSub).padding(.top, 4)
+    }
+
+    // MARK: Sheet
+
+    private var tags: [FilterTag] {
+        var t: [FilterTag] = []
+        if !filter.text.isEmpty {
+            let q = UserDefaults.standard.string(forKey: "wimg_locale") == "en" ? "“\(filter.text)”" : "„\(filter.text)“"
+            t.append(FilterTag(kind: .text, label: q))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(20)
-        .background(WimgTheme.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.gray.opacity(0.12), lineWidth: 0.5)
-        )
-        .shadow(color: .black.opacity(0.04), radius: 12, y: 4)
-        .padding(.horizontal, 16)
-        // Breathing room above the card — also keeps it off the nav-bar edge
-        // once it pins as a sticky section header.
-        .padding(.top, 8)
-        .padding(.bottom, 12)
-    }
-
-    private func formatAmountSigned(_ amount: Double) -> String {
-        let absStr = formatAmount(abs(amount))
-        return amount < 0 ? "-\(absStr)" : (amount > 0 ? "+\(absStr)" : absStr)
-    }
-
-    private func formatAmount(_ amount: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencyCode = "EUR"
-        let isEn = UserDefaults.standard.string(forKey: "wimg_locale") == "en"
-        formatter.locale = Locale(identifier: isEn ? "en_US" : "de_DE")
-        return formatter.string(from: NSNumber(value: amount)) ?? "\(amount) €"
-    }
-
-    private var segmentedFilter: some View {
-        Picker(#L("Filter"), selection: $filter) {
-            ForEach(TxFilter.allCases, id: \.self) { f in
-                Text(L(f.rawValue)).tag(f)
-            }
+        if let p = filter.period { t.append(FilterTag(kind: .period, label: p.tag)) }
+        if let id = selectedAccount, accounts.count > 1, let a = accounts.first(where: { $0.id == id }) {
+            t.append(FilterTag(kind: .account, label: a.name))
         }
-        .pickerStyle(.segmented)
-        .padding(.horizontal)
-        .padding(.vertical, 12)
+        if filter.kind != .all { t.append(FilterTag(kind: .kind, label: L(filter.kind.rawValue))) }
+        switch filter.categories.count {
+        case 0: break
+        case 1: t.append(FilterTag(kind: .categories, label: L(WimgCategory.from(filter.categories.first!).name)))
+        default: t.append(FilterTag(kind: .categories, label: L("%d Kategorien", filter.categories.count)))
+        }
+        if let a = filter.amount.tag { t.append(FilterTag(kind: .amount, label: a)) }
+        if filter.recurringOnly { t.append(FilterTag(kind: .recurring, label: L("nur wiederkehrende"))) }
+        if hiddenOn { t.append(FilterTag(kind: .hidden, label: L("mit ausgeblendeten"))) }
+        return t
     }
 
-    private var quickCategoryBar: some View {
-        HStack {
-            ForEach(quickCategories) { cat in
-                let active = selectedCategory == cat.rawValue
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        selectedCategory = active ? nil : cat.rawValue
-                    }
-                } label: {
-                    VStack(spacing: 6) {
-                        ZStack {
-                            Circle()
-                                .fill(cat.color.opacity(0.12))
-                                .frame(width: 52, height: 52)
-                            if active {
-                                Circle()
-                                    .stroke(cat.color, lineWidth: 2.5)
-                                    .frame(width: 52, height: 52)
+    private func remove(_ k: FilterTag.Kind) {
+        switch k {
+        case .text: filter.text = ""
+        case .kind: filter.kind = .all
+        case .account: selectedAccount = nil
+        case .categories: filter.categories = []
+        case .period: filter.period = nil
+        case .amount: filter.amount = AmountRange()
+        case .recurring: filter.recurringOnly = false
+        case .hidden: filter.showHidden = false
+        }
+    }
+
+    @ViewBuilder private var sheet: some View {
+        if !tags.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(tags) { tag in
+                        Button { withAnimation(WimgMotion.out(0.2)) { remove(tag.kind) } } label: {
+                            HStack(spacing: 6) {
+                                Text(tag.label).wimgStyle(WimgType.chip)
+                                Image(systemName: "xmark").font(.system(size: 11, weight: .bold))
                             }
-                            Image(systemName: cat.icon)
-                                .font(.system(size: 18))
-                                .foregroundStyle(cat.color)
+                            .foregroundStyle(Wimg.accent)
+                            .padding(.horizontal, 14)
+                            .frame(height: 34)
+                            .background(Wimg.accentSoft, in: Capsule())
                         }
-                        Text(L(cat.name))
-                            .font(.system(size: 10, weight: active ? .bold : .medium, design: .rounded))
-                            .foregroundStyle(active ? WimgTheme.text : WimgTheme.textSecondary)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-            }
-        }
-        .padding(.horizontal)
-        .padding(.bottom, 12)
-    }
-
-    private func errorView(_ message: String) -> some View {
-        VStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.largeTitle)
-                .foregroundStyle(.red)
-            Text(message)
-                .font(.system(.subheadline, design: .rounded, weight: .medium))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding(32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var limitedGroups: [(String, [Transaction])] {
-        var count = 0
-        var result: [(String, [Transaction])] = []
-        for (date, txs) in filteredGrouped {
-            if count >= displayLimit { break }
-            let remaining = displayLimit - count
-            let slice = remaining >= txs.count ? txs : Array(txs.prefix(remaining))
-            result.append((date, slice))
-            count += slice.count
-        }
-        return result
-    }
-
-    private var totalFilteredCount: Int {
-        filteredGrouped.reduce(0) { $0 + $1.1.count }
-    }
-
-    private var transactionList: some View {
-        ScrollView {
-            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                // Tabs + quick categories scroll above the sticky card.
-                segmentedFilter
-                quickCategoryBar
-
-                // Section header = sticky Gesamtsaldo card (mirrors the web's
-                // `sticky top-16` running-balance card).
-                Section {
-                    ForEach(limitedGroups, id: \.0) { date, txs in
-                        Text(formatDateHeader(date))
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
-                            .foregroundStyle(WimgTheme.textSecondary)
-                            .textCase(.uppercase)
-                            .tracking(0.8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 20)
-                            .padding(.top, 16)
-                            .padding(.bottom, 6)
-                            .background(WimgTheme.bg)
-
-                        ForEach(txs) { tx in
-                            transactionRow(tx)
-                        }
-                    }
-
-                    if displayLimit < totalFilteredCount {
-                        Button {
-                            displayLimit += 30
-                        } label: {
-                            let remaining = totalFilteredCount - displayLimit
-                            Text(#L("Mehr laden (\(remaining) weitere)"))
-                                .font(.system(.subheadline, design: .rounded))
-                                .foregroundStyle(WimgTheme.textSecondary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 16)
-                        }
-                    }
-
-                    Spacer(minLength: 24)
-                } header: {
-                    gesamtsaldoCard
-                        .background(WimgTheme.bg)
-                }
-            }
-        }
-    }
-
-    private func transactionRow(_ tx: Transaction) -> some View {
-        TransactionCard(transaction: tx) {
-            selectedTransaction = tx
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 2)
-        .opacity(tx.isExcluded ? 0.4 : 1.0)
-        .background(WimgTheme.bg)
-        .onAppear { visibleTxIds.insert(tx.id) }
-        .onDisappear { visibleTxIds.remove(tx.id) }
-        .contextMenu {
-            Button {
-                toggleExcluded(tx)
-            } label: {
-                Label(
-                    tx.isExcluded ? "Einblenden" : "Ausblenden",
-                    systemImage: tx.isExcluded ? "eye" : "eye.slash"
-                )
-            }
-        }
-    }
-
-    @ToolbarContentBuilder
-    private var filterToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            Button {
-                showFilterSheet = true
-            } label: {
-                ZStack(alignment: .topTrailing) {
-                    Image(systemName: "line.3.horizontal.decrease")
-                        .foregroundStyle(activeFilterCount > 0 ? WimgTheme.text : WimgTheme.textSecondary)
-                    if activeFilterCount > 0 {
-                        Circle()
-                            .fill(WimgTheme.accent)
-                            .frame(width: 8, height: 8)
-                            .offset(x: 2, y: -2)
+                        .buttonStyle(.wimgPress)
+                        .accessibilityLabel(L("%s entfernen", tag.label))
                     }
                 }
             }
+            .padding(.bottom, 4)
         }
-    }
 
-    // MARK: - Actions
-
-    private func reload() {
-        let account = selectedAccount
-        Task.detached {
-            do {
-                let tx = try LibWimg.getTransactionsFiltered(account: account).sorted { $0.date > $1.date }
-                // Sum the stored closing balance(s) for the selected account, or
-                // all accounts when viewing "Alle".
-                let accts = LibWimg.getAccounts()
-                let balCents = accts
-                    .filter { account == nil || $0.id == account }
-                    .reduce(0) { $0 + $1.balanceCents }
-                await MainActor.run {
-                    loadError = nil
-                    transactions = tx
-                    accountBalanceCents = balCents
-                    refilter()
-                }
-            } catch {
-                let msg = error.localizedDescription
-                await MainActor.run {
-                    loadError = msg
-                    transactions = []
-                    refilter()
-                }
-            }
-        }
-    }
-
-    private func showUndo(_ message: String) {
-        withAnimation { undoMessage = message }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-            withAnimation { if undoMessage == message { undoMessage = nil } }
-        }
-    }
-
-    private func toggleExcluded(_ tx: Transaction) {
-        let newExcluded = !tx.isExcluded
-        try? LibWimg.setExcluded(id: tx.id, excluded: newExcluded)
-        reload()
-        NotificationCenter.default.post(name: .wimgDataChanged, object: nil)
-        showUndo(newExcluded ? "Ausgeblendet" : "Eingeblendet")
-    }
-
-    private func performUndo() {
-        if LibWimg.undo() != nil {
-            reload()
-            NotificationCenter.default.post(name: .wimgDataChanged, object: nil)
-        }
-        withAnimation { undoMessage = nil }
-    }
-
-    private static let dateHeaderFormatter: DateFormatter = {
-        let fmt = DateFormatter()
-        let isEn = UserDefaults.standard.string(forKey: "wimg_locale") == "en"
-        fmt.locale = Locale(identifier: isEn ? "en_US" : "de_DE")
-        return fmt
-    }()
-
-    private func formatDateHeader(_ dateStr: String) -> String {
-        let parts = dateStr.split(separator: "-")
-        guard parts.count == 3 else { return dateStr }
-
-        let isEn = UserDefaults.standard.string(forKey: "wimg_locale") == "en"
-        let monthNames = Self.dateHeaderFormatter.standaloneMonthSymbols ?? []
-
-        if let day = Int(parts[2]),
-           let monthIdx = Int(parts[1]),
-           monthIdx >= 1, monthIdx <= 12, monthIdx <= monthNames.count {
-            return isEn ? "\(monthNames[monthIdx - 1]) \(day), \(parts[0])" : "\(day). \(monthNames[monthIdx - 1]) \(parts[0])"
-        }
-        return dateStr
-    }
-}
-
-// MARK: - Category Editor Sheet
-
-struct CategoryEditorSheet: View {
-    let transaction: Transaction
-    let onDismiss: () -> Void
-
-    @Environment(\.dismiss) private var dismiss
-
-    private let expenseCategories: [WimgCategory] = [
-        .groceries, .dining, .transport, .housing, .utilities,
-        .entertainment, .shopping, .health, .insurance, .subscriptions,
-        .travel, .education, .cash, .transfer, .other,
-    ]
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    transactionHeader
-                    categoryList
-                }
-                .padding(.top, 16)
-                .padding(.bottom, 24)
-            }
-            .background(WimgTheme.bg)
-            .navigationTitle(#L("Kategorie"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(#L("Abbrechen")) { dismiss() }
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-    }
-
-    private var transactionHeader: some View {
-        VStack(spacing: 8) {
-            Text(transaction.description)
-                .font(.system(.headline, design: .rounded, weight: .bold))
-                .foregroundStyle(WimgTheme.heroText)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-            Text(formatAmount(transaction.amount))
-                .font(.system(.title2, design: .rounded, weight: .black))
-                .foregroundStyle(transaction.isIncome ? .green : WimgTheme.heroText)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(24)
-        .wimgHero()
-        .padding(.horizontal)
-    }
-
-    private var categoryList: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(#L("Kategorie wählen"))
-                .font(.system(.subheadline, design: .rounded, weight: .bold))
-                .foregroundStyle(WimgTheme.textSecondary)
-                .textCase(.uppercase)
-                .tracking(0.5)
-                .padding(.horizontal, 20)
-
-            VStack(spacing: 0) {
-                if transaction.isIncome {
-                    categoryRow(.income)
-                    Divider().padding(.leading, 60)
-                }
-                ForEach(expenseCategories) { cat in
-                    categoryRow(cat)
-                    if cat.id != expenseCategories.last?.id {
-                        Divider().padding(.leading, 60)
-                    }
-                }
-            }
-            .wimgCard(radius: WimgTheme.radiusMedium)
-            .padding(.horizontal)
-        }
-    }
-
-    private func categoryRow(_ cat: WimgCategory) -> some View {
-        Button {
-            try? LibWimg.setCategory(id: transaction.id, category: UInt8(cat.rawValue))
-            onDismiss()
-            dismiss()
-        } label: {
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(cat.color.opacity(0.12))
-                        .frame(width: 40, height: 40)
-                    Image(systemName: cat.icon)
-                        .font(.system(size: 16))
-                        .foregroundStyle(cat.color)
-                }
-
-                Text(L(cat.name))
-                    .font(.system(.subheadline, design: .rounded, weight: .medium))
-                    .foregroundStyle(WimgTheme.text)
-
-                Spacer()
-
-                if transaction.category == cat.rawValue {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(WimgTheme.text)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-        }
-    }
-}
-
-// MARK: - Advanced Filter Sheet
-
-struct AdvancedFilterSheet: View {
-    @Binding var searchText: String
-    @Binding var dateQuick: String?
-    @Binding var dateFrom: Date?
-    @Binding var dateTo: Date?
-    @Binding var amountMin: Double
-    @Binding var amountMax: Double
-    @Binding var filterCategorySet: Set<Int>
-    @Binding var showExcluded: Bool
-    let allCategories: [WimgCategory]
-
-    @Environment(\.dismiss) private var dismiss
-
-    private var hasActiveFilters: Bool {
-        dateQuick != nil || dateFrom != nil || dateTo != nil || amountMin > 0 || amountMax < 1000 || !filterCategorySet.isEmpty || !searchText.isEmpty
-    }
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                filterContent
-            }
-            .background(WimgTheme.bg)
-            .navigationTitle(#L("Erweiterte Suche"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(#L("Abbrechen")) { dismiss() }
-                }
-            }
-            .safeAreaInset(edge: .bottom) {
-                filterFooter
-            }
-        }
-        .presentationDetents([.large])
-    }
-
-    // MARK: - Extracted Subviews
-
-    private var filterContent: some View {
-        VStack(spacing: 28) {
-            searchField
-            dateSection
-            categorySection
-            amountSection
-            excludedToggle
-        }
-        .padding()
-        .padding(.bottom, 80)
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(WimgTheme.textSecondary)
-            TextField(#L("Suchen nach..."), text: $searchText)
-                .font(.system(.body, design: .rounded))
-        }
-        .padding(14)
-        .background(WimgTheme.cardBg)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-    }
-
-    private var dateSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(#L("Zeitraum"))
-                .font(.system(.headline, design: .rounded, weight: .bold))
-
-            HStack(spacing: 8) {
-                dateChip("30d", label: "Letzte 30 Tage")
-                dateChip("month", label: "Aktueller Monat")
-                dateChip("quarter", label: "Letztes Quartal")
-            }
-
-            // Custom date range
-            if dateQuick == nil {
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(#L("Von"))
-                            .font(.system(size: 10, weight: .bold, design: .rounded))
-                            .foregroundStyle(WimgTheme.textSecondary)
-                            .textCase(.uppercase)
-                        DatePicker("", selection: Binding(
-                            get: { dateFrom ?? Calendar.current.date(byAdding: .year, value: -1, to: Date())! },
-                            set: { dateFrom = $0 }
-                        ), displayedComponents: .date)
-                        .labelsHidden()
-                        .datePickerStyle(.compact)
-                    }
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(#L("Bis"))
-                            .font(.system(size: 10, weight: .bold, design: .rounded))
-                            .foregroundStyle(WimgTheme.textSecondary)
-                            .textCase(.uppercase)
-                        DatePicker("", selection: Binding(
-                            get: { dateTo ?? Date() },
-                            set: { dateTo = $0 }
-                        ), displayedComponents: .date)
-                        .labelsHidden()
-                        .datePickerStyle(.compact)
-                    }
-                }
-                if dateFrom != nil || dateTo != nil {
-                    Button(#L("Datum zurücksetzen")) {
-                        dateFrom = nil
-                        dateTo = nil
-                    }
-                    .font(.system(.caption, design: .rounded, weight: .bold))
-                    .foregroundStyle(WimgTheme.textSecondary)
-                }
-            }
-        }
-    }
-
-    private var categorySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(#L("Kategorien"))
-                    .font(.system(.headline, design: .rounded, weight: .bold))
-                Spacer()
-                if !filterCategorySet.isEmpty {
-                    Button(#L("Zurücksetzen")) {
-                        filterCategorySet.removeAll()
-                    }
-                    .font(.system(.caption, design: .rounded, weight: .bold))
-                    .foregroundStyle(WimgTheme.textSecondary)
-                }
-            }
-
-            categoryGrid
-        }
-    }
-
-    private var categoryGrid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 4), spacing: 16) {
-            ForEach(allCategories) { cat in
-                categoryButton(cat)
-            }
-        }
-    }
-
-    private func categoryButton(_ cat: WimgCategory) -> some View {
-        let active = filterCategorySet.contains(cat.rawValue)
-        return Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                if active {
-                    filterCategorySet.remove(cat.rawValue)
-                } else {
-                    filterCategorySet.insert(cat.rawValue)
-                }
-            }
-        } label: {
+        if loaded && filtered.isEmpty && shownPending.isEmpty {
             VStack(spacing: 6) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(cat.color.opacity(0.12))
-                        .frame(width: 48, height: 48)
-                    if active {
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(cat.color, lineWidth: 2.5)
-                            .frame(width: 48, height: 48)
-                    }
-                    Image(systemName: cat.icon)
-                        .font(.system(size: 18))
-                        .foregroundStyle(cat.color)
+                Text(transactions.isEmpty ? L("Noch keine Umsätze") : L("Keine Treffer"))
+                    .wimgStyle(WimgType.section).foregroundStyle(Wimg.text)
+                Text(transactions.isEmpty ? L("Verbinde deine Bank oder importiere eine CSV.") : L("Ändere den Filter, um mehr zu sehen."))
+                    .wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(28)
+        }
+
+        if !shownPending.isEmpty {
+            GroupLabel(text: L("Vorgemerkt · %d", shownPending.count),
+                       trailing: amountText(shownPending.reduce(0) { $0 + $1.amount }))
+            WimgGroup {
+                ForEach(Array(shownPending.enumerated()), id: \.element.id) { i, tx in
+                    if i > 0 { RowDivider() }
+                    TxRow(tx: tx, pending: true) { path.append(TxRoute(id: tx.id)) }
                 }
-                Text(L(cat.name))
-                    .font(.system(size: 10, weight: active ? .bold : .medium, design: .rounded))
-                    .foregroundStyle(active ? WimgTheme.text : WimgTheme.textSecondary)
-                    .lineLimit(1)
+            }
+        }
+
+        ForEach(groups, id: \.date) { group in
+            DayHeader(date: group.date, total: group.txs.reduce(0) { $0 + $1.amount })
+            WimgGroup {
+                ForEach(Array(group.txs.enumerated()), id: \.element.id) { i, tx in
+                    if i > 0 { RowDivider() }
+                    TxRow(tx: tx) { path.append(TxRoute(id: tx.id)) }
+                }
             }
         }
     }
 
-    private var amountSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(#L("Betrag"))
-                    .font(.system(.headline, design: .rounded, weight: .bold))
-                Spacer()
-                Text("\(Int(amountMin)) – \(amountMax >= 1000 ? "∞" : String(Int(amountMax))) €")
-                    .font(.system(.caption, design: .rounded, weight: .bold))
-                    .foregroundStyle(WimgTheme.textSecondary)
-            }
+    // MARK: Data
 
-            VStack(spacing: 8) {
-                HStack {
-                    Text("Min")
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                        .foregroundStyle(WimgTheme.textSecondary)
-                    Slider(value: $amountMin, in: 0...500, step: 10)
-                        .tint(WimgTheme.accent)
-                    Text("\(Int(amountMin)) €")
-                        .font(.system(.caption, design: .rounded, weight: .bold))
-                        .frame(width: 50, alignment: .trailing)
-                }
-                HStack {
-                    Text("Max")
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                        .foregroundStyle(WimgTheme.textSecondary)
-                    Slider(value: $amountMax, in: 50...1000, step: 50)
-                        .tint(WimgTheme.accent)
-                    Text(amountMax >= 1000 ? "∞" : "\(Int(amountMax)) €")
-                        .font(.system(.caption, design: .rounded, weight: .bold))
-                        .frame(width: 50, alignment: .trailing)
-                }
-            }
-            .padding(14)
-            .background(WimgTheme.cardBg)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-        }
+    private func takeTarget() {
+        guard target.category != nil || target.period != nil || target.query != nil else { return }
+        var f = TxFilterState()
+        if let c = target.category { f.categories = [c] }
+        f.period = target.period
+        f.text = target.query ?? ""
+        filter = f
+        target.category = nil; target.period = nil; target.query = nil
+        path = NavigationPath()
     }
 
-    private var excludedToggle: some View {
-        Toggle(isOn: $showExcluded) {
-            Text(#L("Ausgeblendete anzeigen"))
-                .font(.system(.subheadline, design: .rounded, weight: .medium))
-                .foregroundStyle(WimgTheme.textSecondary)
-        }
-        .tint(WimgTheme.accent)
+    private func reload() async {
+        let account = selectedAccount
+        let (txs, pend, accs) = await Task.detached {
+            let txs = ((try? LibWimg.getTransactionsFiltered(account: account)) ?? []).sorted { $0.date > $1.date }
+            let pend = LibWimg.getPending(account: account).sorted { $0.date > $1.date }
+            return (txs, pend, LibWimg.getAccounts())
+        }.value
+        transactions = txs
+        pending = pend
+        accounts = accs
+        recurringIds = nil
+        withHidden = nil
+        await refilter()
+        loaded = true
     }
 
-    private var filterFooter: some View {
-        VStack(spacing: 10) {
-            if hasActiveFilters {
-                Button {
-                    searchText = ""
-                    dateQuick = nil
-                    dateFrom = nil
-                    dateTo = nil
-                    amountMin = 0
-                    amountMax = 1000
-                    filterCategorySet.removeAll()
-                } label: {
-                    Text(#L("Zurücksetzen"))
-                        .font(.system(.subheadline, design: .rounded, weight: .bold))
-                        .foregroundStyle(WimgTheme.textSecondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(WimgTheme.cardBg)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                }
-            }
-            Button {
-                dismiss()
-            } label: {
-                Text(#L("Ergebnisse anzeigen"))
-                    .font(.system(.headline, design: .rounded, weight: .bold))
-                    .foregroundStyle(WimgTheme.heroText)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(WimgTheme.accent)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-            }
+    /// Filtering and grouping off the main thread: thousands of rows.
+    private func refilter() async {
+        let f = filter
+        if f.recurringOnly && recurringIds == nil {
+            recurringIds = await Task.detached {
+                Set(LibWimg.getRecurring().filter { !$0.isHidden }.flatMap { p in
+                    LibWimg.getRecurringPayments(id: p.id).filter { !$0.isOneoff }.map(\.id)
+                })
+            }.value
         }
-        .padding()
-        .background(.ultraThinMaterial)
+        if hiddenOn && withHidden == nil {
+            withHidden = await Task.detached {
+                ((try? LibWimg.getTransactions()) ?? []).sorted { $0.date > $1.date }
+            }.value
+        }
+        let base = hiddenOn ? (withHidden ?? transactions) : transactions
+        let ids = recurringIds
+        let pend = pending
+        let (list, grouped, p) = await Task.detached {
+            let list = f.isActive ? base.filter { f.matches($0, recurringIds: ids) } : base
+            var grouped: [(date: String, txs: [Transaction])] = []
+            for tx in list {
+                if grouped.last?.date == tx.date { grouped[grouped.count - 1].txs.append(tx) }
+                else { grouped.append((tx.date, [tx])) }
+            }
+            return (list, grouped, pend.filter { f.matches($0, recurringIds: ids) })
+        }.value
+        filtered = list
+        groups = grouped
+        shownPending = p
     }
 
-    private func dateChip(_ id: String, label: String) -> some View {
-        let active = dateQuick == id
-        return Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                dateQuick = active ? nil : id
-                dateFrom = nil
-                dateTo = nil
-            }
-        } label: {
-            Text(L(label))
-                .font(.system(.caption, design: .rounded, weight: .bold))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(active ? WimgTheme.accent : WimgTheme.cardBg)
-                .clipShape(Capsule())
-                .overlay(
-                    Capsule()
-                        .stroke(active ? Color.clear : Color.gray.opacity(0.2), lineWidth: 1)
-                )
+    /// Category → sum of the rows that pass every filter but the category one.
+    private func categoryTotals() -> [(id: Int, sum: Double)] {
+        let f = filter, ids = recurringIds
+        var sums: [Int: Double] = [:]
+        for tx in (hiddenOn ? (withHidden ?? transactions) : transactions)
+        where !tx.isExcluded && f.matchesExceptCategory(tx, recurringIds: ids) {
+            sums[tx.category, default: 0] += tx.amount
         }
-        .buttonStyle(.plain)
+        return sums.map { ($0.key, $0.value) }
+    }
+}
+
+// MARK: - Rows
+
+private struct DayHeader: View {
+    let date: String
+    let total: Double
+
+    var body: some View {
+        HStack {
+            Text(WimgDates.dayHeader(date))
+            Spacer()
+            Text(amountText(total)).foregroundStyle(total > 0.004 ? Wimg.pos : Wimg.text2)
+        }
+        .wimgStyle(WimgType.chip)
+        .foregroundStyle(Wimg.text2)
+        .padding(.horizontal, 4)
+        .padding(.top, 18)
+        .padding(.bottom, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// One booking: category tile, title, "Kategorie · Lastschrift", amount.
+struct TxRow: View {
+    let tx: Transaction
+    var pending = false
+    let action: () -> Void
+
+    private var sub: String {
+        var parts = [L(WimgCategory.from(tx.category).name)]
+        if let k = tx.kind, !k.isEmpty { parts.append(L(k)) }
+        if tx.isExcluded { parts.append(L("ausgeschlossen")) }
+        if pending { parts.append(L("vorgemerkt")) }
+        return parts.joined(separator: " · ")
+    }
+
+    private var amountColor: Color {
+        if tx.isExcluded || pending { return Wimg.text3 }
+        return tx.amount > 0 ? Wimg.pos : Wimg.text
+    }
+
+    var body: some View {
+        WimgRow(title: tx.displayTitle, desc: sub, action: action) {
+            CategoryTile(category: tx.category)
+        } trailing: {
+            Amount(euros: tx.amount, color: amountColor)
+        }
     }
 }

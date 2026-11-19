@@ -10,6 +10,17 @@ import androidx.compose.runtime.ReadOnlyComposable
 import com.wimg.app.ui.theme.LocaleState
 
 private val translations: Map<String, String> = mapOf(
+    "Deine Monate im Rückblick" to "Your months in review",
+    "Bankverbindung und Abruf" to "Bank connection and fetching",
+    "CSV oder Kontoauszug" to "CSV or bank statement",
+    "Sync, App-Sperre, Export" to "Sync, app lock, export",
+    "%s entfernen" to "Remove %s",
+    "Andere Umsätze dieses Händlers ohne Kategorie ziehen mit, und wimg merkt sich die Wahl für neue." to "This merchant's other uncategorised transactions move too, and wimg remembers the choice for new ones.",
+    "Kalendermonat" to "Calendar month",
+    "Kategorie suchen" to "Search categories",
+    "Keine" to "None",
+    "Vorschläge" to "Suggestions",
+    "ausgeblendet" to "hidden",
     "Noch keine Ausgaben in diesem Monat." to "No spending this month yet.",
     "Gestern" to "Yesterday",
     "Vorheriges Jahr" to "Previous year",

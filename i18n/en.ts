@@ -3,6 +3,20 @@
  * Only strings that differ need entries. Missing keys fall back to German.
  */
 export const en: Record<string, string> = {
+  // iOS redesign (brief 22): Mehr
+  "Deine Monate im Rückblick": "Your months in review",
+  "Bankverbindung und Abruf": "Bank connection and fetching",
+  "CSV oder Kontoauszug": "CSV or bank statement",
+  "Sync, App-Sperre, Export": "Sync, app lock, export",
+  // iOS redesign (brief 22): Umsätze, filter and category sheets
+  "%s entfernen": "Remove %s",
+  "Andere Umsätze dieses Händlers ohne Kategorie ziehen mit, und wimg merkt sich die Wahl für neue.":
+    "This merchant's other uncategorised transactions move too, and wimg remembers the choice for new ones.",
+  Kalendermonat: "Calendar month",
+  "Kategorie suchen": "Search categories",
+  Keine: "None",
+  Vorschläge: "Suggestions",
+  ausgeblendet: "hidden",
   // Android redesign: Home, bar, booking types
   "Noch keine Ausgaben in diesem Monat.": "No spending this month yet.",
   Gestern: "Yesterday",
