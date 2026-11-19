@@ -20,11 +20,10 @@ data class BankConnection(
     val lastFetchAt: Long = 0,
     val lastFetchNew: Int = 0,
     /**
-     * Statements come as CAMT (HKCAZ) instead of MT940 (HKKAZ). Set by itself
-     * when one format fails at the bank and the other works (Comdirect's MT940
-     * answered 9900 from 2026-11-16); switches back the same way.
+     * Statements come as CAMT (HKCAZ), the default since 2026-11-19. False when
+     * CAMT failed at this bank and MT940 (HKKAZ) worked; switches back the same way.
      */
-    val camt: Boolean = false,
+    val camt: Boolean = true,
     /**
      * The FinTS system id the bank gave this login. Kept so a sign-in asks for no
      * new one (python-fints does the same); null until the first sign-in.
@@ -36,6 +35,7 @@ data class BankConnection(
 object BankConnections {
     private const val PREFS = "wimg_fints"
     private const val KEY = "fints_connections"
+    private const val CAMT_FIRST_KEY = "fints_camt_first_v1"
     private val json = Json { ignoreUnknownKeys = true }
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -45,7 +45,18 @@ object BankConnections {
     @Synchronized
     fun all(context: Context): List<BankConnection> {
         val p = prefs(context)
-        p.getString(KEY, null)?.let { s -> return runCatching { json.decodeFromString<List<BankConnection>>(s) }.getOrDefault(emptyList()) }
+        p.getString(KEY, null)?.let { s ->
+            val list = runCatching { json.decodeFromString<List<BankConnection>>(s) }.getOrDefault(emptyList())
+            // CAMT first (2026-11-19): logins from before start on CAMT once; when CAMT
+            // fails at a bank, the fetch falls back to MT940 and remembers that again.
+            if (!p.getBoolean(CAMT_FIRST_KEY, false)) {
+                val moved = list.map { it.copy(camt = true) }
+                save(context, moved)
+                p.edit().putBoolean(CAMT_FIRST_KEY, true).apply()
+                return moved
+            }
+            return list
+        }
         // Builds before 2026-11-13 kept exactly one login in loose keys.
         val blz = p.getString("fints_blz", null) ?: return emptyList()
         val kennung = p.getString("fints_kennung", null) ?: ""

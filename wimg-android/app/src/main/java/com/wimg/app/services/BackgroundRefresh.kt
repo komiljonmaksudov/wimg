@@ -506,7 +506,7 @@ object BackgroundRefresh {
             val from = isoDate(cal)
 
             val fetch = withFintsThread {
-                com.wimg.app.bridge.LibWimg.fintsFetch(kotlinx.serialization.json.buildJsonObject { put("from", from); put("to", to); if (camt) put("format", "camt") }.toString())
+                com.wimg.app.bridge.LibWimg.fintsFetch(kotlinx.serialization.json.buildJsonObject { put("from", from); put("to", to); put("format", if (camt) "camt" else "mt940") }.toString())
                     ?.let { json.decodeFromString<FintsResult>(it) }
             } ?: return Outcome.Silent
 

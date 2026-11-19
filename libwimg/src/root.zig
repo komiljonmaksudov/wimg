@@ -2513,6 +2513,29 @@ fn bankErrorJsonReq(comptime what: []const u8, seen: []const SeenCode, request: 
     return w.buffered();
 }
 
+/// Which statement format a fetch asks for. CAMT first wherever the bank offers
+/// it (the German banks' rulebook ends MT940; Commerzbank moved in 2026), sent with
+/// the short IBAN:BIC account and twins skipped, because MT940 history may be there
+/// already. `{"format":"mt940"}` asks for MT940 (an app's fallback when CAMT fails
+/// at a bank). A bank with only CAMT (Atruvia) keeps its plain HKCAZ request;
+/// unknown BPD stays MT940.
+const FetchFormat = struct { camt: bool, short: bool };
+
+fn chooseFetchFormat(supports_mt940: bool, supports_camt: bool, format: []const u8) FetchFormat {
+    if (supports_camt and !supports_mt940) return .{ .camt = true, .short = false };
+    if (supports_camt and !std.mem.eql(u8, format, "mt940")) return .{ .camt = true, .short = true };
+    return .{ .camt = false, .short = false };
+}
+
+test "fetch format: CAMT first, MT940 on request, CAMT-only and unknown banks as before" {
+    try std.testing.expectEqual(FetchFormat{ .camt = true, .short = true }, chooseFetchFormat(true, true, ""));
+    try std.testing.expectEqual(FetchFormat{ .camt = true, .short = true }, chooseFetchFormat(true, true, "camt"));
+    try std.testing.expectEqual(FetchFormat{ .camt = false, .short = false }, chooseFetchFormat(true, true, "mt940"));
+    try std.testing.expectEqual(FetchFormat{ .camt = true, .short = false }, chooseFetchFormat(false, true, "mt940"));
+    try std.testing.expectEqual(FetchFormat{ .camt = false, .short = false }, chooseFetchFormat(true, false, "camt"));
+    try std.testing.expectEqual(FetchFormat{ .camt = false, .short = false }, chooseFetchFormat(false, false, ""));
+}
+
 /// Bank texts are often ISO-8859-1: db's escaper keeps UTF-8 and writes lone high bytes as \u00XX.
 /// The bank refused the login itself (wrong or blocked PIN, blocked access), as
 /// opposed to any other error at sign-in (dialog aborted, maintenance, message
@@ -2840,14 +2863,11 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
     // the newest value date carries the current account balance.
     var balance_cents: i64 = 0;
     var balance_date_int: u32 = 0; // YYYYMMDD
-    // Banks that advertise only CAMT (HICAZS, no HIKAZS) must not be sent HKKAZ at all:
-    // Atruvia (Volks-/Raiffeisenbanken) dropped MT940. Unknown BPD keeps MT940 first.
-    var fetch_mode: FetchMode = if (!fints_session.supports_mt940 and fints_session.supports_camt) .camt else .mt940;
-    // {"format":"camt"}: booked statements as CAMT (short IBAN:BIC account), e.g.
-    // when the bank's MT940 side fails (Comdirect, 2026-11-16: HKKAZ 9900).
-    const camt_short = std.mem.eql(u8, jsonExtractString(json, "\"format\"") orelse "", "camt");
-    if (camt_short and fints_session.supports_camt) fetch_mode = .camt;
+    const choice = chooseFetchFormat(fints_session.supports_mt940, fints_session.supports_camt, jsonExtractString(json, "\"format\"") orelse "");
+    var fetch_mode: FetchMode = if (choice.camt) .camt else .mt940;
+    const camt_short = choice.short;
     var used_camt_fallback = false;
+    var used_mt940_fallback = false;
     var page_count: u8 = 0;
     var touchdown_buf: [128]u8 = undefined;
     var touchdown: []const u8 = "";
@@ -3034,7 +3054,16 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
 
         const next_touchdown = extractTouchdownToken(&resp, &touchdown_buf);
         if (next_touchdown.len == 0) {
-            if (fetch_mode == .mt940 and !saw_mt940 and fints_session.supports_camt and !bank_asks_resend) {
+            // CAMT first gave nothing (and the bank didn't ask to resend): MT940 once.
+            if (fetch_mode == .camt and camt_short and !saw_camt and fints_session.supports_mt940 and !bank_asks_resend and !used_mt940_fallback) {
+                fetch_mode = .mt940;
+                used_mt940_fallback = true;
+                touchdown = "";
+                page_count = 0;
+                dbg.print("[FinTS Zig] fetch fallback: switching from HKCAZ to HKKAZ\n", .{});
+                continue;
+            }
+            if (fetch_mode == .mt940 and !saw_mt940 and fints_session.supports_camt and !bank_asks_resend and !used_mt940_fallback) {
                 fetch_mode = .camt;
                 used_camt_fallback = true;
                 touchdown = "";

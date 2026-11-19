@@ -168,7 +168,8 @@ private fun connectKeepingId(context: Context, blz: String, user: String, pin: S
     return r
 }
 private fun tanBody(tan: String) = buildJsonObject { put("tan", tan) }.toString()
-private fun fetchBody(from: String, to: String, camt: Boolean = false) = buildJsonObject { put("from", from); put("to", to); if (camt) put("format", "camt") }.toString()
+/** The format is always named: libwimg asks for CAMT by default, "mt940" is the fallback. */
+private fun fetchBody(from: String, to: String, camt: Boolean = true) = buildJsonObject { put("from", from); put("to", to); put("format", if (camt) "camt" else "mt940") }.toString()
 
 /**
  * The bank answered, but not with statements, for reasons of its own (server
@@ -361,7 +362,7 @@ private object FintsJob {
     var lastRange: Pair<String, String>? = null
 
     fun fetch(context: Context, connId: String, range: Pair<String, String>, bankName: String, retried: Boolean = false, camt: Boolean? = null, onDone: (FintsResult?) -> Unit = {}) {
-        val useCamt = camt ?: (BankConnections.get(context, connId)?.camt ?: false)
+        val useCamt = camt ?: (BankConnections.get(context, connId)?.camt ?: true)
         if (running) return
         running = true
         lastRange = range
@@ -587,7 +588,7 @@ fun FinTSScreen(navController: NavController? = null, connectionId: String? = nu
         val old = connId?.let { BankConnections.get(context, it) }
         if (old != null && old.id != id) BankConnections.remove(context, old.id)
         val existing = BankConnections.get(context, id)
-        BankConnections.put(context, BankConnection(id, b.blz, kennung.trim(), b.name, existing?.tanMedium ?: old?.tanMedium, existing?.lastFetchAt ?: 0, existing?.lastFetchNew ?: 0, camt = existing?.camt ?: false, systemId = existing?.systemId))
+        BankConnections.put(context, BankConnection(id, b.blz, kennung.trim(), b.name, existing?.tanMedium ?: old?.tanMedium, existing?.lastFetchAt ?: 0, existing?.lastFetchNew ?: 0, camt = existing?.camt ?: true, systemId = existing?.systemId))
         if (rememberPin) PinStore.set(context, id, pin) else PinStore.clear(context, id)
         connId = id
     }
@@ -982,7 +983,7 @@ private fun BankDetail(b: BankInfo, conn: BankConnection, reload: Int, onOlder: 
                 RowDivider()
                 WimgRow(L("Letzter Abruf"), trailing = {
                     Text(
-                        (if (lastAt == 0L) L("noch keiner") else L("%s · %d neue", WimgDates.short(iso(Calendar.getInstance().apply { timeInMillis = lastAt })), conn.lastFetchNew)) + if (conn.camt) " · CAMT" else "",
+                        (if (lastAt == 0L) L("noch keiner") else L("%s · %d neue", WimgDates.short(iso(Calendar.getInstance().apply { timeInMillis = lastAt })), conn.lastFetchNew)) + if (!conn.camt) " · MT940" else "",
                         style = WimgType.body, color = c.text,
                     )
                 })
