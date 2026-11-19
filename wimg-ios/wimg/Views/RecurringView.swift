@@ -34,6 +34,10 @@ struct RecurringView: View {
     @State private var showInactive = false
     @State private var interval: String?
     @State private var detecting = false
+    /// "12 Monate": paid per month this year and the forecast for the rest.
+    @State private var yearView = false
+    @State private var payments: [String: [RecurringPayment]] = [:]
+    @State private var pickedMonth = Calendar(identifier: .gregorian).component(.month, from: Date())
     private var periods: PeriodState { PeriodState.shared }
 
     private var period: PeriodInfo? { periods.data.flatMap { $0.isCalendar ? nil : $0.current } }
@@ -84,14 +88,19 @@ struct RecurringView: View {
                 .padding(.top, 8)
             }
         } sheet: {
-            list
+            if yearView {
+                RecurringYearView(expenses: expenses, payments: payments, picked: $pickedMonth)
+            } else {
+                list
+            }
         }
         .navigationDestination(for: RecRoute.self) { RecurringDetailView(id: $0.id) }
         .sheet(isPresented: $showFilter) {
             RecurringFilterSheet(all: all, hidden: hidden, showExpenses: $showExpenses, showIncome: $showIncome,
-                                 showInactive: $showInactive, interval: $interval, detecting: $detecting)
+                                 showInactive: $showInactive, interval: $interval, detecting: $detecting, yearView: $yearView)
         }
         .task { await load() }
+        .task(id: yearView) { if yearView { await loadPayments() } }
         .task { if periods.data == nil { await periods.reload() } }
         .onReceive(NotificationCenter.default.publisher(for: .wimgDataChanged)) { _ in Task { await load() } }
     }
@@ -176,6 +185,14 @@ struct RecurringView: View {
                 list = LibWimg.getRecurring()
             }
             return list
+        }.value
+    }
+
+    /// Each fixed cost's real payments, for the 12-month view.
+    private func loadPayments() async {
+        let ids = expenses.map(\.id)
+        payments = await Task.detached {
+            Dictionary(uniqueKeysWithValues: ids.map { ($0, LibWimg.getRecurringPayments(id: $0).filter { !$0.isOneoff }) })
         }.value
     }
 
@@ -274,6 +291,7 @@ private struct RecurringFilterSheet: View {
     @Binding var showInactive: Bool
     @Binding var interval: String?
     @Binding var detecting: Bool
+    @Binding var yearView: Bool
     @State private var hiddenTab = false
     @Environment(\.dismiss) private var dismiss
 
@@ -309,6 +327,12 @@ private struct RecurringFilterSheet: View {
                         }
                         QuietLine(text: L("Ausgeblendete Muster erkennt wimg nicht neu. Wieder anzeigen holt sie mit allen Zahlungen zurück."))
                     } else {
+                        GroupLabel(text: L("Ansicht"))
+                        Picker("", selection: $yearView) {
+                            Text(L("Liste")).tag(false)
+                            Text(L("12 Monate")).tag(true)
+                        }
+                        .pickerStyle(.segmented)
                         GroupLabel(text: L("Zeigen"))
                         HStack(spacing: 8) {
                             chip(L("Ausgaben"), showExpenses) { showExpenses.toggle() }
@@ -373,5 +397,126 @@ private struct RecurringFilterSheet: View {
         }
         .buttonStyle(.wimgPress)
         .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+/// Whether a pattern falls due in a month (from its next due date and interval).
+private func dueInMonth(_ p: RecurringPattern, year: Int, month: Int) -> Bool {
+    guard let next = p.next_due, let d = WimgDates.parse(next) else { return p.interval == "monthly" || p.interval == "weekly" }
+    let cal = Calendar(identifier: .gregorian)
+    let diff = (year - cal.component(.year, from: d)) * 12 + (month - cal.component(.month, from: d))
+    if diff < 0 { return false }
+    switch p.interval {
+    case "quarterly": return diff % 3 == 0
+    case "annual": return diff % 12 == 0
+    default: return true
+    }
+}
+
+/// "12 Monate" (as Android's YearView): what was paid per month this year,
+/// the forecast for the months still to come (greyed), a month's payments below.
+private struct RecurringYearView: View {
+    let expenses: [RecurringPattern]
+    let payments: [String: [RecurringPayment]]
+    @Binding var picked: Int
+
+    private let cal = Calendar(identifier: .gregorian)
+    private var year: Int { cal.component(.year, from: Date()) }
+    private var current: Int { cal.component(.month, from: Date()) }
+    private func prefix(_ m: Int) -> String { String(format: "%04d-%02d", year, m) }
+
+    private func paidIn(_ m: Int) -> [(p: RecurringPattern, pay: RecurringPayment)] {
+        expenses.flatMap { p in (payments[p.id] ?? []).filter { $0.date.hasPrefix(prefix(m)) }.map { (p, $0) } }
+    }
+
+    private func expectedIn(_ m: Int) -> [RecurringPattern] {
+        expenses.filter { p in
+            p.isActive && dueInMonth(p, year: year, month: m)
+                && (m > current || !(payments[p.id] ?? []).contains { $0.date.hasPrefix(prefix(m)) })
+        }
+    }
+
+    private func sum(_ m: Int) -> Double {
+        m > current ? expectedIn(m).reduce(0) { $0 + abs($1.amount) } : paidIn(m).reduce(0) { $0 + abs($1.pay.amount) }
+    }
+
+    var body: some View {
+        let names = WimgDates.shortMonths()
+        let paidTotal = (1...current).reduce(0) { $0 + paidIn($1).reduce(0) { $0 + abs($1.pay.amount) } }
+        let expectedTotal = (current...12).reduce(0) { $0 + expectedIn($1).reduce(0) { $0 + abs($1.amount) } }
+        HStack(alignment: .lastTextBaseline) {
+            Text(verbatim: "\(year)").wimgStyle(WimgType.section).foregroundStyle(Wimg.text)
+            Spacer()
+            Text(L("%s bezahlt · %s erwartet", amountText(paidTotal, showPlus: false), amountText(expectedTotal, showPlus: false)))
+                .wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2)
+        }
+        .padding(.horizontal, 4)
+        .padding(.bottom, 12)
+        Grid(horizontalSpacing: 10, verticalSpacing: 10) {
+            ForEach(0..<4, id: \.self) { row in
+                GridRow {
+                    ForEach(1...3, id: \.self) { col in
+                        let m = row * 3 + col
+                        let future = m > current
+                        let sel = m == picked
+                        let total = sum(m)
+                        Button { picked = m } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(names[m - 1]).wimgStyle(WimgType.desc).foregroundStyle(sel ? Wimg.inkText : Wimg.text2)
+                                Text(total > 0.004 ? amountText(total, showPlus: false) : "–")
+                                    .wimgStyle(WimgType.amountRow).lineLimit(1).minimumScaleFactor(0.7)
+                                    .foregroundStyle(sel ? Wimg.inkText : future ? Wimg.text3 : Wimg.text)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12).padding(.vertical, 12)
+                            .background(sel ? Wimg.ink : future ? Color.clear : Wimg.card,
+                                        in: RoundedRectangle(cornerRadius: WimgShape.group, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: WimgShape.group, style: .continuous)
+                                .stroke(sel ? .clear : Wimg.line, style: StrokeStyle(lineWidth: 1, dash: future ? [4, 3] : [])))
+                        }
+                        .buttonStyle(.wimgPress)
+                        .accessibilityAddTraits(sel ? .isSelected : [])
+                    }
+                }
+            }
+        }
+        let paid = paidIn(picked).sorted { $0.pay.date < $1.pay.date }
+        let expected = picked >= current ? expectedIn(picked) : []
+        let monthTotal = paid.reduce(0) { $0 + abs($1.pay.amount) } + expected.reduce(0) { $0 + abs($1.amount) }
+        GroupLabel(text: WimgDates.months()[picked - 1], trailing: amountText(monthTotal, showPlus: false))
+        if !paid.isEmpty || !expected.isEmpty {
+            WimgGroup {
+                ForEach(Array(paid.enumerated()), id: \.element.pay.id) { i, item in
+                    if i > 0 { RowDivider() }
+                    row(day: Int(item.pay.date.suffix(2)), name: item.p.displayName,
+                        sub: L("%s · bezahlt", L(intervalLabel(item.p.interval))), amount: abs(item.pay.amount), future: false, id: item.p.id)
+                }
+                ForEach(Array(expected.enumerated()), id: \.element.id) { i, p in
+                    if i > 0 || !paid.isEmpty { RowDivider() }
+                    row(day: p.next_due.flatMap { Int($0.suffix(2)) }, name: p.displayName,
+                        sub: L("%s · erwartet", L(intervalLabel(p.interval))), amount: abs(p.amount), future: true, id: p.id)
+                }
+            }
+        }
+    }
+
+    private func row(day: Int?, name: String, sub: String, amount: Double, future: Bool, id: String) -> some View {
+        NavigationLink(value: RecRoute(id: id)) {
+            HStack(spacing: 12) {
+                Text(day.map { "\($0)." } ?? "–").wimgStyle(WimgType.amountRow)
+                    .foregroundStyle(future ? Wimg.text3 : Wimg.text).frame(width: 36)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(name).wimgStyle(WimgType.rowTitle).foregroundStyle(Wimg.text).lineLimit(1)
+                    Text(sub).wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(amountText(amount, showPlus: false)).wimgStyle(WimgType.amountRow)
+                    .foregroundStyle(future ? Wimg.text2 : Wimg.text)
+            }
+            .padding(.horizontal, 16).frame(minHeight: 62)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
     }
 }
