@@ -32,3 +32,4 @@ A note about a security bug stays out of anything public until the fix has shipp
 - [2026-11-14 · The bank sent the pending list, and a leftover TAN flag threw it away](2026-11-14-pending-and-a-stale-tan-flag.md)
 - [2026-11-18 · Correcting a booking's category moved only that booking](2026-11-18-correcting-a-category-moved-one-booking.md)
 - [2026-11-19 · iOS would have loaded one weight of each font](2026-11-19-ios-fonts-one-name-per-family.md)
+- [2026-11-19 · A PIN with "+" broke the bank message, and TAN media with umlauts didn't match](2026-11-19-pin-unescaped-umlauts-utf8.md)
