@@ -1,132 +1,31 @@
 import SwiftUI
 import WimgI18n
 
+/// First start (as Android's OnboardingScreen): welcome on the dark band, then
+/// where the transactions come from. "Bank verbinden" and "Datei importieren"
+/// open their page right here; "Leer starten" goes to the app.
 struct OnboardingView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var step = 0
+    @State private var path: [Page] = []
     @State private var showLinkSheet = false
+    /// The phone's own scheme: the welcome is forced dark, the button's denim isn't.
+    @Environment(\.colorScheme) private var scheme
 
-    private let cards: [(title: String, subtitle: String, icon: String, iconColor: Color, bgColor: Color)] = [
-        (
-            "Deine Finanzen, auf deinem Gerät",
-            "Keine Cloud, kein Konto. Deine Daten bleiben auf deinem Gerät — lokal, privat, offline.",
-            "lock.shield.fill",
-            .green,
-            Color.green.opacity(0.12)
-        ),
-        (
-            "Importiere deine Bankdaten",
-            "Lade eine CSV-Datei von Comdirect, Trade Republic oder Scalable Capital hoch.",
-            "icloud.and.arrow.up.fill",
-            .blue,
-            Color.blue.opacity(0.12)
-        ),
-        (
-            "Wiederkehrend erkennen",
-            "Erkenne Abos und Fixkosten automatisch. Sieh, was monatlich fällig wird.",
-            "arrow.triangle.2.circlepath",
-            .green,
-            Color.green.opacity(0.12)
-        ),
-        (
-            "Geräte synchronisieren",
-            "Synchronisiere optional zwischen Geräten — Ende-zu-Ende verschlüsselt.",
-            "arrow.triangle.2.circlepath.circle.fill",
-            .orange,
-            Color.orange.opacity(0.12)
-        ),
-    ]
+    enum Page: Hashable { case source, bank, file }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Skip button
-            HStack {
-                Spacer()
-                Button(#L("Überspringen")) {
-                    complete()
-                }
-                .font(.system(.subheadline, design: .rounded, weight: .medium))
-                .foregroundStyle(WimgTheme.textSecondary)
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 16)
-
-            Spacer()
-
-            // Card content
-            TabView(selection: $step) {
-                ForEach(0..<cards.count, id: \.self) { i in
-                    VStack(spacing: 24) {
-                        // Icon circle
-                        ZStack {
-                            Circle()
-                                .fill(cards[i].bgColor)
-                                .frame(width: 100, height: 100)
-                            Image(systemName: cards[i].icon)
-                                .font(.system(size: 36))
-                                .foregroundStyle(cards[i].iconColor)
-                        }
-
-                        VStack(spacing: 12) {
-                            Text(L(cards[i].title))
-                                .font(.system(.title2, design: .rounded, weight: .bold))
-                                .multilineTextAlignment(.center)
-                                .foregroundStyle(WimgTheme.text)
-
-                            Text(L(cards[i].subtitle))
-                                .font(.system(.body, design: .rounded))
-                                .multilineTextAlignment(.center)
-                                .foregroundStyle(WimgTheme.textSecondary)
-                                .padding(.horizontal, 24)
-                        }
-                    }
-                    .tag(i)
-                }
-            }
-            .tabViewStyle(.page(indexDisplayMode: .always))
-            .frame(height: 340)
-
-            Spacer()
-
-            // Action button
-            VStack(spacing: 12) {
-                Button {
-                    if step < cards.count - 1 {
-                        withAnimation { step += 1 }
-                    } else {
-                        complete()
-                    }
-                } label: {
-                    Text(step < cards.count - 1 ? #L("Weiter") : #L("Los geht's"))
-                        .font(.system(.body, design: .rounded, weight: .bold))
-                        .foregroundStyle(WimgTheme.heroText)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(WimgTheme.accent)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-
-                // On the last (sync) card, offer the "existing wimg user" path.
-                // Tapping opens a sheet to paste a sync key — common case for
-                // users who already use wimg on another device.
-                if step == cards.count - 1 {
-                    Button {
-                        showLinkSheet = true
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.left.arrow.right")
-                                .font(.system(size: 11, weight: .bold))
-                            Text(#L("Schon wimg-User? Sync-Schlüssel einfügen"))
-                                .font(.system(.caption, design: .rounded, weight: .heavy))
-                        }
-                        .foregroundStyle(WimgTheme.text)
+        NavigationStack(path: $path) {
+            welcome
+                .toolbar(.hidden, for: .navigationBar)
+                .navigationDestination(for: Page.self) { page in
+                    switch page {
+                    case .source: SourceChoiceView(onPick: pick)
+                    case .bank: FinTSView().toolbar { doneButton }
+                    case .file: ImportView().toolbar { doneButton }
                     }
                 }
-            }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 40)
         }
-        .background(WimgTheme.bg)
+        .tint(Wimg.accent)
         .sheet(isPresented: $showLinkSheet) {
             SyncLinkSheet(onLinked: {
                 showLinkSheet = false
@@ -135,8 +34,187 @@ struct OnboardingView: View {
         }
     }
 
+    private var doneButton: some ToolbarContent {
+        ToolbarItem(placement: .confirmationAction) { Button(L("Fertig")) { complete() }.bold() }
+    }
+
+    private var welcome: some View {
+        ZStack(alignment: .bottom) {
+            Wimg.band.ignoresSafeArea()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Image("AppMark")
+                        .resizable()
+                        .frame(width: 76, height: 76)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .shadow(color: .black.opacity(0.35), radius: 12, y: 4)
+                        .accessibilityHidden(true)
+                    Text(L("Deine Finanzen.") + "\n" + L("Auf deinem Gerät."))
+                        .font(WimgFont.font(.manrope, .heavy, 34, relativeTo: .largeTitle))
+                        .tracking(-0.6)
+                        .foregroundStyle(.white)
+                        .padding(.top, 36)
+                        .accessibilityAddTraits(.isHeader)
+                    Text(L("Sieh, wohin dein Geld geht. Ohne Konto, ohne Cloud-Zwang."))
+                        .font(WimgFont.font(.inter, .regular, 16))
+                        .foregroundStyle(Wimg.bandSub)
+                        .padding(.top, 14)
+                    VStack(alignment: .leading, spacing: 22) {
+                        feature("lock", L("Bleibt auf deinem Gerät"), L("Kein Konto nötig. Deine Daten gehören dir."))
+                        feature("building.columns", L("Direkt von deiner Bank"), L("Umsätze per FinTS abrufen, ohne Dienst dazwischen. Oder einen Kontoauszug oder eine CSV-Datei importieren."))
+                        feature("arrow.triangle.2.circlepath", L("Sync zwischen deinen Geräten"), L("Ende-zu-Ende-verschlüsselt, mit einem Schlüssel statt Passwort."))
+                    }
+                    .padding(.top, 36)
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 56)
+                .padding(.bottom, 140)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            HStack(spacing: 8) {
+                OnboardingButton(title: L("Ich nutze wimg schon"), primary: false, dark: true) { showLinkSheet = true }
+                OnboardingButton(title: L("Los geht’s"), primary: true, dark: true) { path.append(.source) }
+                    .environment(\.colorScheme, scheme)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+        }
+        .environment(\.colorScheme, .dark)
+    }
+
+    private func feature(_ icon: String, _ title: String, _ desc: String) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            RoundedRectangle(cornerRadius: WimgShape.iconTile, style: .continuous)
+                .fill(.white.opacity(0.07))
+                .frame(width: 44, height: 44)
+                .overlay(Image(systemName: icon).font(.system(size: 18, weight: .medium)).foregroundStyle(Wimg.accentLight))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(WimgFont.font(.inter, .bold, 16)).foregroundStyle(.white)
+                Text(desc).wimgStyle(WimgType.body).foregroundStyle(Wimg.bandSub)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func pick(_ page: Page?) {
+        guard let page else { complete(); return }
+        path.append(page)
+    }
+
     private func complete() {
         UserDefaults.standard.set(true, forKey: "wimg_onboarding_completed")
         dismiss()
+    }
+}
+
+/// Step 1 of 3: Bank verbinden (recommended), Datei importieren, Leer starten.
+private struct SourceChoiceView: View {
+    let onPick: (OnboardingView.Page?) -> Void
+    @State private var selected = 0
+
+    private let choices: [(page: OnboardingView.Page?, title: String, desc: String, recommended: Bool)] = [
+        (.bank, "Bank verbinden", "Umsätze direkt von der Bank holen, ca. 1.700 deutsche Banken. Mit TAN.", true),
+        (.file, "Datei importieren", "Kontoauszug von jeder Bank oder CSV von Comdirect, Trade Republic, Scalable oder Revolut.", false),
+        (nil, "Leer starten", "Erstmal umsehen. Daten kannst du später hinzufügen.", false),
+    ]
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            BandScreen(title: L("Einrichten"), pushed: true) {
+                OnboardingStepBand(over: L("Einrichten"), step: 1, of: 3, title: L("Woher kommen deine Umsätze?"))
+            } sheet: {
+                VStack(spacing: 12) {
+                    ForEach(choices.indices, id: \.self) { i in choiceCard(i) }
+                    Text(L("Du kannst später jederzeit eine Bank verbinden oder weitere Dateien importieren, unter Mehr."))
+                        .wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 4)
+                }
+                .padding(.bottom, 90)
+            }
+            OnboardingButton(title: L("Weiter"), primary: true, dark: false) { onPick(choices[selected].page) }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+        }
+    }
+
+    private func choiceCard(_ i: Int) -> some View {
+        let on = selected == i
+        let c = choices[i]
+        return Button { selected = i } label: {
+            HStack(alignment: .top, spacing: 16) {
+                Circle().stroke(on ? Wimg.ink : Wimg.text3, lineWidth: 2)
+                    .frame(width: 24, height: 24)
+                    .overlay { if on { Circle().fill(Wimg.ink).frame(width: 12, height: 12) } }
+                    .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 10) {
+                        Text(L(c.title)).font(WimgFont.font(.inter, .bold, 16.5)).foregroundStyle(Wimg.text)
+                        if c.recommended {
+                            Text(L("empfohlen")).wimgStyle(WimgType.caption).foregroundStyle(Wimg.text2)
+                                .padding(.horizontal, 10).padding(.vertical, 3)
+                                .background(Wimg.neutralTint, in: Capsule())
+                        }
+                    }
+                    Text(L(c.desc)).wimgStyle(WimgType.body).foregroundStyle(Wimg.text2)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(18)
+            .background(Wimg.card, in: RoundedRectangle(cornerRadius: WimgShape.group, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: WimgShape.group, style: .continuous)
+                .stroke(on ? Wimg.ink : Wimg.line, lineWidth: on ? 2 : 1))
+        }
+        .buttonStyle(.wimgPress)
+        .accessibilityAddTraits(on ? [.isSelected] : [])
+    }
+}
+
+/// Band for multi-step flows: "Flow · Schritt n von m", a segmented line, the title.
+struct OnboardingStepBand: View {
+    let over: String
+    let step: Int
+    let of: Int
+    let title: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(L("%s · Schritt %d von %d", over, step, of)).wimgStyle(WimgType.bandOver).foregroundStyle(Wimg.bandSub)
+            HStack(spacing: 6) {
+                ForEach(1...of, id: \.self) { i in
+                    Capsule().fill(i <= step ? .white : .white.opacity(0.18)).frame(height: 4)
+                }
+            }
+            .padding(.top, 10).padding(.bottom, 14)
+            .accessibilityHidden(true)
+            Text(title).font(WimgFont.font(.manrope, .heavy, 27.6, relativeTo: .title)).tracking(-0.4).foregroundStyle(.white)
+                .accessibilityAddTraits(.isHeader)
+        }
+    }
+}
+
+/// Full-width button pair at the bottom, before the app's tab bar exists.
+struct OnboardingButton: View {
+    let title: String
+    let primary: Bool
+    let dark: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .wimgStyle(WimgType.button)
+                .foregroundStyle(primary ? Wimg.onAccent : (dark ? .white : Wimg.text))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .background(primary ? Wimg.accent : (dark ? .white.opacity(0.08) : Wimg.card),
+                            in: RoundedRectangle(cornerRadius: WimgShape.button, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: WimgShape.button, style: .continuous)
+                    .stroke(primary ? .clear : (dark ? .white.opacity(0.12) : Wimg.line), lineWidth: 1))
+        }
+        .buttonStyle(.wimgPress)
     }
 }
