@@ -15,7 +15,7 @@ Home screen widgets, Demo data, Undo/redo, Gehaltsmonat, Systemsprache,
 Recurring decisions (hide, edit, one-off, accept price), Accounts hide/rename,
 12-month recurring forecast, Notification settings + quiet time, Month-end and
 price-rise notices, Sync key check + QR scan, Several bank logins, the squirrel
-in the band (iOS: poses + moments; Rückblick opener cards only on Android), Pending transactions
+in the band (moments, Rückblick opener cards), Pending transactions
 ("Vorgemerkt"), Manual entries (add, edit, delete, "Von Hand" filter).
 
 Tax, Goals, Debts UI removed 2026-05-14; Feedback removed later; Analyse removed

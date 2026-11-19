@@ -7,8 +7,12 @@ Open work only, grouped by area; finished work moves to [CHANGELOG.md](CHANGELOG
 
 ## Manual entries (user, 2026-11-14)
 - [x] Marked (`transactions.source = 'manual'`, v22/v23), editable and deletable on Android with real deletion across devices (`deleted_transactions` markers), left out of salary detection, "Von Hand" filter in Umsätze. Done 2026-11-14; checked on the phone by the user 2026-11-17.
-- [ ] iOS: the same (edit, delete, filter) once Android is settled.
-- [ ] iOS catch-up (2026-11-19): audit in handoff SESSION-2026-11-19; design = brief 22 option A everywhere (export/39-iOS: 4 tabs + search, sheets with two heights, one widget per purpose). Quick fixes done (b784be5). Next: install the iOS platform (Gradle cache to clear first, ~6 GB), then foundation → bridge (21 calls) → screens.
+- [x] iOS: the same (edit, delete, filter), 2026-11-19.
+- [x] iOS catch-up (2026-11-19): every screen in the brief 22 design, the 21 library calls, widgets, onboarding, lock, icon, several bank logins, notices, squirrel. Seen only in the iOS 18 simulator.
+- [ ] iOS on the iPhone (TestFlight): iOS 26 tab bar, a real bank login with TAN, two banks, notices, widgets on the home screen, QR scan. A signed build hung at start in the simulator once (helper report): watch the first TestFlight start.
+- [x] iOS: Rückblick opener cards with the squirrel (2026-11-19).
+- [x] iOS Maestro flows in `.maestro/ios/` (`scripts/maestro ios`), 7 flows, each 3× green (2026-11-19).
+- [ ] iOS design: page buttons in the band vs. a floating bar like Android: decide after seeing iOS 26 on the phone; needs a board.
 
 ## FinTS (from the Comdirect analysis, 2026-11-16)
 - [x] Task reference (HITAN) and challenge text: unescaped, challenge JSON-escaped for the app, task reference buffer 40 bytes (2026-11-16).

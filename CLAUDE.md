@@ -160,17 +160,24 @@ HTTP push/pull + E2E encryption. Demo data service. Sideload APK + signed
 Play bundle from CI. Analyse, More, Debts, Goals, Tax and Feedback screens
 and `TText` are gone.
 
-iOS: `TabView` with Suche, Home, Umsätze, Mehr; Mehr links to Analyse (net
-worth + spending heatmap), Wiederkehrend, Import, Bankverbindung, Rückblick,
-Einstellungen, Über. Dark mode via ThemeManager (light/dark/system).
+iOS (redesign, brief 22 option A, Nov 2026): `TabView` with Übersicht,
+Umsätze, Wiederkehrend, Mehr and a search tab (a round button next to the bar
+on iOS 26); Mehr = Rückblick, Banken, Import, Einstellungen, Über wimg. Every
+page is a `BandScreen` (dark band, light sheet; `Components/WimgKit.swift`),
+tokens and fonts in `Components/Wimg.swift` (same values as Android), undo and
+progress in the `Dock` above the tab bar. Page actions (period, filter, +) are
+round buttons in the band; no hand-made glass, the system controls get iOS 26
+glass when CI builds with Xcode 26. Same features as Android (see
+`feature-parity.md`), incl. Gehaltsmonat, several bank logins, the squirrel in
+the band, notification settings. Bundled fonts are renamed per weight by
+`scripts/ios-fonts.py`. libwimg is built for iOS 17 (`build-ios.sh`).
 
 Phase 8.1 (Home Screen Widgets): iOS WidgetKit + Android Glance.
-iOS: single `WimgWidget` declaring all four families (`systemSmall`,
-`systemMedium`, `systemLarge`, `accessoryRectangular`); the entry view
-switches by `@Environment(\.widgetFamily)`. All widgets use
-`frame(maxWidth: .infinity, maxHeight: .infinity)` to fill the
-container — `containerBackground` alone doesn't size content on
-iOS 17+. Data sharing via App Groups (`group.com.wimg.app`).
+iOS (boards 18–26 of brief 22): Monat (small "Bis zum Gehalt", medium, large
+with categories and next due, lock screen), Fixkosten offen and Heute;
+`WidgetDataWriter.swift` writes one JSON (`WidgetPayload`, key
+`wimg_widget_data_v2`) to the App Group (`group.com.wimg.app`), widgets never
+call libwimg; the widget target bundles the app fonts.
 Android (board 13, `widget/Widgets.kt`): Monat (4×2, dark: Verfügbar,
 category bar, Ausgaben, Ausgaben/Tag, Stand), Fixkosten offen (2×2) and Heute
 (2×2). `WidgetDataWriter` computes everything and stores one JSON in
