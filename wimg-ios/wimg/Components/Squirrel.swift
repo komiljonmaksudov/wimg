@@ -1,0 +1,125 @@
+import SwiftUI
+import WimgI18n
+
+// The squirrel in the band (as Android's Squirrel.kt / HomeScreen figureState):
+// its pose says how the period is going; a tap says it in one line; a short
+// moment plays once per period (Gehalt da, Knapp, Leer) or day (kein Euro raus).
+// The poses are images rendered from the prototype's SVG (export-html/34).
+
+enum SquirrelPose: String {
+    case voll, normal, knapp, leer, gehalt, yawn, sleep, look
+
+    var image: String { "squirrel-\(rawValue)" }
+}
+
+enum SquirrelState {
+    /// Pose and the line a tap shows. Same rules as Android's figureState.
+    static func of(available: Double, daysLeft: Int, usualPerDay: Double, salaryToday: Bool,
+                   salary: Double?, salaryMode: Bool) -> (SquirrelPose, String) {
+        let days = max(daysLeft, 1)
+        let perDay = available / Double(days)
+        func eur(_ v: Double) -> String { amountText(v, showPlus: false) }
+        if salaryToday { return (.gehalt, L("Gehalt da: %s. Neuer Gehaltsmonat.", eur(salary ?? available))) }
+        if available <= 0.004 {
+            return (.leer, salaryMode ? L("Leer: %s im Minus. Gehalt kommt in ~%d Tagen.", eur(-available), days)
+                                      : L("Leer: %s im Minus. Neuer Monat in %d Tagen.", eur(-available), days))
+        }
+        if usualPerDay > 0.5 && perDay < usualPerDay {
+            return (.knapp, L("Knapp: noch %s für %d Tage, sonst gibst du ~%s am Tag aus.", eur(available), days, eur(usualPerDay)))
+        }
+        if usualPerDay > 0.5 && perDay > usualPerDay * 1.5 {
+            return (.voll, L("Voll: noch %s für %d Tage. Du brauchst sonst ~%s am Tag. Viel Luft.", eur(available), days, eur(usualPerDay)))
+        }
+        if usualPerDay > 0.5 {
+            return (.normal, L("Normal: %s für %d Tage, das sind %s am Tag. Sonst gibst du ~%s aus.", eur(available), days, eur(perDay), eur(usualPerDay)))
+        }
+        return (.normal, L("Normal: %s für %d Tage, das sind %s am Tag.", eur(available), days, eur(perDay)))
+    }
+}
+
+/// The squirrel with its pose; blinks now and then, plays a moment once.
+struct SquirrelView: View {
+    let pose: SquirrelPose
+    let line: String
+    /// Key of the moment to play once ("knapp:2026-11-01"); nil = none.
+    var moment: (key: String, from: SquirrelPose, text: String)? = nil
+    var size: CGFloat = 88
+
+    @State private var shown: SquirrelPose?
+    @State private var blink = false
+    @State private var hop: CGFloat = 0
+    @State private var squash: CGFloat = 1
+    @State private var bubble: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let playedKey = "wimg_moments"
+
+    var body: some View {
+        let current = shown ?? pose
+        Image(blink && (current == .normal || current == .look) ? "squirrel-blink" : current.image)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .scaleEffect(x: 2 - squash, y: squash, anchor: .bottom)
+            .offset(y: hop)
+            .contentShape(Rectangle())
+            .onTapGesture { show(line) }
+            .overlay(alignment: .topTrailing) {
+                if let text = bubble {
+                    Text(text)
+                        .wimgStyle(WimgType.desc)
+                        .foregroundStyle(Wimg.text)
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(Wimg.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .frame(width: 220, alignment: .trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .offset(x: -size * 0.2, y: size * 0.92)
+                        .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .topTrailing)))
+                        .onTapGesture { withAnimation(WimgMotion.out(0.18)) { bubble = nil } }
+                }
+            }
+            .zIndex(1)
+            .accessibilityElement()
+            .accessibilityLabel(line)
+            .accessibilityAddTraits(.isButton)
+            .task(id: moment?.key) { await playMoment() }
+            .task { await blinkLoop() }
+    }
+
+    private func show(_ text: String) {
+        withAnimation(WimgMotion.out(0.2)) { bubble = text }
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            withAnimation(WimgMotion.out(0.2)) { if bubble == text { bubble = nil } }
+        }
+    }
+
+    /// The moment: from its start pose, a small squash and hop into the pose, the line.
+    private func playMoment() async {
+        guard let m = moment else { shown = nil; return }
+        var played = Set(UserDefaults.standard.stringArray(forKey: Self.playedKey) ?? [])
+        guard !played.contains(m.key) else { shown = nil; return }
+        played.insert(m.key)
+        UserDefaults.standard.set(Array(played.suffix(60)), forKey: Self.playedKey)
+        if reduceMotion { shown = nil; show(m.text); return }
+        shown = m.from
+        try? await Task.sleep(for: .milliseconds(450))
+        withAnimation(WimgMotion.out(0.22)) { squash = 0.93; hop = 2 }
+        try? await Task.sleep(for: .milliseconds(220))
+        shown = nil
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.55)) { squash = 1.04; hop = -6 }
+        try? await Task.sleep(for: .milliseconds(260))
+        withAnimation(WimgMotion.inOut(0.26)) { squash = 1; hop = 0 }
+        show(m.text)
+    }
+
+    private func blinkLoop() async {
+        guard !reduceMotion else { return }
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(Double.random(in: 3.5...7)))
+            blink = true
+            try? await Task.sleep(for: .milliseconds(140))
+            blink = false
+        }
+    }
+}

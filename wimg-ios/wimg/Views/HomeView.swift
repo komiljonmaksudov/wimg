@@ -134,6 +134,35 @@ struct HomeView: View {
         return Int(((income - spent) / income * 100).rounded())
     }
 
+    /// The squirrel: pose from what is left per day vs. the usual daily spending
+    /// of the previous range; one moment per period (or per day for "kein Euro raus").
+    private func squirrel(available: Double, spent: Double) -> some View {
+        let prevSpent = abs(data?.previous?.expenses ?? 0)
+        let prevDays = max(Double(Calendar(identifier: .gregorian).dateComponents([.day], from: WimgDates.parse(selection.from) ?? Date(), to: WimgDates.parse(selection.to) ?? Date()).day ?? 30) + 1, 1)
+        let usual = prevSpent / prevDays
+        let salaryToday = data?.salaryToday ?? false
+        let (pose, line) = SquirrelState.of(available: available, daysLeft: selection.daysLeft, usualPerDay: usual,
+                                           salaryToday: salaryToday, salary: periodInfo?.salary, salaryMode: salaryMode)
+        let periodKey = selection.from
+        let days = max(selection.daysLeft, 1)
+        let hour = Calendar.current.component(.hour, from: Date())
+        var moment: (key: String, from: SquirrelPose, text: String)?
+        switch pose {
+        case .gehalt: moment = ("gehalt:\(periodKey)", .leer, L("Gehalt ist da. Neuer Gehaltsmonat."))
+        case .leer: moment = ("leer:\(periodKey)", .knapp, salaryMode
+            ? L("Leer. Die Motte findet's gemütlich. Gehalt kommt in ~%d Tagen.", days)
+            : L("Leer. Die Motte findet's gemütlich. Neuer Monat in %d Tagen.", days))
+        case .knapp: moment = ("knapp:\(periodKey)", .normal,
+            L("%s für %d Tage. Das sind %s am Tag. Geht.", amountText(available, showPlus: false), days, amountText(available / Double(days), showPlus: false)))
+        default:
+            if hour >= 20 && !(data?.spentToday ?? true) {
+                moment = ("nospend:\(WimgDates.todayIso())", .yawn, L("Heute kein Euro raus."))
+            }
+        }
+        let shownPose: SquirrelPose = (moment?.key.hasPrefix("nospend") ?? false) ? .sleep : pose
+        return SquirrelView(pose: shownPose, line: line, moment: moment, size: 92)
+    }
+
     @ViewBuilder private var band: some View {
         let s = data?.summary
         let available = s?.available ?? 0
@@ -156,6 +185,7 @@ struct HomeView: View {
             }
             Spacer(minLength: 8)
             if !selection.isCurrent, let q = quote { SavingsRing(percent: q) }
+            if selection.isCurrent, s != nil { squirrel(available: available, spent: spent) }
         }
         .padding(.top, 10)
         Rectangle().fill(.white.opacity(0.10)).frame(height: 1).padding(.top, 20)
@@ -301,6 +331,9 @@ struct HomeData {
     var pending: [Transaction] = []
     var nextDue: [RecurringPattern] = []
     var hasAnyData = true
+    /// For the squirrel: something was spent today; a salary came today.
+    var spentToday = false
+    var salaryToday = false
 
     nonisolated static func load(_ sel: HomeSelection, prev: HomeSelection?, account: String?) -> HomeData {
         let summary = LibWimg.getSummaryRange(from: sel.from, to: sel.to, account: account)
@@ -317,7 +350,9 @@ struct HomeData {
             previous: (previous?.tx_count ?? 0) > 0 ? previous : nil,
             pending: sel.isCurrent ? LibWimg.getPending(account: account) : [],
             nextDue: Array(due.prefix(3)),
-            hasAnyData: any
+            hasAnyData: any,
+            spentToday: all.contains { $0.date == today && $0.amount < 0 && !$0.isExcluded },
+            salaryToday: all.contains { $0.date == today && $0.category == 10 && $0.amount > 0 }
         )
     }
 }
