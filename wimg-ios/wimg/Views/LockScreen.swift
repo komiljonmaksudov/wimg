@@ -1,87 +1,89 @@
 import SwiftUI
 import WimgI18n
 
-/// Full-screen lock that gates the app behind Face ID / Touch ID / passcode.
-/// Shows the wimg mark and a single Entsperren button that re-triggers the
-/// biometric prompt.
+/// Full-screen gate while the app is locked (Android board 13): the dark band,
+/// the app icon, one line on what's hidden, Face ID / Touch ID as the round
+/// button, and Entsperren at the bottom where the bar always is.
 struct LockScreen: View {
     @ObservedObject var lock: BiometricLock
+    /// The phone's own scheme: the screen is forced dark, the button's denim isn't.
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        VStack(spacing: 28) {
-            Spacer()
-
-            ZStack {
-                Circle()
-                    .fill(WimgTheme.accent.opacity(0.2))
-                    .frame(width: 112, height: 112)
-                Image(systemName: iconName)
-                    .font(.system(size: 44))
-                    .foregroundStyle(WimgTheme.text.opacity(0.8))
+        ZStack {
+            Wimg.band.ignoresSafeArea()
+            VStack(spacing: 0) {
+                Spacer().frame(height: 120)
+                Image("AppMark")
+                    .resizable()
+                    .frame(width: 80, height: 80)
+                    .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
+                    .accessibilityHidden(true)
+                Text(L("wimg ist gesperrt"))
+                    .wimgStyle(WimgType.title).foregroundStyle(.white)
+                    .padding(.top, 28)
+                    .accessibilityAddTraits(.isHeader)
+                Text(L("Beträge sind ausgeblendet, bis du entsperrst."))
+                    .wimgStyle(WimgType.desc).foregroundStyle(Wimg.bandSub)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+                    .padding(.top, 8)
+                Spacer()
+                Button(action: unlock) {
+                    Image(systemName: iconName)
+                        .font(.system(size: 34, weight: .light))
+                        .foregroundStyle(.white)
+                        .frame(width: 88, height: 88)
+                        .background(.white.opacity(0.05), in: Circle())
+                        .overlay(Circle().stroke(.white.opacity(0.14), lineWidth: 1))
+                }
+                .buttonStyle(.wimgPress)
+                .accessibilityLabel(L("Entsperren"))
+                Text(methodName).wimgStyle(WimgType.desc).foregroundStyle(Wimg.bandSub).padding(.top, 14)
+                Spacer()
+                OnboardingButton(title: L("Entsperren"), primary: true, dark: true, action: unlock)
+                    .environment(\.colorScheme, scheme)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
             }
-
-            VStack(spacing: 8) {
-                Text("wimg")
-                    .font(.system(.largeTitle, design: .rounded, weight: .black))
-                Text(#L("App ist gesperrt"))
-                    .font(.system(.subheadline, design: .rounded))
-                    .foregroundStyle(WimgTheme.textSecondary)
-            }
-
-            Spacer()
-
-            Button {
-                Task { await lock.authenticate() }
-            } label: {
-                Text(#L("Entsperren"))
-                    .font(.system(.body, design: .rounded, weight: .bold))
-                    .foregroundStyle(WimgTheme.heroText)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(WimgTheme.accent)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            }
-            .padding(.horizontal, 40)
-            .padding(.bottom, 32)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(WimgTheme.bg)
+        .environment(\.colorScheme, .dark)
         .task {
-            // Auto-prompt once on appear — same behavior as Banking apps.
+            // Ask once on appear, as banking apps do.
             await lock.authenticate()
         }
     }
 
+    private func unlock() { Task { await lock.authenticate() } }
+
     private var iconName: String {
         switch lock.availableMethod {
-        case .faceID: return "faceid"
-        case .touchID: return "touchid"
-        case .passcode: return "lock.fill"
-        case .none: return "lock.fill"
+        case .faceID: "faceid"
+        case .touchID: "touchid"
+        case .passcode, .none: "lock"
+        }
+    }
+
+    private var methodName: String {
+        switch lock.availableMethod {
+        case .faceID: "Face ID"
+        case .touchID: "Touch ID"
+        case .passcode, .none: L("Gerätecode")
         }
     }
 }
 
-/// Blank/blur overlay shown while the app is `.inactive` (mid-transition
-/// or showing the app switcher). Prevents the system snapshot from
-/// containing transaction data.
+/// Shown while the app is inactive (app switcher), so the system snapshot never
+/// contains amounts.
 struct PrivacyOverlay: View {
     var body: some View {
         ZStack {
-            WimgTheme.bg.ignoresSafeArea()
-            VStack(spacing: 16) {
-                ZStack {
-                    Circle()
-                        .fill(WimgTheme.accent.opacity(0.2))
-                        .frame(width: 88, height: 88)
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 32))
-                        .foregroundStyle(WimgTheme.text.opacity(0.7))
-                }
-                Text("wimg")
-                    .font(.system(.title2, design: .rounded, weight: .black))
-                    .foregroundStyle(WimgTheme.text)
-            }
+            Wimg.band.ignoresSafeArea()
+            Image("AppMark")
+                .resizable()
+                .frame(width: 72, height: 72)
+                .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+                .accessibilityHidden(true)
         }
     }
 }
