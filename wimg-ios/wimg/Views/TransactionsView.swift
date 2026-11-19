@@ -151,6 +151,7 @@ struct TransactionsView: View {
     @State private var shownPending: [Transaction] = []
 
     @State private var showFilter = false
+    @State private var showManual = false
     @State private var path = NavigationPath()
 
     private var target: TxTarget { TxTarget.shared }
@@ -161,12 +162,14 @@ struct TransactionsView: View {
                 BandButton(systemImage: "slider.horizontal.3", label: L("Filter"), badge: tags.count) {
                     showFilter = true
                 }
+                BandButton(systemImage: "plus", label: L("Umsatz von Hand")) { showManual = true }
             } band: {
                 band
             } sheet: {
                 sheet
             }
             .navigationDestination(for: TxRoute.self) { TransactionDetailView(id: $0.id) }
+            .sheet(isPresented: $showManual) { ManualEntryView() }
             .sheet(isPresented: $showFilter) {
                 TransactionFilterSheet(
                     filter: $filter,

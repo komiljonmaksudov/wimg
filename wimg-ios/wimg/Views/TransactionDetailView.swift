@@ -13,6 +13,7 @@ struct TransactionDetailView: View {
     @State private var suggestions: [Int] = []
     @State private var showCategory = false
     @State private var confirmDelete = false
+    @State private var showEdit = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -36,6 +37,7 @@ struct TransactionDetailView: View {
             Menu {
                 Button { copy(tx) } label: { Label(L("Text kopieren"), systemImage: "doc.on.doc") }
                 if tx.isManual {
+                    Button { showEdit = true } label: { Label(L("Bearbeiten"), systemImage: "pencil") }
                     Button(role: .destructive) { confirmDelete = true } label: { Label(L("Löschen"), systemImage: "trash") }
                 }
             } label: {
@@ -118,6 +120,7 @@ struct TransactionDetailView: View {
                 applyCategory(tx, cat)
             }
         }
+        .sheet(isPresented: $showEdit) { ManualEntryView(editing: tx) }
         .confirmationDialog(L("„%s“ löschen?", tx.displayTitle), isPresented: $confirmDelete, titleVisibility: .visible) {
             Button(L("Löschen"), role: .destructive) { delete(tx) }
             Button(L("Abbrechen"), role: .cancel) {}
