@@ -12,7 +12,10 @@ App lock (biometric / device PIN), FinTS (bank search, credentials, TAN, TAN
 medium, statement fetch), Quick Refresh with stored PIN, background refresh +
 notifications, Sync (WebSocket + HTTP push/pull + E2E encryption, QR linking),
 Home screen widgets, Demo data, Undo/redo, Gehaltsmonat, Systemsprache,
-Recurring decisions (hide, edit, one-off, accept price), Accounts hide/rename, Pending transactions
+Recurring decisions (hide, edit, one-off, accept price), Accounts hide/rename,
+12-month recurring forecast, Notification settings + quiet time, Month-end and
+price-rise notices, Sync key check + QR scan, Several bank logins, the squirrel
+in the band (iOS: poses + moments; Rückblick opener cards only on Android), Pending transactions
 ("Vorgemerkt"), Manual entries (add, edit, delete, "Von Hand" filter).
 
 Tax, Goals, Debts UI removed 2026-05-14; Feedback removed later; Analyse removed
@@ -28,12 +31,6 @@ phone; widgets not seen on a home screen.
 
 | Feature                                  | iOS | Android | Note                                        |
 | ---------------------------------------- | --- | ------- | ------------------------------------------- |
-| Recurring 12-month forecast            | no  | yes     | "12 Monate" view on RecurringScreen         |
-| Notification settings (per kind, quiet time) | no | yes  | board 20; Android prefs only                 |
-| Sync: wrong-key check before linking, QR scan | no | yes | board 21; device list, remove device, new key are on both |
-| Squirrel in the band: moments + bubble, Rückblick opener | no | yes | `Squirrel.kt`, `ReviewOpener.kt`; played once each (prefs `wimg_moments`) |
-| Several bank logins                      | no (one) | yes | iOS keeps one login in the Keychain (fints_blz/kennung/pin) |
-| Month-end notice ("Dein Oktober ist abgeschlossen") | no | yes | `MonthEndWorker` |
 | Update checker (GitHub Releases)         | no  | yes     | iOS uses TestFlight                          |
 | Navigation                               | 4 tabs (Übersicht, Umsätze, Wiederkehrend, Mehr) + search tab | one floating bar + places menu | brief 22 option A |
 | Page actions (filter, +, category)       | round buttons in the band, top right | chips in the floating bar | |

@@ -58,7 +58,7 @@ enum BackgroundRefresh {
     /// nothing to refresh, no point waking up. Also no-op if the user
     /// has flipped the Settings toggle off.
     static func schedule() {
-        guard isEnabled, KeychainService.hasFintsCredentials else { return }
+        guard isEnabled, BankConnections.anyWithPIN else { return }
         let request = BGAppRefreshTaskRequest(identifier: taskIdentifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: intervalSeconds)
         do {
@@ -100,9 +100,11 @@ enum BackgroundRefresh {
         // killed, the chain keeps going.
         schedule()
 
-        guard let blz = KeychainService.get(KeychainService.fintsBLZ),
-              let user = KeychainService.get(KeychainService.fintsKennung),
-              let pin = KeychainService.get(KeychainService.fintsPIN) else {
+        // Every bank login with a saved PIN, one after another.
+        let logins = BankConnections.all().compactMap { c -> (BankConnection, String)? in
+            KeychainService.get(BankConnections.pinKey(c.id)).map { (c, $0) }
+        }
+        guard !logins.isEmpty else {
             task.setTaskCompleted(success: true)
             return
         }
@@ -110,7 +112,18 @@ enum BackgroundRefresh {
         // FinTS parsing needs a 2MB stack — the default GCD thread (~512KB)
         // overflows on iOS. Same trick as FinTSView.handleFetch.
         let workThread = Thread {
-            let outcome = runSilentRefresh(blz: blz, user: user, pin: pin)
+            var outcomes: [Outcome] = []
+            for (c, pin) in logins where !Thread.current.isCancelled {
+                let o = runSilentRefresh(blz: c.blz, user: c.kennung, pin: pin, medium: c.tanMedium)
+                if case .imported(let n) = o { BankConnections.recordFetch(c.id, new: n) }
+                outcomes.append(o)
+            }
+            // One notice: what came in from all banks, else a TAN or login problem.
+            let total = outcomes.reduce(0) { if case .imported(let n) = $1 { return $0 + n }; return $0 }
+            let outcome: Outcome = total > 0 ? .imported(count: total)
+                : outcomes.contains { if case .tanRequired = $0 { return true }; return false } ? .tanRequired
+                : outcomes.contains { if case .authFailed = $0 { return true }; return false } ? .authFailed
+                : .silent
             DispatchQueue.main.async {
                 postNotification(for: outcome)
                 task.setTaskCompleted(success: outcome.completed)
@@ -130,16 +143,14 @@ enum BackgroundRefresh {
         workThread.start()
     }
 
-    private static func runSilentRefresh(blz: String, user: String, pin: String) -> Outcome {
+    private static func runSilentRefresh(blz: String, user: String, pin: String, medium: String?) -> Outcome {
         do {
             let connect = try LibWimg.fintsConnect(blz: blz, user: user, pin: pin)
             if connect.needsTan { return .tanRequired }
             if !connect.isOk { return .authFailed }
 
             // Restore TAN medium silently if the bank needs one.
-            if connect.tan_medium_required == true,
-               let medium = KeychainService.get(KeychainService.fintsTanMedium)
-            {
+            if connect.tan_medium_required == true, let medium {
                 _ = try? LibWimg.fintsSetTanMedium(name: medium)
             }
 

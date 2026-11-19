@@ -57,6 +57,10 @@ export const en: Record<string, string> = {
   Verknüpft: "Linked",
   "Was wimg dir meldet, und wann nicht": "What wimg tells you, and when not",
   "wimg darf dir noch keine Mitteilungen schicken. Tippe, um es zu erlauben.": "wimg can't send you notifications yet. Tap to allow it.",
+  "Weitere Banken": "Other banks",
+  "Bank entfernt": "Bank removed",
+  "Ihre Umsätze bleiben in wimg.": "Its transactions stay in wimg.",
+  "Anmeldung und PIN werden von diesem Gerät gelöscht. Die Umsätze bleiben.": "The login and PIN are deleted from this device. The transactions stay.",
   // iOS redesign: Suche, Settings pages, Import
   "Händler, Betrag, Seite": "Merchant, amount, page",
   "Ausblenden, umbenennen": "Hide, rename",

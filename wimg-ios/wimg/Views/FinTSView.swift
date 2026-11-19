@@ -70,6 +70,8 @@ struct FinTSView: View {
 
     /// The bank's accounts (balance in the band of the connected page).
     @State private var bankAccounts: [Account] = []
+    @State private var connections: [BankConnection] = []
+    @State private var removing: BankConnection?
 
     private var stepIndex: Int {
         switch stage {
@@ -104,6 +106,14 @@ struct FinTSView: View {
                 displayBanks = filtered
             }
             .onAppear(perform: loadSaved)
+            .confirmationDialog(L("%s entfernen?", removing?.name ?? ""),
+                                isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+                                titleVisibility: .visible) {
+                Button(L("Entfernen"), role: .destructive) { if let c = removing { removeConnection(c) }; removing = nil }
+                Button(L("Abbrechen"), role: .cancel) { removing = nil }
+            } message: {
+                Text(L("Anmeldung und PIN werden von diesem Gerät gelöscht. Die Umsätze bleiben."))
+            }
             .task { bankAccounts = await Task.detached { LibWimg.getAccounts() }.value }
             .onReceive(NotificationCenter.default.publisher(for: .wimgDataChanged)) { _ in
                 Task { bankAccounts = await Task.detached { LibWimg.getAccounts() }.value }
@@ -227,13 +237,62 @@ struct FinTSView: View {
                     IconTile(systemImage: "plus", tint: Wimg.text2)
                 }
             }
+            otherBanks(current: bank)
             QuietLine(text: L("FinTS 3.0, direkt mit deiner Bank. Kein Dienst dazwischen; Anmeldedaten verlassen dein Gerät nicht."),
                       systemImage: "checkmark.shield")
         }
     }
 
+    /// The other bank logins: tap to switch, swipe the row's menu to remove.
+    @ViewBuilder private func otherBanks(current: BankInfo) -> some View {
+        let others = connections.filter { $0.id != BankConnections.activeId }
+        if !others.isEmpty {
+            GroupLabel(text: L("Weitere Banken"))
+            WimgGroup {
+                ForEach(Array(others.enumerated()), id: \.element.id) { i, c in
+                    if i > 0 { RowDivider() }
+                    let info = banks.first { $0.blz == c.blz }
+                    WimgRow(title: info?.name ?? c.name,
+                            desc: [BankConnections.hasPIN(c) ? L("PIN gespeichert") : L("PIN nicht gespeichert"),
+                                   c.lastFetchAt > 0 ? L("zuletzt abgerufen %s", SyncDevicesView.ago(Int64(c.lastFetchAt * 1000))) : L("noch nicht abgerufen")]
+                                .joined(separator: " · "),
+                            chevron: true, action: { switchTo(c) }) {
+                        if let info { bankBadge(info, size: 36) }
+                    }
+                    .contextMenu {
+                        Button(role: .destructive) { removing = c } label: { Label(L("Entfernen"), systemImage: "trash") }
+                    }
+                }
+            }
+        }
+        if let active = BankConnections.active {
+            Button(role: .destructive) { removing = active } label: {
+                Text(L("%s entfernen", current.name)).wimgStyle(WimgType.chip).foregroundStyle(Wimg.danger)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .padding(.top, 8)
+        }
+    }
+
+    private func switchTo(_ c: BankConnection) {
+        BankConnections.activate(c.id)
+        errorMessage = nil
+        selectedBank = nil
+        loadSaved()
+    }
+
+    private func removeConnection(_ c: BankConnection) {
+        BankConnections.remove(c.id)
+        if !BankConnections.anyWithPIN { BackgroundRefresh.cancel() }
+        connections = BankConnections.all()
+        selectedBank = nil
+        pin = ""; kennung = ""; rememberPIN = false
+        loadSaved()
+        Dock.shared.info(L("Bank entfernt"), sub: L("Ihre Umsätze bleiben in wimg."))
+    }
+
     private func forgetPIN() {
-        KeychainService.clearFintsPIN()
+        KeychainService.clearFintsPIN(); BankConnections.storeActiveSlots(name: selectedBank?.name ?? "")
         pin = ""
         rememberPIN = false
         refreshCachedKeychainState()
@@ -620,6 +679,7 @@ struct FinTSView: View {
 
     private func loadSaved() {
         if banks.isEmpty { loadingBanks = true }
+        connections = BankConnections.all()
         // Keychain reads are sync XPC: off the main thread.
         Task.detached(priority: .userInitiated) {
             let savedBLZ = KeychainService.get(KeychainService.fintsBLZ)
@@ -637,6 +697,7 @@ struct FinTSView: View {
                 }
                 if let blz = savedBLZ, let bank = banks.first(where: { $0.blz == blz }) {
                     if stage == .bankSelect {
+                        pin = ""; rememberPIN = false
                         selectedBank = bank
                         kennung = savedKennung ?? ""
                         if let p = savedPIN { pin = p; rememberPIN = true }
@@ -976,7 +1037,7 @@ struct FinTSView: View {
                 } else {
                     // Auth failed — clear stored PIN, fall back to manual
                     refreshing = false
-                    KeychainService.clearFintsPIN()
+                    KeychainService.clearFintsPIN(); BankConnections.storeActiveSlots(name: selectedBank?.name ?? "")
                     pin = ""
                     rememberPIN = false
                     refreshCachedKeychainState()
@@ -987,7 +1048,7 @@ struct FinTSView: View {
         } catch {
             await MainActor.run {
                 refreshing = false
-                KeychainService.clearFintsPIN()
+                KeychainService.clearFintsPIN(); BankConnections.storeActiveSlots(name: selectedBank?.name ?? "")
                 pin = ""
                 rememberPIN = false
                 refreshCachedKeychainState()
@@ -1027,6 +1088,7 @@ struct FinTSView: View {
                 } else {
                     importedCount = result.imported ?? 0
                     duplicateCount = result.duplicates ?? 0
+                    BankConnections.recordFetch(nil, new: result.imported ?? 0)
                     categorizing = false
                     categorizedCount = nil
                     stage = .result
@@ -1077,8 +1139,10 @@ struct FinTSView: View {
                     if rememberPIN {
                         KeychainService.set(KeychainService.fintsPIN, value: pin)
                     } else {
-                        KeychainService.clearFintsPIN()
+                        KeychainService.clearFintsPIN(); BankConnections.storeActiveSlots(name: selectedBank?.name ?? "")
                     }
+                    // Kept in the list of logins (several banks).
+                    BankConnections.storeActiveSlots(name: bank.name)
                     refreshCachedKeychainState()
                     if result.tan_medium_required == true {
                         // Bank requires TAN medium selection — fetch media list
@@ -1242,6 +1306,7 @@ struct FinTSView: View {
             await MainActor.run {
                 if result.isOk {
                     KeychainService.set(KeychainService.fintsTanMedium, value: name)
+                    BankConnections.storeActiveSlots(name: selectedBank?.name ?? "")
                     // Skip dateRange — fetch last 90d immediately
                     stage = .fetching
                     Task { await handleFetch() }
@@ -1287,6 +1352,7 @@ struct FinTSView: View {
                 } else {
                     importedCount = result.imported ?? 0
                     duplicateCount = result.duplicates ?? 0
+                    BankConnections.recordFetch(nil, new: result.imported ?? 0)
                     categorizing = false
                     categorizedCount = nil
                     stage = .result

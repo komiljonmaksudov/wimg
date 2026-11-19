@@ -17,7 +17,7 @@ struct SettingsView: View {
     @State private var confirmReset = false
 
     @AppStorage(BackgroundRefresh.enabledKey) private var bgRefreshEnabled = true
-    @State private var hasSavedFintsCreds: Bool = KeychainService.hasFintsCredentials
+    @State private var hasSavedFintsCreds: Bool = BankConnections.anyWithPIN
 
     @ObservedObject private var biometricLock = BiometricLock.shared
     @AppStorage("wimg_lock_enabled") private var lockEnabled = false
@@ -74,7 +74,7 @@ struct SettingsView: View {
         }
         .task {
             await loadSync()
-            hasSavedFintsCreds = KeychainService.hasFintsCredentials
+            hasSavedFintsCreds = BankConnections.anyWithPIN
             periods = await Task.detached { LibWimg.getPeriods(count: 12) }.value
         }
         .onReceive(NotificationCenter.default.publisher(for: .wimgDataChanged)) { _ in
