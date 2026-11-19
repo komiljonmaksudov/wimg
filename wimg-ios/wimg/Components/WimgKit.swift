@@ -88,7 +88,9 @@ struct BandScreen<Controls: View, Band: View, Sheet: View>: View {
     @ViewBuilder let sheet: () -> Sheet
 
     private var hasControls: Bool { Controls.self != EmptyView.self }
-    @State private var bandGone = false
+    /// 0 while the band is visible, 1 once it has scrolled away (follows the finger).
+    @State private var collapse: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ScrollView {
@@ -127,11 +129,10 @@ struct BandScreen<Controls: View, Band: View, Sheet: View>: View {
                 .padding(.top, 4)
                 .padding(.bottom, 22)
                 .environment(\.colorScheme, .dark)
-                .onGeometryChange(for: Bool.self) { g in
-                    g.frame(in: .named("bandScroll")).maxY < 64
-                } action: { gone in
-                    withAnimation(WimgMotion.out(0.16)) { bandGone = gone }
-                }
+                .onGeometryChange(for: CGFloat.self) { g in
+                    // Fades in over the last 40 pt of the band leaving the screen.
+                    min(max((96 - g.frame(in: .named("bandScroll")).maxY) / 40, 0), 1)
+                } action: { collapse = $0 }
                 // Lazy: Umsätze puts thousands of rows in here.
                 LazyVStack(alignment: .leading, spacing: 0) { sheet() }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -152,18 +153,29 @@ struct BandScreen<Controls: View, Band: View, Sheet: View>: View {
             }
         }
         .overlay(alignment: .top) {
-            if let compact, bandGone {
-                HStack(spacing: 10) {
-                    compact
-                    Spacer(minLength: 0)
-                    controls()
+            if let compact, collapse > 0 {
+                VStack(spacing: 0) {
+                    HStack(spacing: 8) {
+                        compact
+                        Spacer(minLength: 0)
+                        controls().environment(\.bandButtonSize, 36)
+                    }
+                    .environment(\.colorScheme, .dark)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 2)
+                    .padding(.bottom, 8)
+                    .offset(y: reduceMotion ? 0 : (1 - collapse) * -6)
+                    // The sheet's rounded top, as above the first row: no hard edge.
+                    UnevenRoundedRectangle(topLeadingRadius: WimgShape.sheetTop, topTrailingRadius: WimgShape.sheetTop, style: .continuous)
+                        .fill(Wimg.sheet)
+                        .frame(height: WimgShape.sheetTop)
                 }
-                .environment(\.colorScheme, .dark)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 8)
                 .frame(maxWidth: .infinity)
-                .background(Wimg.band.ignoresSafeArea(edges: .top))
-                .transition(.opacity)
+                .background(alignment: .top) {
+                    Wimg.band.padding(.bottom, WimgShape.sheetTop).ignoresSafeArea(edges: .top)
+                }
+                .opacity(collapse)
+                .allowsHitTesting(collapse > 0.9)
             }
         }
         // Band above, sheet below: overscroll at either end shows the right colour.
@@ -209,16 +221,26 @@ struct BandButton: View {
     }
 }
 
+private struct BandButtonSizeKey: EnvironmentKey { static let defaultValue: CGFloat = WimgDimens.bandButton }
+extension EnvironmentValues {
+    /// Band buttons are 44 pt; the pinned bar on a scrolled list uses 36.
+    var bandButtonSize: CGFloat {
+        get { self[BandButtonSizeKey.self] }
+        set { self[BandButtonSizeKey.self] = newValue }
+    }
+}
+
 /// The look of a band button, also usable as a `Menu` label.
 struct BandIcon: View {
     let systemImage: String
     var badge: Int = 0
+    @Environment(\.bandButtonSize) private var size
 
     var body: some View {
         Image(systemName: systemImage)
-            .font(.system(size: 17, weight: .semibold))
+            .font(.system(size: size * 0.39, weight: .semibold))
             .foregroundStyle(.white)
-            .frame(width: WimgDimens.bandButton, height: WimgDimens.bandButton)
+            .frame(width: size, height: size)
             .bandButtonBackground(Circle())
             .overlay(alignment: .topTrailing) {
                 if badge > 0 {

@@ -4,45 +4,31 @@ import WimgI18n
 struct AboutView: View {
     var scrollToFAQ: String?
 
-    // To be replaced by Android's FAQ (AboutScreen.kt) in the iOS catch-up.
-    private let faqs: [(q: String, a: String)] = [
-        ("Sind meine Daten sicher?",
-         "Ja. Alle Finanzdaten werden lokal in einer SQLite-Datenbank auf deinem Gerät gespeichert. Sync ist Ende-zu-Ende verschlüsselt — der Server sieht nur Chiffretext."),
-        ("Welche Banken werden unterstützt?",
-         "Rund 1.700 deutsche Banken direkt per FinTS. Dazu Kontoauszüge (MT940, CAMT) von jeder Bank und CSV-Dateien von Comdirect, Trade Republic, Scalable und Revolut."),
-        ("Wie funktioniert der Import?",
-         "Lade deinen Kontoauszug im CSV-Format hoch. wimg erkennt das Format automatisch, analysiert die Transaktionen lokal und kategorisiert sie mit intelligenten Regeln."),
-        ("Wie funktioniert die Kategorisierung?",
-         "wimg nutzt ein Regel-System mit Schlüsselwörtern. Bekannte Händler (REWE, LIDL, etc.) werden automatisch erkannt. Wenn du eine Transaktion manuell kategorisierst, lernt wimg das Muster und wendet es zukünftig automatisch an. Für den Rest hilft Claude per MCP."),
-        ("Ist wimg wirklich kostenlos?",
-         "Ja. wimg ist ein Leidenschaftsprojekt unter Open-Source-Lizenz. Keine Abonnements, keine versteckten Kosten, kein Verkauf deiner Daten."),
-        ("Wo werden die Daten gespeichert?",
-         "In einer SQLite-Datei auf deinem Gerät. Deine Daten verlassen es nur bei aktivierter Sync, dann Ende-zu-Ende verschlüsselt."),
-        ("Was ist der MCP-Server?",
-         "Mit aktivierter Synchronisierung wird dein Sync-Schlüssel zum MCP-Zugang. Claude.ai oder andere KI-Tools können Ausgaben abfragen und Kategorien setzen — Ende-zu-Ende verschlüsselt, in Echtzeit synchronisiert."),
-        ("Wie funktioniert Auto-Learn?",
-         "Wenn du eine Transaktion manuell kategorisierst, lernt wimg automatisch das Schlüsselwort (z.B. \"REWE\" → Lebensmittel). Beim nächsten Import oder Auto-Kategorisieren werden ähnliche Transaktionen automatisch zugeordnet. Alle gelernten Regeln findest du unter Einstellungen → Regeln."),
-        ("Wie synchronisiere ich zwischen Geräten?",
-         "Gehe zu Einstellungen → Sync aktivieren. Dadurch wird ein einzigartiger Sync-Schlüssel erstellt. Kopiere diesen Schlüssel und füge ihn auf dem zweiten Gerät ein. Änderungen werden in Echtzeit per WebSocket synchronisiert — Ende-zu-Ende verschlüsselt."),
-        ("Wie erkennt wimg Abos und wiederkehrende Zahlungen?",
-         "wimg analysiert deine Transaktionen automatisch und erkennt regelmäßige Muster (monatlich, vierteljährlich, jährlich). Unter Mehr → Wiederkehrend siehst du alle erkannten Abos mit Betrag, Intervall und dem nächsten Fälligkeitsdatum."),
-        ("Funktioniert wimg offline?",
-         "Ja, vollständig. Alle Daten liegen lokal in SQLite. Import, Kategorien und Übersicht brauchen kein Internet. Nur Bankabruf und Sync brauchen eine Verbindung."),
-        ("Gibt es eine iOS-App?",
-         "Ja, du nutzt sie gerade. Neue Versionen kommen über TestFlight."),
-        ("Gibt es eine Android-App?",
-         "Ja, über Google Play (gerade im geschlossenen Test) oder als APK von wimg.komiljonmaksudov.com. Sync verbindet beide."),
-        ("Gibt es einen Dark Mode?",
-         "Ja! In den Einstellungen kannst du zwischen Hell, Dunkel und System wählen. Der Dark Mode hat ein Premium-Design mit dunklem Hintergrund und dezenten Akzenten."),
-        ("Kann ich mehrere Konten verwalten?",
-         "Ja. Über den Konto-Switcher oben rechts kannst du zwischen Konten wechseln oder alle anzeigen. Neue Konten werden beim CSV-Import automatisch erstellt oder können manuell in den Einstellungen angelegt werden."),
-        ("Kann ich Änderungen rückgängig machen?",
-         "Ja. Nach jeder Aktion (Kategorisierung, Konto-Änderung etc.) erscheint ein Undo-Toast am unteren Bildschirmrand. Über die Suche findest du auch \"Rückgängig\" und \"Wiederherstellen\". wimg speichert bis zu 50 Undo-Schritte — das funktioniert plattformübergreifend im selben Zig-Core."),
-        ("Wie lösche ich meine Daten?",
-         "Unter Einstellungen → Danger Zone kannst du die Datenbank zurücksetzen. Diese Aktion kann nicht rückgängig gemacht werden."),
-        ("Wie kann ich beitragen?",
-         "Besuche das GitHub-Repository. Code, Übersetzungen, Feedback und Bug-Reports sind willkommen."),
+    /// The FAQ as on Android (AboutScreen.kt); bank PIN and lost phone in their iOS form.
+    private static let faqGroups: [(title: String, items: [(q: String, a: String)])] = [
+        ("Grundlagen", [
+            ("Was ist wimg?", "Eine App, die zeigt, wohin dein Geld geht. Deine Umsätze liegen auf deinem Gerät, nicht in einer Cloud. wimg heißt „Wo ist mein Geld?“."),
+            ("Kostet wimg etwas?", "Nein. wimg ist kostenlos, ohne Werbung, und der Quellcode ist offen auf GitHub."),
+            ("Funktioniert wimg ohne Internet?", "Ja. Übersicht, Umsätze, Kategorien und CSV-Import gehen offline. Internet brauchst du nur für den Bankabruf und für wimg Sync."),
+        ]),
+        ("Bank & TAN", [
+            ("Welche Banken gehen?", "Fast alle deutschen Banken mit FinTS, rund 1.700. Am meisten getestet ist comdirect. Ohne FinTS kannst du CSV-Dateien von Comdirect, Trade Republic und Scalable importieren."),
+            ("Warum verlangt meine Bank eine TAN?", "Banken verlangen eine TAN beim ersten Anmelden und für Umsätze, die älter als 90 Tage sind. Die Schnellabfrage holt deshalb nur die letzten 90 Tage, meist ohne TAN."),
+            ("Warum fehlen ältere Umsätze?", "Beim ersten Abruf holt wimg so weit zurück, wie du gewählt hast und deine Bank erlaubt. Danach nur noch die letzten 90 Tage. Ältere Umsätze kannst du per CSV ergänzen."),
+            ("Wo liegt meine Bank-PIN?", "Nur auf diesem iPhone, und nur, wenn du „PIN merken“ einschaltest: im Schlüsselbund von iOS, nur für wimg lesbar. Sie wird nie synchronisiert."),
+        ]),
+        ("Sync", [
+            ("Sieht der Server meine Umsätze?", "Nein. wimg verschlüsselt alles auf deinem Gerät, bevor es zum Server geht. Ohne deinen Sync-Schlüssel sind die Daten dort unlesbar. Ausnahme: Verbindest du Claude oder einen anderen KI-Assistenten per MCP, entschlüsselt der Server deine Daten für diese Anfrage mit deinem Schlüssel."),
+            ("Ich habe den Sync-Schlüssel verloren", "Solange ein Gerät verknüpft ist, findest du ihn dort unter Einstellungen › wimg Sync › Sync-Schlüssel anzeigen. Ist kein Gerät mehr verknüpft, kann niemand die Daten wiederherstellen, auch wimg nicht."),
+            ("Wie verbinde ich ein zweites Gerät?", "Auf dem ersten Gerät den Sync-Schlüssel anzeigen. Auf dem zweiten „Ich nutze wimg schon“ wählen und den Schlüssel einfügen."),
+        ]),
+        ("Daten & Sicherheit", [
+            ("Was passiert, wenn ich mein Handy verliere?", "Mit der App-Sperre kommt ohne Face ID, Touch ID oder Gerätecode niemand in wimg. Mit wimg Sync holst du deine Daten auf ein neues Gerät, wenn du den Sync-Schlüssel hast. Ohne Sync und ohne Backup-Datei sind sie weg, denn es gibt sonst keine Kopie."),
+            ("Wie sichere ich meine Daten?", "Einstellungen › Daten › Exportieren und sichern. Die Backup-Datei ist nicht verschlüsselt, bewahre sie auf wie einen Kontoauszug."),
+            ("Wie lösche ich alles?", "Einstellungen › Alle Daten löschen. Das löscht alles auf diesem Gerät und beendet wimg Sync hier. Andere verknüpfte Geräte behalten ihre Kopie."),
+        ]),
     ]
+    @State private var faqQuery = ""
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
@@ -266,39 +252,47 @@ struct AboutView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
 
-                // MARK: - FAQ
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "questionmark.circle")
-                            .font(.title3)
-                            .foregroundStyle(.orange)
-                        Text(#L("Häufig gestellte Fragen"))
-                            .font(WimgFont.font(.manrope, .bold, 20, relativeTo: .title3))
-                            .foregroundStyle(WimgTheme.text)
-                    }
-
-                    VStack(spacing: 8) {
-                        ForEach(faqs, id: \.q) { faq in
-                            DisclosureGroup(
-                                isExpanded: Binding(
-                                    get: { expandedFAQ == faq.q },
-                                    set: { expandedFAQ = $0 ? faq.q : nil }
-                                )
-                            ) {
-                                Text(L(faq.a))
-                                    .font(.subheadline)
-                                    .foregroundStyle(WimgTheme.textSecondary)
-                                    .padding(.bottom, 4)
-                            } label: {
-                                Text(L(faq.q))
-                                    .font(WimgFont.font(.inter, .semibold, 15, relativeTo: .subheadline))
-                                    .foregroundStyle(WimgTheme.text)
-                                    .multilineTextAlignment(.leading)
+                // MARK: - FAQ (grouped and searchable, as on Android)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(#L("Häufige Fragen")).wimgStyle(WimgType.section).foregroundStyle(Wimg.text)
+                        .padding(.bottom, 10)
+                    SearchField(text: $faqQuery, prompt: L("Frage suchen"))
+                    let q = faqQuery.trimmingCharacters(in: .whitespaces)
+                    let groups = Self.faqGroups.map { g in
+                        (g.title, g.items.filter { q.isEmpty || L($0.q).localizedCaseInsensitiveContains(q) || L($0.a).localizedCaseInsensitiveContains(q) })
+                    }.filter { !$0.1.isEmpty }
+                    ForEach(groups, id: \.0) { title, items in
+                        if q.isEmpty { GroupLabel(text: L(title)) } else { Spacer().frame(height: 10) }
+                        WimgGroup {
+                            ForEach(Array(items.enumerated()), id: \.element.q) { i, faq in
+                                if i > 0 { RowDivider() }
+                                let open = expandedFAQ == faq.q
+                                Button { withAnimation(WimgMotion.out(0.2)) { expandedFAQ = open ? nil : faq.q } } label: {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        HStack(alignment: .top) {
+                                            Text(L(faq.q)).font(WimgFont.font(.inter, .bold, 15)).foregroundStyle(Wimg.text)
+                                                .multilineTextAlignment(.leading)
+                                            Spacer(minLength: 10)
+                                            Image(systemName: open ? "minus" : "plus").foregroundStyle(open ? Wimg.accent : Wimg.text2)
+                                        }
+                                        if open {
+                                            Text(L(faq.a)).wimgStyle(WimgType.body).foregroundStyle(Wimg.text)
+                                                .multilineTextAlignment(.leading)
+                                        }
+                                    }
+                                    .padding(.horizontal, 16).padding(.vertical, 14)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(open ? Wimg.accentSoft : .clear)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .id(faq.q)
+                                .accessibilityAddTraits(open ? .isSelected : [])
                             }
-                            .padding(16)
-                            .wimgCard()
-                            .id(faq.q)
                         }
+                    }
+                    if !q.isEmpty && groups.isEmpty {
+                        Text(L("Keine Frage gefunden.")).wimgStyle(WimgType.body).foregroundStyle(Wimg.text2).padding(.top, 14)
                     }
                 }
 

@@ -61,6 +61,12 @@ export const en: Record<string, string> = {
   "Bank entfernt": "Bank removed",
   "Ihre Umsätze bleiben in wimg.": "Its transactions stay in wimg.",
   "Anmeldung und PIN werden von diesem Gerät gelöscht. Die Umsätze bleiben.": "The login and PIN are deleted from this device. The transactions stay.",
+  "Nur auf diesem iPhone, und nur, wenn du „PIN merken“ einschaltest: im Schlüsselbund von iOS, nur für wimg lesbar. Sie wird nie synchronisiert.":
+    "Only on this iPhone, and only if you turn on “Remember PIN”: in the iOS Keychain, readable only by wimg. It is never synced.",
+  "Mit der App-Sperre kommt ohne Face ID, Touch ID oder Gerätecode niemand in wimg. Mit wimg Sync holst du deine Daten auf ein neues Gerät, wenn du den Sync-Schlüssel hast. Ohne Sync und ohne Backup-Datei sind sie weg, denn es gibt sonst keine Kopie.":
+    "With the app lock, nobody gets into wimg without Face ID, Touch ID or your passcode. With wimg Sync you get your data onto a new device if you have the sync key. Without sync and without a backup file it's gone, because there's no other copy.",
+  "Einstellungen › Daten › Exportieren und sichern. Die Backup-Datei ist nicht verschlüsselt, bewahre sie auf wie einen Kontoauszug.":
+    "Settings › Data › Export and back up. The backup file isn't encrypted, keep it like a bank statement.",
   // iOS redesign: Suche, Settings pages, Import
   "Händler, Betrag, Seite": "Merchant, amount, page",
   "Ausblenden, umbenennen": "Hide, rename",

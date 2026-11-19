@@ -245,7 +245,7 @@ struct TransactionsView: View {
     private var compactBand: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title).wimgStyle(WimgType.caption).foregroundStyle(Wimg.bandSub).lineLimit(1)
-            Amount(euros: total, style: WimgType.amountLarge, centsStyle: WimgType.amountStat,
+            Amount(euros: total, style: WimgType.amountStat.size(18), centsStyle: WimgType.amountStat.size(12),
                    color: .white, showPlus: !anchored)
         }
     }
