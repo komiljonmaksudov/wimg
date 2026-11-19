@@ -1,7 +1,0 @@
-  "1 Tag": "1 day",
-  "Als Nächstes fällig": "Due next",
-  Anwenden: "Apply",
-  "Eigener Zeitraum": "Custom range",
-  "Eigener Zeitraum …": "Custom range …",
-  "In Umsätzen zeigen": "Show in transactions",
-  "läuft · noch %d Tage": "running · %d days left",
