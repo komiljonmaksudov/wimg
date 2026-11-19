@@ -59,7 +59,7 @@ enum WimgDates {
     }
 
     /// "Do." (German), "Thu" (English).
-    private static func weekday(_ d: Date) -> String {
+    static func weekday(_ d: Date) -> String {
         let f = DateFormatter(); f.locale = locale
         let w = f.shortWeekdaySymbols[cal.component(.weekday, from: d) - 1]
             .trimmingCharacters(in: CharacterSet(charactersIn: "."))

@@ -160,7 +160,35 @@ struct HomeView: View {
             }
         }
         let shownPose: SquirrelPose = (moment?.key.hasPrefix("nospend") ?? false) ? .sleep : pose
-        return SquirrelView(pose: shownPose, line: line, moment: moment, size: 92)
+        let past = max(selection.daysIn - 1, 0)
+        let ring = SquirrelRingDays(total: selection.daysIn + selection.daysLeft - 1, past: past,
+                                    noSpend: noSpendDays(past: past))
+        let narrow = UIScreen.main.bounds.width < 380
+        return SquirrelView(pose: shownPose, line: line, moment: moment, size: narrow ? 99 : 112, ring: ring)
+    }
+
+    /// Past days (1-based) of the range without any spending (Android noSpendDays).
+    private func noSpendDays(past: Int) -> Set<Int> {
+        guard past > 0, let start = WimgDates.parse(selection.from), let spent = data?.spendDates else { return [] }
+        let cal = Calendar(identifier: .gregorian)
+        return Set((1...past).filter { i in
+            !spent.contains(WimgDates.iso(cal.date(byAdding: .day, value: i - 1, to: start)!))
+        })
+    }
+
+    /// "Stand heute, 06:12 · comdirect": the newest bank fetch. Nothing without a bank.
+    private var freshness: String? {
+        guard selection.isCurrent,
+              let c = BankConnections.all().filter({ $0.lastFetchAt > 0 }).max(by: { $0.lastFetchAt < $1.lastFetchAt })
+        else { return nil }
+        let at = Date(timeIntervalSince1970: c.lastFetchAt)
+        let f = DateFormatter(); f.dateFormat = "HH:mm"
+        let time = f.string(from: at)
+        switch WimgDates.daysAgo(at) {
+        case 0: return L("Stand heute, %s · %s", time, c.name)
+        case 1: return L("Stand gestern, %s · %s", time, c.name)
+        default: return L("Stand %s · %s", WimgDates.short(WimgDates.iso(at)), c.name)
+        }
     }
 
     @ViewBuilder private var band: some View {
@@ -209,6 +237,9 @@ struct HomeView: View {
             }
         }
         .padding(.top, 14)
+        if let freshness {
+            Text(freshness).wimgStyle(WimgType.desc).foregroundStyle(Wimg.bandSub).lineLimit(1).padding(.top, 12)
+        }
     }
 
     // MARK: Sheet
@@ -222,52 +253,50 @@ struct HomeView: View {
         let title = periodInfo?.isCurrent == true && salaryMode ? L("Ausgaben seit dem Gehalt") : L("Ausgaben nach Kategorie")
 
         if !cats.isEmpty {
-            SectionTitle(text: title, trailing: prevById.isEmpty ? nil : compareLabel)
-            WimgGroup {
-                ForEach(Array(cats.enumerated()), id: \.element.id) { i, cat in
-                    if i > 0 { RowDivider() }
-                    CategoryShareRow(cat: cat, total: total, previous: prevById[cat.id]) { openCategory(cat.id) }
-                }
+            HomeSectionHeader(title: title, trailing: prevById.isEmpty ? nil : compareLabel)
+            StackedBar(cats: cats, total: total)
+            ForEach(cats, id: \.id) { cat in
+                CategoryShareRow(cat: cat, total: total, previous: prevById[cat.id]) { openCategory(cat.id) }
+                FlatDivider()
             }
         } else if data != nil {
-            SectionTitle(text: title)
+            HomeSectionHeader(title: title, trailing: nil)
             Text(selection.isCurrent && salaryMode ? L("Noch keine Ausgaben seit dem Gehalt.") : L("Noch keine Ausgaben in diesem Zeitraum."))
-                .wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2).padding(.horizontal, 4)
+                .wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2).padding(.top, 10)
         }
 
         if let pending = data?.pending, !pending.isEmpty {
-            SectionTitle(text: L("Vorgemerkt"), trailing: amountText(pending.reduce(0) { $0 + $1.amount }))
-            WimgGroup {
-                ForEach(Array(pending.enumerated()), id: \.element.id) { i, tx in
-                    if i > 0 { RowDivider() }
-                    TxRow(tx: tx, pending: true) { path.append(TxRoute(id: tx.id)) }
-                }
+            HomeSectionHeader(title: L("Vorgemerkt"), trailing: amountText(pending.reduce(0) { $0 + $1.amount }))
+                .padding(.top, 22).padding(.bottom, 4)
+            ForEach(pending, id: \.id) { tx in
+                DayRow(tx: tx, pending: true) { path.append(TxRoute(id: tx.id)) }
+                FlatDivider()
             }
         }
 
-        if let due = data?.nextDue, !due.isEmpty {
-            SectionTitle(text: L("Als Nächstes fällig"), trailing: L("Wiederkehrend")) { AppNav.shared.open(.recurring) }
-            WimgGroup {
-                ForEach(Array(due.enumerated()), id: \.element.id) { i, p in
-                    if i > 0 { RowDivider() }
-                    WimgRow(title: p.displayName, desc: dueLine(p), action: { path.append(RecRoute(id: p.id)) }) {
-                        IconTile(systemImage: p.interval == "monthly" ? "arrow.clockwise" : "arrow.2.squarepath", tint: Wimg.text)
-                    } trailing: {
-                        Amount(euros: p.amount, color: p.amount > 0 ? Wimg.pos : Wimg.text)
-                    }
-                }
+        if let day = data?.day, let first = day.first {
+            HomeSectionHeader(title: dayLabel(first.date), trailing: amountText(day.reduce(0) { $0 + $1.amount }), strong: true)
+                .padding(.top, 22).padding(.bottom, 4)
+            ForEach(day, id: \.id) { tx in
+                DayRow(tx: tx) { path.append(TxRoute(id: tx.id)) }
+                FlatDivider()
             }
+        }
+    }
+
+    /// "Heute", "Gestern" or "Do. 19. Nov." (Android dayLabel).
+    private func dayLabel(_ iso: String) -> String {
+        guard let d = WimgDates.parse(iso) else { return iso }
+        switch WimgDates.daysAgo(d) {
+        case 0: return L("Heute")
+        case 1: return L("Gestern")
+        default: return "\(WimgDates.weekday(d)) \(WimgDates.short(iso))"
         }
     }
 
     private var compareLabel: String {
         if case let .month(_, m) = selection.kind { return L("vs. %s", WimgDates.months()[(m + 10) % 12]) }
         return L("vs. davor")
-    }
-
-    private func dueLine(_ p: RecurringPattern) -> String {
-        let date = p.next_due.map { WimgDates.short($0) } ?? ""
-        return [date, L(WimgCategory.from(p.category).name)].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     private func openCategory(_ id: Int) {
@@ -329,7 +358,9 @@ struct HomeData {
     var summary: MonthlySummary?
     var previous: MonthlySummary?
     var pending: [Transaction] = []
-    var nextDue: [RecurringPattern] = []
+    /// The newest day in the range with bookings (up to six).
+    var day: [Transaction] = []
+    var spendDates: Set<String> = []
     var hasAnyData = true
     /// For the squirrel: something was spent today; a salary came today.
     var spentToday = false
@@ -342,14 +373,14 @@ struct HomeData {
         // "Noch keine Umsätze" is for an empty wimg, not an empty account.
         let any = !all.isEmpty || (account != nil && !((try? LibWimg.getTransactions()) ?? []).isEmpty)
         let today = WimgDates.todayIso()
-        let due = LibWimg.getRecurring()
-            .filter { $0.isActive && !$0.isHidden && $0.amount < 0 && ($0.next_due ?? "") >= today }
-            .sorted { ($0.next_due ?? "") < ($1.next_due ?? "") }
+        let inRange = all.filter { $0.date >= sel.from && $0.date <= sel.to && $0.date <= today && !$0.isExcluded }
+        let last = inRange.map(\.date).max()
         return HomeData(
             summary: summary,
             previous: (previous?.tx_count ?? 0) > 0 ? previous : nil,
             pending: sel.isCurrent ? LibWimg.getPending(account: account) : [],
-            nextDue: Array(due.prefix(3)),
+            day: last.map { d in Array(inRange.filter { $0.date == d }.prefix(6)) } ?? [],
+            spendDates: Set(inRange.filter { $0.amount < 0 }.map(\.date)),
             hasAnyData: any,
             spentToday: all.contains { $0.date == today && $0.amount < 0 && !$0.isExcluded },
             salaryToday: all.contains { $0.date == today && $0.category == 10 && $0.amount > 0 }
@@ -398,7 +429,78 @@ struct SavingsRing: View {
     }
 }
 
-/// A category on Übersicht: tile, name, its share as a bar, amount (board 02).
+/// Section title on Übersicht (Android SectionHeader).
+private struct HomeSectionHeader: View {
+    let title: String
+    let trailing: String?
+    var strong = false
+
+    var body: some View {
+        HStack(alignment: .lastTextBaseline) {
+            Text(title).font(WimgFont.font(.manrope, .bold, 19, relativeTo: .title3)).foregroundStyle(Wimg.text)
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 12)
+            if let trailing {
+                Text(trailing).wimgStyle(strong ? WimgType.chip : WimgType.caption).foregroundStyle(Wimg.text2)
+            }
+        }
+    }
+}
+
+/// The month's spending as one bar, a piece per category.
+private struct StackedBar: View {
+    let cats: [CategoryBreakdown]
+    let total: Double
+
+    var body: some View {
+        GeometryReader { g in
+            let gaps = CGFloat(max(cats.count - 1, 0)) * 2
+            HStack(spacing: 2) {
+                ForEach(cats, id: \.id) { cat in
+                    Rectangle().fill(Wimg.categoryBar(cat.id))
+                        .frame(width: max(1.5, (g.size.width - gaps) * CGFloat(abs(cat.amount) / max(total, 0.01))))
+                }
+            }
+        }
+        .frame(height: 12)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .padding(.top, 14).padding(.bottom, 6)
+        .accessibilityElement()
+        .accessibilityLabel(cats.map { "\(L(WimgCategory.from($0.id).name)) \(Int((abs($0.amount) / max(total, 0.01) * 100).rounded())) %" }.joined(separator: ", "))
+    }
+}
+
+/// A booking on Übersicht: title, dot + date · category, amount (Android DayRow).
+private struct DayRow: View {
+    let tx: Transaction
+    var pending = false
+    let action: () -> Void
+
+    var body: some View {
+        let sub = [WimgDates.short(tx.date), L(WimgCategory.from(tx.category).name), tx.kind.flatMap { $0.isEmpty ? nil : L($0) },
+                   pending ? L("vorgemerkt") : nil].compactMap { $0 }.joined(separator: " · ")
+        Button(action: action) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(tx.displayTitle).wimgStyle(WimgType.rowTitle).foregroundStyle(Wimg.text).lineLimit(1)
+                    HStack(spacing: 6) {
+                        Circle().fill(Wimg.categoryBar(tx.category)).frame(width: 6, height: 6)
+                        Text(sub).wimgStyle(WimgType.caption).foregroundStyle(Wimg.text2).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+                Amount(euros: tx.amount, color: pending ? Wimg.text3 : (tx.amount > 0 ? Wimg.pos : Wimg.text))
+            }
+            .frame(minHeight: 58)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(RowPressStyle())
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// A category on Übersicht (Android CategoryRow): icon tile, name and amount,
+/// its share as a short bar with the percent, the change against before.
 private struct CategoryShareRow: View {
     let cat: CategoryBreakdown
     let total: Double
@@ -406,7 +508,7 @@ private struct CategoryShareRow: View {
     let action: () -> Void
 
     var body: some View {
-        let share = total > 0 ? abs(cat.amount) / total : 0
+        let pct = total > 0 ? Int((abs(cat.amount) / total * 100).rounded()) : 0
         let change: Int? = {
             guard let p = previous, p.amount > 0.004 else { return nil }
             let c = Int(((abs(cat.amount) - p.amount) / p.amount * 100).rounded())
@@ -414,35 +516,32 @@ private struct CategoryShareRow: View {
         }()
         Button(action: action) {
             HStack(spacing: 12) {
-                CategoryTile(category: cat.id)
-                VStack(alignment: .leading, spacing: 7) {
-                    HStack(alignment: .firstTextBaseline) {
+                CategoryTile(category: cat.id, size: 34)
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(alignment: .lastTextBaseline) {
                         Text(L(WimgCategory.from(cat.id).name)).wimgStyle(WimgType.rowTitle).foregroundStyle(Wimg.text).lineLimit(1)
                         Spacer(minLength: 8)
                         Amount(euros: abs(cat.amount), color: Wimg.text, showPlus: false)
                     }
                     HStack(spacing: 8) {
-                        GeometryReader { g in
-                            ZStack(alignment: .leading) {
-                                Capsule().fill(Wimg.neutralTint)
-                                Capsule().fill(Wimg.categoryBar(cat.id)).frame(width: max(4, g.size.width * share))
-                            }
-                        }
-                        .frame(height: 4)
+                        Capsule().fill(Wimg.categoryBar(cat.id)).frame(width: CGFloat(min(max(pct * 2, 4), 180)), height: 4)
+                        Text("\(pct) %").wimgStyle(WimgType.caption).foregroundStyle(Wimg.text2)
+                        Spacer(minLength: 0)
                         if let change {
-                            Text("\(change > 0 ? "▲" : "▼") \(min(abs(change), 999)) %")
-                                .font(WimgFont.font(.manrope, .bold, 12))
-                                .foregroundStyle(change > 0 ? Wimg.danger : Wimg.pos)
-                                .fixedSize()
+                            HStack(spacing: 2) {
+                                Image(systemName: change > 0 ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill").font(.system(size: 9))
+                                Text("\(min(abs(change), 999)) %").font(WimgFont.font(.manrope, .bold, 12))
+                            }
+                            .foregroundStyle(change > 0 ? Wimg.danger : Wimg.pos)
+                            .fixedSize()
                         }
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .frame(minHeight: 64)
+            .frame(minHeight: 60)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RowPressStyle())
         .accessibilityElement(children: .combine)
         .accessibilityHint(L("In Umsätzen zeigen"))
     }

@@ -333,21 +333,17 @@ struct TransactionsView: View {
         if !shownPending.isEmpty {
             GroupLabel(text: L("Vorgemerkt · %d", shownPending.count),
                        trailing: amountText(shownPending.reduce(0) { $0 + $1.amount }))
-            WimgGroup {
-                ForEach(Array(shownPending.enumerated()), id: \.element.id) { i, tx in
-                    if i > 0 { RowDivider() }
-                    TxRow(tx: tx, pending: true) { path.append(TxRoute(id: tx.id)) }
-                }
+            ForEach(Array(shownPending.enumerated()), id: \.element.id) { i, tx in
+                if i > 0 { FlatDivider() }
+                TxRow(tx: tx, pending: true) { path.append(TxRoute(id: tx.id)) }
             }
         }
 
         ForEach(groups, id: \.date) { group in
             DayHeader(date: group.date, total: group.txs.reduce(0) { $0 + $1.amount })
-            WimgGroup {
-                ForEach(Array(group.txs.enumerated()), id: \.element.id) { i, tx in
-                    if i > 0 { RowDivider() }
-                    TxRow(tx: tx) { path.append(TxRoute(id: tx.id)) }
-                }
+            ForEach(Array(group.txs.enumerated()), id: \.element.id) { i, tx in
+                if i > 0 { FlatDivider() }
+                TxRow(tx: tx) { path.append(TxRoute(id: tx.id)) }
             }
         }
     }
@@ -467,10 +463,24 @@ struct TxRow: View {
     }
 
     var body: some View {
-        WimgRow(title: tx.displayTitle, desc: sub, action: action) {
-            CategoryTile(category: tx.category)
-        } trailing: {
-            Amount(euros: tx.amount, color: amountColor)
+        Button(action: action) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(tx.displayTitle).wimgStyle(WimgType.rowTitle)
+                        .foregroundStyle(tx.isExcluded ? Wimg.text3 : Wimg.text).lineLimit(1)
+                    HStack(spacing: 7) {
+                        Circle().fill(Wimg.categoryBar(tx.category)).frame(width: 7, height: 7)
+                        Text(sub).wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+                Amount(euros: tx.amount, color: amountColor)
+            }
+            .padding(.vertical, 10)
+            .frame(minHeight: 64)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(RowPressStyle())
+        .accessibilityElement(children: .combine)
     }
 }

@@ -389,17 +389,22 @@ struct IconTile: View {
     }
 }
 
-/// A category dot in a neutral tile, as in transaction rows (board 03).
+/// A category as Android shows it: its icon in its colour on a light tint.
 struct CategoryTile: View {
     let category: Int
+    var size: CGFloat = 36
 
     var body: some View {
-        RoundedRectangle(cornerRadius: WimgShape.iconTile, style: .continuous)
-            .fill(Wimg.neutralTint)
-            .frame(width: 36, height: 36)
-            .overlay(Circle().fill(Wimg.category(category)).frame(width: 10, height: 10))
-            .accessibilityHidden(true)
+        let c = WimgCategory.from(category)
+        IconTile(systemImage: c == .uncategorized || c == .other ? "tag" : c.icon, tint: Wimg.category(category))
+            .scaleEffect(size / 36)
+            .frame(width: size, height: size)
     }
+}
+
+/// A line between flat rows (Android's lists: rows on the sheet, no cards).
+struct FlatDivider: View {
+    var body: some View { Rectangle().fill(Wimg.line).frame(height: 1) }
 }
 
 /// One row: optional leading tile, title + description, optional trailing
@@ -460,7 +465,7 @@ extension WimgRow where Trailing == EmptyView {
 }
 
 /// Rows highlight instead of shrinking: a list row scaling looks loose.
-private struct RowPressStyle: ButtonStyle {
+struct RowPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(configuration.isPressed ? Wimg.neutralTint : .clear)

@@ -44,6 +44,9 @@ struct SquirrelView: View {
     /// Key of the moment to play once ("knapp:2026-11-01"); nil = none.
     var moment: (key: String, from: SquirrelPose, text: String)? = nil
     var size: CGFloat = 88
+    /// Android's ring around it: one stitch per day of the period, days
+    /// already past dim, past days without spending sewn in orange.
+    var ring: SquirrelRingDays? = nil
 
     @State private var shown: SquirrelPose?
     @State private var blink = false
@@ -56,13 +59,9 @@ struct SquirrelView: View {
 
     var body: some View {
         let current = shown ?? pose
-        Image(blink && (current == .normal || current == .look) ? "squirrel-blink" : current.image)
-            .resizable()
-            .scaledToFit()
+        figure(current)
             .frame(width: size, height: size)
-            .scaleEffect(x: 2 - squash, y: squash, anchor: .bottom)
-            .offset(y: hop)
-            .contentShape(Rectangle())
+            .contentShape(Circle())
             .onTapGesture { show(line) }
             .overlay(alignment: .topTrailing) {
                 if let text = bubble {
@@ -84,6 +83,33 @@ struct SquirrelView: View {
             .accessibilityAddTraits(.isButton)
             .task(id: moment?.key) { await playMoment() }
             .task { await blinkLoop() }
+    }
+
+    @ViewBuilder private func figure(_ current: SquirrelPose) -> some View {
+        let img = Image(blink && (current == .normal || current == .look) ? "squirrel-blink" : current.image)
+            .resizable()
+            .scaledToFit()
+            .scaleEffect(x: 2 - squash, y: squash, anchor: .bottom)
+            .offset(y: hop)
+        if let ring {
+            // Same geometry as Android's SquirrelRing (a 112 box): ring radius 48,
+            // squirrel 104 wide at (4, 2), inside the ring except ears and tail on top.
+            let k = size / 112
+            ZStack(alignment: .topLeading) {
+                DayRing(days: ring, k: k)
+                img.frame(width: 104 * k, height: 104 * k)
+                    .offset(x: 4 * k, y: 2 * k)
+                    .frame(width: size, height: size, alignment: .topLeading)
+                    .mask {
+                        ZStack(alignment: .top) {
+                            Circle().frame(width: 88 * k, height: 88 * k).frame(width: size, height: size)
+                            Rectangle().frame(width: size, height: 56 * k)
+                        }
+                    }
+            }
+        } else {
+            img
+        }
     }
 
     private func show(_ text: String) {
@@ -121,5 +147,55 @@ struct SquirrelView: View {
             try? await Task.sleep(for: .milliseconds(140))
             blink = false
         }
+    }
+}
+
+/// The period's days for the ring around the squirrel.
+struct SquirrelRingDays: Equatable {
+    let total: Int
+    /// Days already past (today is the next one).
+    let past: Int
+    /// 1-based days among the past ones without spending.
+    let noSpend: Set<Int>
+}
+
+/// Android's SquirrelRing without the squirrel: a stitch per day.
+private struct DayRing: View {
+    let days: SquirrelRingDays
+    let k: CGFloat
+
+    var body: some View {
+        Canvas { ctx, _ in
+            let c = CGPoint(x: 56 * k, y: 56 * k)
+            let r: CGFloat = 48 * k, w: CGFloat = 7 * k
+            let n = max(days.total, 1)
+            let stitch = Color(UIColor(rgb: 0xE08A2E))
+            for i in 0..<n {
+                let step: Double = 360.0 / Double(n)
+                let a0: Double = -90.0 + Double(i) * step + 1.6
+                let sweep: Double = step - 3.2
+                let past = i < days.past
+                let quiet = past && days.noSpend.contains(i + 1)
+                let future = Color(UIColor(rgb: 0x8FB0D3))
+                let col: Color = !past ? future : (quiet ? stitch.opacity(0.25) : Color.white.opacity(0.12))
+                var arc = Path()
+                arc.addArc(center: c, radius: r, startAngle: .degrees(a0), endAngle: .degrees(a0 + sweep), clockwise: false)
+                ctx.stroke(arc, with: .color(col), lineWidth: w)
+                if quiet {
+                    let mid: Double = (a0 + sweep / 2) * Double.pi / 180
+                    let mx: CGFloat = c.x + r * CGFloat(cos(mid))
+                    let my: CGFloat = c.y + r * CGFloat(sin(mid))
+                    let m = CGPoint(x: mx, y: my)
+                    let a: CGFloat = 3.4 * k
+                    var x = Path()
+                    x.move(to: CGPoint(x: -a, y: -a)); x.addLine(to: CGPoint(x: a, y: a))
+                    x.move(to: CGPoint(x: -a, y: a)); x.addLine(to: CGPoint(x: a, y: -a))
+                    let t = CGAffineTransform(translationX: m.x, y: m.y).rotated(by: CGFloat(mid))
+                    ctx.stroke(x.applying(t), with: .color(stitch), style: StrokeStyle(lineWidth: 2.4 * k, lineCap: .round))
+                }
+            }
+        }
+        .frame(width: 112 * k, height: 112 * k)
+        .accessibilityHidden(true)
     }
 }
