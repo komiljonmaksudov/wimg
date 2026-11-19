@@ -1473,17 +1473,18 @@ fn writeSignatureFooter(buf: []u8, offset: usize, num: u16, sec_ref: []const u8,
     @memcpy(buf[pos .. pos + 2], "++");
     pos += 2;
 
-    @memcpy(buf[pos .. pos + pin.len], pin);
-    pos += pin.len;
+    // Escaped like every value: a PIN with + : ' ? or @ broke the message.
+    pos += escapeFintsValue(buf[pos..], pin) orelse return null;
 
     // :TAN (if provided)
     if (tan.len > 0) {
+        if (pos + 1 > buf.len) return null;
         buf[pos] = ':';
         pos += 1;
-        @memcpy(buf[pos .. pos + tan.len], tan);
-        pos += tan.len;
+        pos += escapeFintsValue(buf[pos..], tan) orelse return null;
     }
 
+    if (pos + 1 > buf.len) return null;
     buf[pos] = '\'';
     pos += 1;
 
@@ -2448,9 +2449,19 @@ fn extractEnvelopeContent(segment: []const u8) ?[]const u8 {
 /// FinTS syntax characters are escaped with '?': + : ' ? and @ (which starts a
 /// binary field "@len@"; unescaped, a name with '@' makes the bank answer
 /// 9130 "kein Binaerfeld gefunden").
+/// Text goes to the bank as ISO-8859-1 (as python-fints sends it): UTF-8 for
+/// U+0080..U+00FF (umlauts, ß) becomes its one Latin-1 byte, so a TAN medium
+/// named "Mein Gerät" by the bank is sent back the way the bank wrote it.
+/// Other bytes pass unchanged.
 fn escapeFintsValue(buf: []u8, value: []const u8) ?usize {
     var pos: usize = 0;
-    for (value) |c| {
+    var i: usize = 0;
+    while (i < value.len) : (i += 1) {
+        var c = value[i];
+        if ((c == 0xC2 or c == 0xC3) and i + 1 < value.len and value[i + 1] & 0xC0 == 0x80) {
+            c = ((c & 0x03) << 6) | (value[i + 1] & 0x3F);
+            i += 1;
+        }
         if (c == '?' or c == '+' or c == ':' or c == '\'' or c == '@') {
             if (pos + 2 > buf.len) return null;
             buf[pos] = '?';
@@ -3194,4 +3205,22 @@ test "first dialog with a kept system id: no HKSYN, the id in HKIDN and the sign
     var t = FintsSession.init("20041177", "https://x.de/f", "u", "p");
     const m = buildSyncInit(&t, &buf) orelse return error.TestUnexpectedResult;
     try std.testing.expect(std.mem.indexOf(u8, buf[0..m], "HKSYN:5:3+0") != null);
+}
+
+test "escapeFintsValue sends umlauts as ISO-8859-1" {
+    var buf: [32]u8 = undefined;
+    const n = escapeFintsValue(&buf, "Mein Gerät ß").?;
+    try std.testing.expectEqualSlices(u8, "Mein Ger\xE4t \xDF", buf[0..n]);
+}
+
+test "escapeFintsValue keeps Latin-1 bytes and other UTF-8 as they are" {
+    var buf: [32]u8 = undefined;
+    const n = escapeFintsValue(&buf, "Ger\xE4t €").?;
+    try std.testing.expectEqualSlices(u8, "Ger\xE4t \xE2\x82\xAC", buf[0..n]);
+}
+
+test "the signature footer escapes PIN and TAN" {
+    var buf: [256]u8 = undefined;
+    const n = writeSignatureFooter(&buf, 0, 5, "1234", "a+b:c'd?e@", "12?3").?;
+    try std.testing.expectEqualStrings("HNSHA:5:2+1234++a?+b?:c?'d??e?@:12??3'", buf[0..n]);
 }

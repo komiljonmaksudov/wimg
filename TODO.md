@@ -19,7 +19,7 @@ Open work only, grouped by area; finished work moves to [CHANGELOG.md](CHANGELOG
 - [x] HITAB medium names: escape-aware split, unescaped (2026-11-16).
 - [x] `isEscaped` counts the run of '?' (2026-11-16).
 - [x] Kunden-ID escaped in HNSHK/HNVSK key names and the fallback account (2026-11-16).
-- [ ] Encode outgoing text as ISO-8859-1 like python-fints (we send UTF-8): matters for names/TAN media with umlauts.
+- [x] Outgoing text as ISO-8859-1 like python-fints (umlauts in TAN media names, Kennung, PIN), and PIN/TAN escaped in HNSHA (a PIN with + : ' ? @ broke the message) (2026-11-19). Not tried against a real bank yet.
 - [x] System id kept per connection (`BankConnection.systemId`, connect without HKSYN, fresh sync if the bank refuses it) (2026-11-16). Two ↻ on Comdirect work (user, 2026-11-17).
 - [x] `_debug_*` fields gone from the connect JSON (2026-11-16).
 
@@ -27,7 +27,7 @@ Open work only, grouped by area; finished work moves to [CHANGELOG.md](CHANGELOG
 - [x] (2026-11-17, `import.zig`: `apply` with `TwinRule`, used by the FinTS fetch and statement files; pending, balance and CSV still in their callers) One import seam in libwimg: every source (FinTS, CSV, file import, later bunq/Fio) hands over a `Batch` (account, booked, pending, balance, twin rule) and one `import.apply(db, batch)` does duplicates/twins, pending, categories and balance. Plain data + functions, no plugin system, no login framework (sign-in stays inside each source). Sketch:
   `pub const Batch = struct { account: []const u8, booked: []const Transaction, pending: []const Transaction, balance: ?Balance, twins: TwinRule };` (`.same_id` normally, `.day_and_amount` for CAMT next to MT940 history) and `pub fn apply(db: *Db, batch: Batch) ImportResult`. Moves today's twin check, pending replace, rule categorizing and balance out of `wimg_fints_fetch` and the CSV import. Background: `.claude/rules/banking-aggregators.md` (update 2026-11-16).
 - [x] CAMT/MT940 file import next to CSV (2026-11-17): `wimg_parse_statement` / `wimg_import_statement`, account from the BLZ/IBAN (same as FinTS), twins skipped, balance set; Android Import screen. iOS UI not yet. Not handled: ZIP archives of several CAMT files.
-- [ ] CAMT by default where the bank advertises HICAZS, MT940 as legacy fallback.
+- [ ] CAMT by default where the bank advertises HICAZS, MT940 as legacy fallback. Today: CAMT when the bank has no MT940; Android switches a login to CAMT by itself when MT940 fails. Defaulting Comdirect to CAMT changes ids (twin check day+amount only): try once on the phone over an already imported range first.
 - [ ] Enable Banking: support ticket 452772778232 sent 2026-11-16 (personal-use apps inside a public app, shared https redirect, non-commercial option). Auto-reply: without an agreement, tickets are "processed in automated way and you may not hear back". If nothing comes back, ask sales (info@enablebanking.com, per their FAQ). Until a written yes: don't build. Only ever as a labelled extra, Enable Banking sees bookings in transit.
 - [ ] Direct bank connectors (bunq, Fio, comdirect REST) only on user demand; comdirect REST needs a TAN per session, FinTS doesn't.
 
