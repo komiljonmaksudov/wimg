@@ -52,6 +52,7 @@ struct SettingsView: View {
             switch page {
             case .period: SettingsPeriodView()
             case .language: SettingsLanguageView()
+            case .notifications: NotificationSettingsView()
             }
         }
         .sheet(isPresented: $showQRSheet) { SyncQRSheet(syncKey: syncKey) }
@@ -214,6 +215,11 @@ struct SettingsView: View {
             .opacity(hasSavedFintsCreds ? 1 : 0.6)
             .padding(.horizontal, 16)
             .frame(minHeight: 72)
+            RowDivider()
+            NavigationLink(value: SettingsSubpage.notifications) {
+                WimgRow(title: L("Mitteilungen"), desc: L("Was wimg dir meldet, und wann nicht"), chevron: true)
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -380,7 +386,7 @@ struct SettingsView: View {
     }
 
     private func handleEnableSync() async {
-        let key = UUID().uuidString
+        let key = UUID().uuidString.lowercased() // lowercase: typed on Android too
         SyncService.shared.setSyncKey(key)
         syncKey = key
         syncEnabled = true
@@ -470,4 +476,4 @@ struct SettingsView: View {
 }
 
 /// Pages pushed from Einstellungen (the rest are MorePage values).
-enum SettingsSubpage: Hashable { case period, language }
+enum SettingsSubpage: Hashable { case period, language, notifications }

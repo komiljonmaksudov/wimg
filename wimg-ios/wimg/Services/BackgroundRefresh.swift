@@ -1,5 +1,6 @@
 import BackgroundTasks
 import UserNotifications
+import WimgI18n
 
 /// Weekly silent FinTS refresh via BGAppRefreshTask + local notifications.
 ///
@@ -172,38 +173,26 @@ enum BackgroundRefresh {
     }
 
     private static func postNotification(for outcome: Outcome) {
-        let center = UNUserNotificationCenter.current()
-        let content = UNMutableNotificationContent()
-
-        switch outcome {
-        case .imported(let count):
-            guard count > 0 else { return }
-            content.title = "wimg"
-            content.body = count == 1
-                ? NSLocalizedString("1 neuer Umsatz", comment: "")
-                : String(format: NSLocalizedString("%d neue Umsätze", comment: ""), count)
-            content.sound = .default
-        case .tanRequired:
-            // Suppress if we already nagged the user within the cooldown.
-            let last = UserDefaults.standard.double(forKey: tanLastNotifiedKey)
-            if last > 0, Date().timeIntervalSince1970 - last < tanNotifyCooldown { return }
-            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: tanLastNotifiedKey)
-            content.title = "wimg"
-            content.body = NSLocalizedString("TAN erforderlich — App öffnen", comment: "")
-            content.sound = .default
-        case .authFailed:
-            content.title = "wimg"
-            content.body = NSLocalizedString("Anmeldung abgelaufen — bitte erneut anmelden", comment: "")
-            content.sound = .default
-        case .silent:
-            return
+        Task {
+            switch outcome {
+            case .imported(let count):
+                guard count > 0 else { return }
+                await Notifier.post(.newTx, title: "wimg",
+                                    body: count == 1 ? L("1 neuer Umsatz") : L("%d neue Umsätze", count), route: "transactions")
+                await Notifier.notifyPriceRises()
+                await Notifier.scheduleMonthEnd()
+            case .tanRequired:
+                // Once per cooldown, not on every wake-up.
+                let last = UserDefaults.standard.double(forKey: tanLastNotifiedKey)
+                if last > 0, Date().timeIntervalSince1970 - last < tanNotifyCooldown { return }
+                if await Notifier.post(.tan, title: L("TAN erforderlich"), body: L("Öffne wimg, um den Abruf freizugeben."), route: "banks") {
+                    UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: tanLastNotifiedKey)
+                }
+            case .authFailed:
+                await Notifier.post(.tan, title: "wimg", body: L("Anmeldung abgelaufen — bitte erneut anmelden"), route: "banks")
+            case .silent:
+                return
+            }
         }
-
-        let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
-            content: content,
-            trigger: nil  // deliver immediately
-        )
-        center.add(request, withCompletionHandler: nil)
     }
 }

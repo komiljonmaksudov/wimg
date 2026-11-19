@@ -59,6 +59,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSFaceIDUsageDescription: "wimg verwendet Face ID, um deine Finanzdaten zu schützen."
+        NSCameraUsageDescription: "wimg nutzt die Kamera nur, um den QR-Code deines Sync-Schlüssels zu lesen."
         # Static weights from scripts/ios-fonts.py (Components/Wimg.swift → WimgFont)
         UIAppFonts:
           - Inter-Regular.ttf

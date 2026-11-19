@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 import WimgI18n
 
 @main
@@ -57,6 +58,8 @@ struct wimgApp: App {
         // Register BGAppRefreshTask handler — must happen here, not later.
         // iOS rejects late registrations.
         BackgroundRefresh.register()
+        // Taps on notices open their page (wimg_route).
+        UNUserNotificationCenter.current().delegate = NotificationRouter.shared
 
         // Log main thread hangs > 50ms
         #if DEBUG
@@ -135,6 +138,7 @@ struct ContentView: View {
                     UserDefaults.standard.set(currentMonth, forKey: "wimg_last_snapshot_month")
                 }
                 WidgetDataWriter.writeSummary()
+                await Notifier.scheduleMonthEnd()
                 await MainActor.run { accounts = accs }
             }
             // Connect real-time sync WebSocket + initial pull
