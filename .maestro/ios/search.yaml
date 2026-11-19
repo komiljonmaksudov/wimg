@@ -1,0 +1,16 @@
+# A page word opens the page; a merchant shows bookings and "In Umsätzen".
+appId: com.wimg.app
+---
+- launchApp
+- tapOn: "Beispieldaten ansehen"
+- tapOn: "Suchen"
+- tapOn: "Händler, Betrag, Seite"
+- inputText: "abrufen"
+- extendedWaitUntil:
+    visible: "Enter öffnet die Seite."
+    timeout: 5000
+- eraseText: 10
+- inputText: "supermarkt"
+- extendedWaitUntil:
+    visible: "In Umsätzen →"
+    timeout: 5000

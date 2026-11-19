@@ -1,0 +1,12 @@
+# Wiederkehrend: switch to the 12-month view.
+appId: com.wimg.app
+---
+- launchApp
+- tapOn: "Beispieldaten ansehen"
+- tapOn: "Wiederkehrend"
+- tapOn: "Ansicht und Filter"
+- tapOn: "12 Monate"
+- tapOn: "Fertig"
+- extendedWaitUntil:
+    visible: ".* bezahlt · .* erwartet"
+    timeout: 5000

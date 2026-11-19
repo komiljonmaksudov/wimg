@@ -1,0 +1,27 @@
+# A booking by hand: add it, change its category, undo, edit, delete.
+appId: com.wimg.app
+---
+- launchApp
+- tapOn: "Umsätze"
+- tapOn: "Umsatz von Hand"
+- inputText: "18,4"
+- tapOn: "z. B. Wochenmarkt"
+- inputText: "Maestro Markt"
+- tapOn: "Speichern"
+- extendedWaitUntil:
+    visible: "Maestro Markt"
+    timeout: 10000
+- tapOn: "Maestro Markt"
+- tapOn: "Kategorie wählen"
+- tapOn: "Lebensmittel"
+- extendedWaitUntil:
+    visible: "Kategorie geändert"
+    timeout: 5000
+- tapOn: "Rückgängig"
+- assertVisible: "Unkategorisiert"
+- tapOn: "Mehr"
+- tapOn: "Löschen"
+- tapOn: "Löschen"
+- extendedWaitUntil:
+    notVisible: "Maestro Markt"
+    timeout: 10000

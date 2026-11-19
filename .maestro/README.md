@@ -1,4 +1,4 @@
-# Maestro flows (wimg Android)
+# Maestro flows (wimg Android and iOS)
 
 End-to-end journeys on the emulator with **wimg Test** (`com.wimg.app.tester`, the `preview`
 build: release code, its own app, starts empty). Same Maestro and rules as Eigenheim.
@@ -29,3 +29,14 @@ Screenshots and logs land in `$TMPDIR/wimg-maestro/` (one folder per flow and ru
   outgoing HTTPS. Never `maestro login`, never the cloud commands.
 - **Exploring**: Maestro MCP, `inspect_screen` first (the accessibility tree), screenshots
   second. A path that works is saved as a flow.
+
+## iOS (`.maestro/ios/`)
+
+`scripts/maestro ios` builds wimg for the simulator `wimg-maestro` (iPhone 16 Pro, iOS 18.3;
+created on first use), installs it fresh for every flow, sets German and, except for
+`onboarding*`, skips onboarding. Labels are German there. Same rules as above; also:
+
+- **One iOS run at a time**: Maestro 2.11's iOS driver uses one fixed port, so parallel runs on
+  different simulators hang or crash the driver. The script waits for `/tmp/wimg-maestro-ios.lock`.
+- **No `back` on iOS**: tap the back arrow (`point: "5%,9%"`) or a named button.
+- **Rows in a sheet**: `scrollUntilVisible` with `centerElement: true`, or the tap lands under the tab bar.

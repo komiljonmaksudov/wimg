@@ -1,0 +1,17 @@
+# Umsätze filtered by a category; the chip under the band removes it again.
+appId: com.wimg.app
+---
+- launchApp
+- tapOn: "Beispieldaten ansehen"
+- tapOn: "Umsätze"
+- tapOn: "Filter"
+- tapOn: "Kategorie"
+- tapOn: "Lebensmittel"
+- tapOn: ".*Umsätze anzeigen"
+- extendedWaitUntil:
+    visible: "Summe der Treffer"
+    timeout: 5000
+- tapOn: "Lebensmittel entfernen"
+- extendedWaitUntil:
+    visible: "Summe der Umsätze"
+    timeout: 5000

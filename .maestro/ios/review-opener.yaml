@@ -1,0 +1,25 @@
+# Rückblick of a finished month: the cards open from the row, tap through, Überspringen.
+appId: com.wimg.app
+---
+- launchApp
+- tapOn: "Beispieldaten ansehen"
+- tapOn: "Mehr"
+- tapOn: "Rückblick"
+- tapOn: "Zeitraum.*"
+- tapOn: "Okt"
+- extendedWaitUntil:
+    visible: "Rückblick als Karten ansehen|Tippen für weiter"
+    timeout: 10000
+- tapOn:
+    text: "Rückblick als Karten ansehen"
+    optional: true
+- extendedWaitUntil:
+    visible: "Tippen für weiter"
+    timeout: 5000
+- takeScreenshot: opener-1
+- tapOn: "Tippen für weiter"
+- takeScreenshot: opener-2
+- tapOn: "Überspringen"
+- extendedWaitUntil:
+    notVisible: "Tippen für weiter"
+    timeout: 5000

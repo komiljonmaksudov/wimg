@@ -1,0 +1,14 @@
+# First start: welcome, "Leer starten", then demo data fills Übersicht.
+appId: com.wimg.app
+---
+- launchApp
+- tapOn: "Los geht’s"
+- tapOn: "Leer starten"
+- tapOn: "Weiter"
+- extendedWaitUntil:
+    visible: "Beispieldaten ansehen"
+    timeout: 10000
+- tapOn: "Beispieldaten ansehen"
+- extendedWaitUntil:
+    visible: "Ausgaben nach Kategorie"
+    timeout: 10000

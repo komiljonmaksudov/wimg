@@ -2,6 +2,7 @@
 # Maestro for wimg: end-to-end journeys on the emulator with "wimg Test" (com.wimg.app.tester).
 #
 #   scripts/maestro flow [file…]   build + install wimg Test, run .maestro/*.yaml (or the given files)
+#   scripts/maestro ios [file…]    build wimg for the iOS simulator, run .maestro/ios/*.yaml (fresh install each)
 #   scripts/maestro mcp            Maestro MCP server for Claude Code (.mcp.json)
 #   scripts/maestro …              any Maestro CLI command
 #
@@ -77,6 +78,39 @@ case "${1:-help}" in
       if "$MAESTRO" --device "$SERIAL" test --test-output-dir "$OUT/$name" "$f" >"$log" 2>&1
       then say "ok    $name ($((SECONDS - t0)) s)"
       else say "FAIL  $name ($((SECONDS - t0)) s) → $log"; failed+=("$name"); fi
+    done
+    say "screenshots and logs: $OUT"
+    [[ ${#failed[@]} -eq 0 ]]
+    ;;
+  ios)
+    # iOS simulator "wimg-maestro" (iPhone 16 Pro, iOS 18.3). Maestro 2.11's iOS driver uses one
+    # fixed port: runs wait for /tmp/wimg-maestro-ios.lock, so two never overlap.
+    shift
+    install_maestro
+    IOS_LOCK=/tmp/wimg-maestro-ios.lock
+    until mkdir "$IOS_LOCK" 2>/dev/null; do say "waiting for another iOS run"; sleep 5; done
+    trap 'rmdir "$IOS_LOCK" 2>/dev/null' EXIT
+    udid=$(xcrun simctl list devices | sed -n 's/.*wimg-maestro (\([0-9A-F-]*\)).*/\1/p' | head -1)
+    [[ -n $udid ]] || udid=$(xcrun simctl create wimg-maestro "iPhone 16 Pro" com.apple.CoreSimulator.SimRuntime.iOS-18-3)
+    xcrun simctl boot "$udid" 2>/dev/null || true; xcrun simctl bootstatus "$udid" -b >/dev/null
+    dd=${TMPDIR:-/tmp}/wimg-ios-maestro-dd
+    (cd "$ROOT/wimg-ios" && xcodegen generate -q && xcodebuild -project wimg.xcodeproj -scheme wimg -configuration Debug \
+      -destination "platform=iOS Simulator,id=$udid" -derivedDataPath "$dd" CODE_SIGNING_ALLOWED=NO build -quiet) || die "iOS build failed"
+    app="$dd/Build/Products/Debug-iphonesimulator/wimg.app"
+    files=("$@"); [[ ${#files[@]} -gt 0 ]] || files=("$ROOT"/.maestro/ios/*.yaml)
+    mkdir -p "$OUT"; failed=()
+    for f in "${files[@]}"; do
+      name=$(basename "$f" .yaml); t0=$SECONDS; log="$OUT/ios-$name-$(date +%H%M%S).log"
+      # Fresh app per flow, in German; onboarding done unless the flow is about it.
+      xcrun simctl uninstall "$udid" com.wimg.app 2>/dev/null; xcrun simctl install "$udid" "$app"
+      xcrun simctl spawn "$udid" defaults write com.wimg.app wimg_locale_choice de
+      xcrun simctl spawn "$udid" defaults write com.wimg.app wimg_locale de
+      # Settings survive an uninstall in the simulator (cfprefsd keeps them): set or delete explicitly.
+      if [[ $name == onboarding* ]]; then xcrun simctl spawn "$udid" defaults delete com.wimg.app wimg_onboarding_completed 2>/dev/null || true
+      else xcrun simctl spawn "$udid" defaults write com.wimg.app wimg_onboarding_completed -bool YES; fi
+      if "$MAESTRO" --device "$udid" test --test-output-dir "$OUT/ios-$name" "$f" >"$log" 2>&1
+      then say "ok    ios/$name ($((SECONDS - t0)) s)"
+      else say "FAIL  ios/$name ($((SECONDS - t0)) s) → $log"; failed+=("$name"); fi
     done
     say "screenshots and logs: $OUT"
     [[ ${#failed[@]} -eq 0 ]]

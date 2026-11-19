@@ -1,0 +1,12 @@
+# Einstellungen › Mitteilungen: pick a quiet time.
+appId: com.wimg.app
+---
+- launchApp
+- tapOn: "Mehr"
+- tapOn: "Einstellungen"
+- scrollUntilVisible:
+    element: "Was wimg dir meldet, und wann nicht"
+    centerElement: true
+- tapOn: "Was wimg dir meldet, und wann nicht"
+- tapOn: "22:00 – 8:00"
+- assertVisible: "Ruhezeit"
