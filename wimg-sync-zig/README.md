@@ -1,76 +1,65 @@
 # wimg-sync-zig
 
-The wimg sync + MCP server, in Zig, on a self-hosted VPS that `infra/`
-provisions. It replaced a Cloudflare Worker (`wimg-sync/`, deleted 2026-11-16). Speaks plain HTTP on `:8080`; Caddy
-terminates TLS in front (see `../infra/Caddyfile`).
+The wimg sync + MCP server, in Zig, on a Hetzner VPS (`infra/`). Speaks plain
+HTTP on `:8080`; Caddy terminates TLS in front (`../infra/wimg-sync.caddy`).
+Live at `https://wimg-sync.komiljonmaksudov.com`.
 
-## Why
+## Endpoints
 
-A self-hosted Hetzner box fits wimg's local-first, no-intermediary values and
-removes the Cloudflare dependency. `infra/` has the provisioning, systemd units,
-Caddy config and restic backups for this binary at `zig-out/bin/wimg-sync`.
-
-## Status
-
-| Endpoint | Status |
+| Endpoint | What |
 | --- | --- |
-| `GET /health` | ✅ done |
-| `POST /sync/:key` (push, LWW upsert) | ✅ done |
-| `GET /sync/:key?since=` (pull) | ✅ done |
-| CORS preflight (`OPTIONS`) | ✅ done |
-| `GET /ws/:key` (real-time WebSocket) | ✅ done |
-| `POST /mcp` (MCP 2026-07-28, stateless) | ✅ done (2 tools) |
+| `GET /health` | `ok` |
+| `POST /sync/:key` | push rows (LWW upsert), broadcast to the key's sockets |
+| `GET /sync/:key?since=` | pull rows newer than a timestamp |
+| `DELETE /sync/:key` | delete everything stored under a key ("Alle Daten löschen", new key) |
+| `GET /ws/:key` | WebSocket: push / pull / changes frames |
+| `POST /mcp` | MCP 2026-07-28, stateless, `Authorization: Bearer <sync-key>` |
+| `OPTIONS *` | CORS preflight |
 
-The HTTP and WebSocket sync paths are **wire-compatible** with the Worker, so no
-client changes are needed. Clients pull on open, push on every mutation (HTTP or
-WS), and hold a WebSocket open to receive `changes` frames in real time.
+Clients pull on open, push on every change (HTTP or WS), and keep a WebSocket
+open to get `changes` frames in real time.
 
 ### MCP
 
-`POST /mcp` with `Authorization: Bearer <sync-key>` speaks MCP over Streamable
-HTTP. It links libwimg directly (no WASM), and per request: derives the
-encryption key, loads the caller's decrypted rows into an in-memory SQLite, runs
-the tool, and — for writes — re-encrypts the changed rows back into the Store
-(which also fans them out over WebSocket). Two tools, matching the Worker:
+Links libwimg natively. Per request: derive the encryption key from the Bearer
+sync key, load the caller's decrypted rows into an in-memory SQLite, run the
+tool, and for a write re-encrypt the changed rows into the store (which also
+sends them out over WebSocket). The server only decrypts for MCP requests.
 
-- `query(sql)` — read-only `SELECT`/`WITH` over the wimg schema.
-- `set_category(transaction_id, category)` — the only write; resolves
-  German/English/alias category names and auto-learns a rule.
+- `query(sql)`: read-only `SELECT`/`WITH` over the wimg schema. Description-like
+  columns are scrubbed of IBAN, BIC, card numbers and `EREF+`-style references
+  before they leave the server.
+- `set_category(transaction_id, category)`: the only write. Takes German,
+  English or alias category names and learns a rule for the merchant.
 
-`query` results are PII-scrubbed (IBAN / BIC / card / `EREF+`-style reference
-fields) on description-like columns before they leave the server, matching the
-Worker's `stripPII`. Code Mode (the Worker's CF-specific sandbox wrapper) is
-intentionally dropped — the tools are exposed directly as standard MCP tools.
-
-Protocol: **MCP 2026-07-28 only** (stateless). Every request carries
-`params._meta["io.modelcontextprotocol/protocolVersion"]`. No handshake, no
-`Mcp-Session-Id`; `server/discover` replaces `initialize`; results carry
+Protocol: **2026-07-28 only**. Every request carries
+`params._meta["io.modelcontextprotocol/protocolVersion"]`; no handshake, no
+`Mcp-Session-Id`; `server/discover` replaces `initialize`. Results carry
 `resultType` + `_meta` serverInfo, lists carry `ttlMs`/`cacheScope`. The
-`MCP-Protocol-Version` / `Mcp-Method` / `Mcp-Name` headers must mirror the body
-(`-32020`, HTTP 400). A request without the version `_meta` (the 2025-03-26
-`initialize` flow) or with another version gets `-32022` (HTTP 400) listing
-`["2026-07-28"]`; `initialize`/`ping` get `-32601` (404). Only `POST /mcp`
-exists — `GET`/`DELETE` answer 405.
+`MCP-Protocol-Version` / `Mcp-Method` / `Mcp-Name` headers must match the body
+(`-32020`, HTTP 400). A missing or other version gets `-32022` (HTTP 400)
+listing `["2026-07-28"]`; `initialize`/`ping` get `-32601` (404); `GET`/`DELETE`
+on `/mcp` get 405.
+
+Claude connector: URL `https://wimg-sync.komiljonmaksudov.com/mcp`, auth
+`Bearer <sync-key>`.
 
 ## Architecture
 
 ```
 src/sqlite.zig    minimal SQLite C bindings (links libwimg's vendored sqlite3.c)
-src/store.zig     sync_rows store, partitioned by sync_key, LWW on updated_at
-src/protocol.zig  parse the push body {"rows":[...]} into rows
-src/mcp.zig       MCP JSON-RPC: query + set_category, via libwimg (linked native)
+src/store.zig     sync_rows, partitioned by sync_key, LWW on updated_at
+src/protocol.zig  parse the push body {"rows":[...]}
+src/mcp.zig       MCP JSON-RPC: query + set_category via libwimg
 src/main.zig      std.Io HTTP + WebSocket server, routing, CORS, per-key registry
 ```
 
-Concurrency: one OS thread per connection. A mutex-guarded `Registry` tracks the
-live WebSocket connections per sync key; an HTTP push (or a WS push) fans the
-incoming rows out to the other connections as a `changes` frame. Each connection
-has its own write lock so a broadcast from another thread can't interleave with
-the connection's own writes.
+One OS thread per connection. A mutex-guarded `Registry` tracks the live
+WebSockets per sync key; a push fans the rows out to the key's other
+connections as a `changes` frame. Each connection has its own write lock, so a
+broadcast from another thread can't interleave with its own writes.
 
-The Worker gives each sync key its own Durable Object (its own SQLite). One VPS
-process serves every key, so rows are partitioned by a `sync_key` column instead
-of by database. The merge SQL is byte-for-byte the Worker's:
+All keys share one SQLite file:
 
 ```sql
 INSERT INTO sync_rows (sync_key, tbl, row_id, data, updated_at) VALUES (...)
@@ -79,54 +68,44 @@ SET data = excluded.data, updated_at = excluded.updated_at
 WHERE excluded.updated_at > sync_rows.updated_at
 ```
 
-`data` is the client-side-encrypted payload — the server stores it as opaque
-JSON text and never decrypts it for sync (only MCP would, once ported).
+`data` is the client-encrypted payload, stored as opaque text.
+
+### WebSocket protocol
+
+Client → server: `{type:"push",rows:[...]}`, `{type:"pull",since:N}`, `{type:"pong"}`.
+Server → client: `{type:"changes",rows:[...]}`, `{type:"push_ack",merged:N}`,
+`{type:"pull_result",rows:[...]}`. A WS push goes to the key's other sockets
+(not the sender); an HTTP push goes to all of them (clients ignore their own
+echo for 2 s).
 
 ## Build & run
 
 ```sh
 zig build              # → zig-out/bin/wimg-sync
-zig build test         # store + protocol + routing unit tests
+zig build test         # store, protocol, routing and MCP tests
 zig build run          # listens on 0.0.0.0:8080, writes ./sync.db
 ```
 
-Config via env: `PORT` (default `8080`, matching the Caddyfile), `WIMG_SYNC_DB`
-(default `sync.db`, relative to the working dir — `/var/lib/wimg` under systemd),
-and `BIND` (default `0.0.0.0`; the systemd unit sets `127.0.0.1` so only Caddy
-on the same host can reach it). Local dev: `make dev` runs this server
-on `:8787`. Reuses
-`../libwimg/vendor/sqlite3.c` rather than vendoring a second 9 MB copy, so the
-libwimg amalgamation must be present (it's gitignored; CI fetches it).
+Env: `PORT` (default `8080`), `WIMG_SYNC_DB` (default `sync.db`;
+`/var/lib/wimg` under systemd), `BIND` (default `0.0.0.0`; the systemd unit sets
+`127.0.0.1` so only Caddy reaches it). `make dev` runs it on `:8787`. Uses
+`../libwimg/vendor/sqlite3.c` (gitignored; CI fetches it).
 
 ## Deploy
 
-```sh
-VPS=root@<ip> ../infra/scripts/deploy.sh   # builds nothing — expects zig-out/bin/wimg-sync
-```
+From a Mac: `./scripts/deploy-server.sh sync` (repo root). CI never deploys.
 
-`deploy.sh` already points at `wimg-sync-zig/zig-out/bin/wimg-sync`.
+## Known gaps
 
-## Remaining work (Phase 2)
+- **MCP write cost**: after a write, `writeBackChanges` reads `wimg_get_changes(0)`
+  and re-encrypts every row. Correct (LWW drops the unchanged ones), but wasteful
+  for big accounts. A per-key watermark would send only what changed.
+- **No server ping**: the server answers client pings but never pings idle
+  sockets itself, so a proxy may drop a quiet connection. Clients reconnect on
+  close, so nothing breaks.
 
-1. **MCP write watermark** — `writeBackChanges` calls `wimg_get_changes(0)`, so a
-   write re-encrypts every row (LWW dedups, so it's correct but wasteful). Track a
-   per-key watermark to push only what changed.
-2. **Server-initiated ping** — the Worker pings every 30 s so idle sockets stay
-   alive through proxies. This server replies `pong` to client pings and handles
-   `ConnectionClose`, but doesn't ping on its own yet (needs a read timeout or a
-   per-connection timer). Clients reconnect on close, so it's not blocking.
+## Zig notes (0.16+, built with 0.17)
 
-### WebSocket protocol
-
-Client → server: `{type:"push",rows:[...]}`, `{type:"pull",since:N}`, `{type:"pong"}`.
-Server → client: `{type:"changes",rows:[...]}` (fan-out), `{type:"push_ack",merged:N}`,
-`{type:"pull_result",rows:[...]}`. A WS push is broadcast to the key's other
-sockets (sender excluded); an HTTP push is broadcast to all of them (clients
-suppress their own echo via a 2 s window).
-
-## Notes on Zig (0.16 and later; built with 0.17)
-
-The 0.16 IO redesign moved networking into `std.Io.net` (the old `std.posix`
-socket wrappers are gone) and made `std.Io.Mutex` require an `Io`. The server
-uses `std.Io.Threaded` + `std.http.Server`; the store uses a self-contained
-atomic spinlock so it stays independent of the IO model.
+The 0.16 IO redesign moved networking into `std.Io.net` and made `std.Io.Mutex`
+need an `Io`. The server uses `std.Io.Threaded` + `std.http.Server`; the store
+uses its own atomic spinlock so it doesn't depend on the IO model.
