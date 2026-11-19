@@ -1,0 +1,25 @@
+# Settings › Theme: the pill follows the choice (Compose marks the option box "checked", not its text) (bug 2026-11-18: it always showed System).
+appId: com.wimg.app.tester
+name: Theme switch
+---
+- runFlow: common/demo.yaml
+- tapOn: "Overview"
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible: "Theme"
+    timeout: 10000
+- tapOn: "Dark"
+- assertVisible:
+    checked: true
+    containsDescendants:
+      - text: "Dark"
+- tapOn: "Light"
+- assertVisible:
+    checked: true
+    containsDescendants:
+      - text: "Light"
+- tapOn: "System"
+- assertVisible:
+    checked: true
+    containsDescendants:
+      - text: "System"

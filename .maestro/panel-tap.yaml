@@ -1,0 +1,19 @@
+# A tap on an empty part of a panel keeps it open (bug 2026-11-18: it fell through to the
+# scrim and closed the panel). A tap outside still closes it.
+appId: com.wimg.app.tester
+name: Panel stays open
+---
+- runFlow: common/demo.yaml
+- tapOn: "Overview"
+- tapOn: "Transactions"
+- tapOn: "Filter"
+- assertVisible: "Reset"
+# The panel's title is plain text: tapping it must not close the panel.
+- tapOn:
+    text: "Filter"
+    above: "Type"
+- assertVisible: "Reset"
+# Outside (the band at the top) closes it.
+- tapOn:
+    point: "50%,8%"
+- assertNotVisible: "Reset"

@@ -1,0 +1,31 @@
+# Back walks the places just visited, in reverse (2026-11-17 fix), and an open places menu
+# closes first without stepping back. The bar chip names the page shown.
+appId: com.wimg.app.tester
+name: Places and Back
+---
+- runFlow: common/demo.yaml
+- tapOn: "Overview"
+- tapOn: "Recurring"
+- extendedWaitUntil:
+    visible: "Recurring"
+    timeout: 10000
+- tapOn: "Recurring"
+- tapOn: "Review"
+- extendedWaitUntil:
+    notVisible: "Settings"
+    timeout: 10000
+# An open menu: Back closes it and stays on Review.
+- tapOn: "Review"
+- assertVisible: "Settings"
+- back
+- assertNotVisible: "Settings"
+- assertVisible: "Review"
+# Back: Review → Recurring → Overview.
+- back
+- extendedWaitUntil:
+    visible: "Recurring"
+    timeout: 10000
+- back
+- extendedWaitUntil:
+    visible: "Left until payday"
+    timeout: 10000

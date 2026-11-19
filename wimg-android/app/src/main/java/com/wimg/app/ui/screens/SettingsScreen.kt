@@ -13,6 +13,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -143,7 +144,8 @@ internal fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> 
                     .then(if (fill) Modifier.weight(1f) else Modifier)
                     .clip(WimgShape.segmentInner)
                     .background(if (on) c.card else Color.Transparent)
-                    .clickable(role = Role.RadioButton) { onSelect(i) }
+                    // selectable, not clickable: TalkBack (and tests) hear which one is on.
+                    .selectable(selected = on, role = Role.RadioButton) { onSelect(i) }
                     .padding(horizontal = if (fill) 6.dp else 14.dp, vertical = 9.dp),
                 contentAlignment = Alignment.Center,
             ) { Text(label, style = WimgType.chip, color = if (on) c.text else c.text2, maxLines = 1, softWrap = false) }
