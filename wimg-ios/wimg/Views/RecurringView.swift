@@ -1,273 +1,377 @@
 import SwiftUI
 import WimgI18n
 
+/// libwimg interval ids in display order, with label and per-month factor.
+let recurringIntervals: [(id: String, label: String, perMonth: Double)] = [
+    ("weekly", "Wöchentlich", 52.0 / 12.0),
+    ("monthly", "Monatlich", 1),
+    ("quarterly", "Vierteljährlich", 1.0 / 3.0),
+    ("annual", "Jährlich", 1.0 / 12.0),
+]
+
+func monthlyFactor(_ interval: String) -> Double {
+    recurringIntervals.first { $0.id == interval }?.perMonth ?? 1
+}
+
+func intervalLabel(_ interval: String) -> String {
+    recurringIntervals.first { $0.id == interval }?.label ?? interval
+}
+
+/// Days from today to an ISO date (negative = past).
+func daysUntil(_ iso: String) -> Int? {
+    guard let d = WimgDates.parse(iso), let t = WimgDates.parse(WimgDates.todayIso()) else { return nil }
+    return Calendar(identifier: .gregorian).dateComponents([.day], from: t, to: d).day
+}
+
+/// Wiederkehrend (Android RecurringScreen.kt): fixed costs per month in the
+/// band, paid vs. still open, the payments grouped by rhythm. Filter sheet
+/// with what to show, the hidden ones and "Erneut erkennen".
 struct RecurringView: View {
-    @State private var patterns: [RecurringPattern] = []
+    @State private var patterns: [RecurringPattern]?
+    @State private var showFilter = false
+    @State private var showExpenses = true
+    @State private var showIncome = true
+    @State private var showInactive = false
+    @State private var interval: String?
     @State private var detecting = false
+    private var periods: PeriodState { PeriodState.shared }
 
-    // Derived state — recomputed only when `patterns` changes via .onChange.
-    @State private var activePatterns: [RecurringPattern] = []
-    @State private var priceAlerts: [RecurringPattern] = []
-    @State private var monthlyTotal: Double = 0
-    @State private var grouped: [(String, [RecurringPattern])] = []
+    private var period: PeriodInfo? { periods.data.flatMap { $0.isCalendar ? nil : $0.current } }
+    private var range: (String, String) {
+        if let p = period { return (p.from, p.to) }
+        let m = HomeSelection.thisMonth
+        return (m.from, m.to)
+    }
 
-    /// Recompute derived state from `patterns`. Called via .onChange.
-    private func recompute() {
-        let active = patterns.filter(\.isActive)
-        activePatterns = active
-        priceAlerts = active.filter(\.hasPriceChange)
-        monthlyTotal = active.filter { $0.interval == "monthly" }.reduce(0) { $0 + abs($1.amount) }
+    private var all: [RecurringPattern] { (patterns ?? []).filter { !$0.isHidden } }
+    private var hidden: [RecurringPattern] { (patterns ?? []).filter(\.isHidden) }
+    private var expenses: [RecurringPattern] { all.filter { $0.isActive && $0.amount < 0 } }
 
-        let order = ["weekly", "monthly", "quarterly", "annual"]
-        var groupDict: [String: [RecurringPattern]] = [:]
-        for p in active { groupDict[p.interval, default: []].append(p) }
-        grouped = order.compactMap { key in
-            guard let items = groupDict[key], !items.isEmpty else { return nil }
-            return (key, items)
+    private func inRange(_ d: String?) -> Bool { guard let d else { return false }; return d >= range.0 && d <= range.1 }
+
+    var body: some View {
+        let perMonth = expenses.reduce(0) { $0 + abs($1.amount) * monthlyFactor($1.interval) }
+        let due = expenses.filter { inRange($0.last_seen) || inRange($0.next_due) || $0.interval == "monthly" }
+        let paid = due.filter { inRange($0.last_seen) }.reduce(0) { $0 + abs($1.amount) }
+        let open = due.filter { !inRange($0.last_seen) }.reduce(0) { $0 + abs($1.amount) }
+        let filterActive = !showExpenses || !showIncome || showInactive || interval != nil
+
+        BandScreen(title: L("Wiederkehrend")) {
+            BandButton(systemImage: "slider.horizontal.3", label: L("Ansicht und Filter"), badge: filterActive ? 1 : 0) { showFilter = true }
+        } band: {
+            BandOver(text: periods.data?.isSalary == true ? L("Fixkosten pro Gehaltsmonat") : L("Fixkosten pro Monat"))
+                .padding(.top, 10)
+            Amount(euros: perMonth, style: WimgType.amountHero, centsStyle: WimgType.amountHeroCents,
+                   color: .white, showPlus: false, rolls: true)
+                .padding(.top, 2)
+            Text(expenses.count == 1 ? L("1 feste Zahlung erkannt") : L("%d feste Zahlungen erkannt", expenses.count))
+                .wimgStyle(WimgType.desc).foregroundStyle(Wimg.bandSub).padding(.top, 4)
+            if paid + open > 0 {
+                GeometryReader { g in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.14))
+                        Capsule().fill(.white).frame(width: g.size.width * paid / (paid + open))
+                    }
+                }
+                .frame(height: 6)
+                .padding(.top, 18)
+                .accessibilityHidden(true)
+                HStack(alignment: .top) {
+                    figure(paidLabel, amountText(paid, showPlus: false))
+                    Spacer()
+                    figure(periods.data?.isSalary == true ? L("Bis zum Gehalt offen") : L("Noch offen"), amountText(open, showPlus: false), end: true)
+                }
+                .padding(.top, 8)
+            }
+        } sheet: {
+            list
         }
+        .navigationDestination(for: RecRoute.self) { RecurringDetailView(id: $0.id) }
+        .sheet(isPresented: $showFilter) {
+            RecurringFilterSheet(all: all, hidden: hidden, showExpenses: $showExpenses, showIncome: $showIncome,
+                                 showInactive: $showInactive, interval: $interval, detecting: $detecting)
+        }
+        .task { await load() }
+        .task { if periods.data == nil { await periods.reload() } }
+        .onReceive(NotificationCenter.default.publisher(for: .wimgDataChanged)) { _ in Task { await load() } }
+    }
+
+    private var paidLabel: String {
+        if periods.data?.isSalary == true { return L("Seit dem Gehalt bezahlt") }
+        if period != nil { return L("Bezahlt seit dem %d.", periods.data?.day ?? 1) }
+        let m = Calendar(identifier: .gregorian).component(.month, from: Date())
+        return L("Bezahlt im %s.", WimgDates.shortMonths()[m - 1])
+    }
+
+    private func figure(_ label: String, _ value: String, end: Bool = false) -> some View {
+        VStack(alignment: end ? .trailing : .leading, spacing: 2) {
+            Text(label).wimgStyle(WimgType.desc).foregroundStyle(Wimg.bandSub).lineLimit(1)
+            Text(value).wimgStyle(WimgType.amountStat).foregroundStyle(.white)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder private var list: some View {
+        let shown = all.filter { p in
+            (showInactive || p.isActive) && ((p.amount < 0 && showExpenses) || (p.amount > 0 && showIncome))
+                && (interval == nil || p.interval == interval)
+        }
+        if patterns != nil && shown.isEmpty {
+            VStack(spacing: 6) {
+                Text(all.isEmpty ? L("Noch keine festen Zahlungen") : L("Keine Treffer"))
+                    .wimgStyle(WimgType.section).foregroundStyle(Wimg.text)
+                Text(all.isEmpty ? L("wimg erkennt Miete, Strom und Abos, sobald ein paar Monate Umsätze da sind.") : L("Ändere den Filter, um mehr zu sehen."))
+                    .wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2).multilineTextAlignment(.center)
+                if all.isEmpty {
+                    Button(detecting ? L("Suche Muster…") : L("Jetzt erkennen")) { detect() }
+                        .wimgStyle(WimgType.button).foregroundStyle(Wimg.inkText)
+                        .padding(.horizontal, 22).padding(.vertical, 13)
+                        .background(Wimg.ink, in: Capsule())
+                        .padding(.top, 12)
+                        .disabled(detecting)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(28)
+        }
+        if let p = period {
+            Text(PeriodLabels.short(p)).wimgStyle(WimgType.chip).foregroundStyle(Wimg.text2).padding(.horizontal, 4)
+        }
+        ForEach(sections(shown), id: \.title) { section in
+            let total = section.items.reduce(0) { $0 + $1.amount }
+            GroupLabel(text: section.title, trailing: amountText(total > 0 ? total : abs(total), showPlus: total > 0))
+            WimgGroup {
+                ForEach(Array(section.items.enumerated()), id: \.element.id) { i, p in
+                    if i > 0 { RowDivider() }
+                    PatternRow(p: p, paidNow: inRange(p.last_seen), due: dueDate(p))
+                }
+            }
+        }
+    }
+
+    private func dueDate(_ p: RecurringPattern) -> String? {
+        if inRange(p.last_seen) { return p.last_seen }
+        if inRange(p.next_due) { return p.next_due }
+        return nil
+    }
+
+    private func sections(_ shown: [RecurringPattern]) -> [(title: String, items: [RecurringPattern])] {
+        var out: [(String, [RecurringPattern])] = []
+        for iv in recurringIntervals {
+            let items = shown.filter { $0.amount < 0 && $0.interval == iv.id }
+                .sorted { (dueDate($0) ?? "9", $0.displayName) < (dueDate($1) ?? "9", $1.displayName) }
+            if !items.isEmpty { out.append((L(iv.label), items)) }
+        }
+        let income = shown.filter { $0.amount > 0 }
+        if !income.isEmpty { out.append((L("Einnahmen"), income)) }
+        return out
+    }
+
+    private func load() async {
+        patterns = await Task.detached { () -> [RecurringPattern] in
+            var list = LibWimg.getRecurring()
+            // Patterns from older libwimg builds can have next_due before last_seen: detect again.
+            if list.contains(where: { ($0.next_due ?? "9") < $0.last_seen }) {
+                LibWimg.detectRecurring()
+                list = LibWimg.getRecurring()
+            }
+            return list
+        }.value
+    }
+
+    private func detect() {
+        detecting = true
+        Task {
+            await Task.detached { LibWimg.detectRecurring() }.value
+            detecting = false
+            Changes.bump()
+        }
+    }
+}
+
+/// One fixed payment: day of this period's payment, name, state, amount, paid/open.
+private struct PatternRow: View {
+    let p: RecurringPattern
+    let paidNow: Bool
+    let due: String?
+
+    private var sub: String {
+        let income = p.amount > 0
+        if !p.isActive { return L("inaktiv · zuletzt %s", WimgDates.short(p.last_seen)) }
+        // Compare what was actually paid, only while libwimg reports a change.
+        let paid = p.detected_amount ?? p.amount
+        if !income, p.price_change != nil, let prev = p.prev_amount {
+            if abs(paid) - abs(prev) > 0.5 { return L("Preis gestiegen · vorher %s", amountText(abs(prev), showPlus: false)) }
+            if abs(prev) - abs(paid) > 0.5 { return L("Preis gesunken · vorher %s", amountText(abs(prev), showPlus: false)) }
+        }
+        let label = L(intervalLabel(p.interval))
+        guard let next = p.next_due.flatMap(daysUntil) else { return label }
+        if income && !paidNow && next >= 0 { return L("%s · erwartet in %d Tagen", label, next) }
+        if next > 0 && paidNow { return L("%s · nächste in %d Tagen", label, next) }
+        if next > 0 { return L("%s · in %d Tagen", label, next) }
+        if next == 0 { return L("%s · heute fällig", label) }
+        if !paidNow, let d = p.next_due { return L("%s · überfällig seit %s", label, WimgDates.short(d)) }
+        return label
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                subscriptionsTab
-            }
-            .padding(.bottom, 24)
-        }
-        .background(WimgTheme.bg)
-        .navigationTitle(#L("Wiederkehrend"))
-        .onAppear { reload() }
-        .onChange(of: patterns) { recompute() }
-    }
-
-    // MARK: - Subscriptions Tab
-
-    @ViewBuilder
-    private var subscriptionsTab: some View {
-        // Hero card
-        if !activePatterns.isEmpty {
-            heroCard
-        }
-
-        // Price alerts
-        if !priceAlerts.isEmpty {
-            priceAlertsSection
-        }
-
-        // Section header
-        HStack(spacing: 8) {
-            Text(#L("Abonnements"))
-                .font(.system(.title2, design: .rounded, weight: .black))
-                .foregroundStyle(WimgTheme.text)
-            InfoTooltip(text: #L("Scannt deine Transaktionen nach wiederkehrenden Mustern (mind. 3 ähnliche Beträge in regelmäßigen Abständen). Erkennt Abos, Mieten und Fixkosten."))
-            Spacer()
-
-            Button {
-                handleDetect()
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 12, weight: .bold))
-                    Text(detecting ? #L("Erkennung...") : #L("Erkennen"))
+        let income = p.amount > 0
+        let parts = due?.split(separator: "-").compactMap { Int($0) } ?? []
+        NavigationLink(value: RecRoute(id: p.id)) {
+            HStack(spacing: 10) {
+                VStack(spacing: 0) {
+                    if parts.count == 3 {
+                        Text("\(parts[2]).").wimgStyle(WimgType.amountRow).foregroundStyle(p.isActive ? Wimg.text : Wimg.text3)
+                        Text(WimgDates.shortMonths()[parts[1] - 1]).wimgStyle(WimgType.caption).foregroundStyle(Wimg.text2)
+                    } else {
+                        Text("–").wimgStyle(WimgType.amountRow).foregroundStyle(Wimg.text3)
+                    }
                 }
-                .font(.system(.caption, design: .rounded, weight: .bold))
-                .foregroundStyle(WimgTheme.heroText)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(WimgTheme.accent)
-                .clipShape(Capsule())
+                .frame(width: 44)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(p.displayName).wimgStyle(WimgType.rowTitle).foregroundStyle(p.isActive ? Wimg.text : Wimg.text3).lineLimit(1)
+                    Text(sub).wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2).lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Amount(euros: income ? p.amount : abs(p.amount),
+                       color: !p.isActive ? Wimg.text3 : (income ? Wimg.pos : Wimg.text), showPlus: income)
+                StatusDot(paid: paidNow, income: income)
             }
-            .disabled(detecting)
+            .padding(.leading, 8).padding(.trailing, 16).padding(.vertical, 10)
+            .frame(minHeight: 66)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal)
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+    }
+}
 
-        if activePatterns.isEmpty {
-            VStack(spacing: 8) {
-                Text("🔄")
-                    .font(.system(size: 48))
-                Text(#L("Keine Muster erkannt"))
-                    .font(.system(.title3, design: .rounded, weight: .bold))
-                    .foregroundStyle(WimgTheme.text)
-                Text(#L("Importiere Transaktionen und tippe auf Erkennen"))
-                    .font(.system(.subheadline, design: .rounded))
-                    .foregroundStyle(WimgTheme.textSecondary)
-                    .multilineTextAlignment(.center)
+/// Paid (filled check) or still open (dashed ring).
+struct StatusDot: View {
+    let paid: Bool
+    var income = false
+
+    var body: some View {
+        Group {
+            if paid {
+                Circle().fill(income ? Wimg.pos : Wimg.ink)
+                    .overlay(Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)).foregroundStyle(Wimg.inkText))
+            } else {
+                Circle().stroke(Wimg.text3, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
             }
-            .padding(.vertical, 40)
-        } else {
-            ForEach(grouped, id: \.0) { interval, items in
+        }
+        .frame(width: 26, height: 26)
+        .accessibilityLabel(paid ? L("bezahlt") : L("offen"))
+    }
+}
+
+/// Ansicht und Filter: what to show, the interval, the hidden ones, "Erneut erkennen".
+private struct RecurringFilterSheet: View {
+    let all: [RecurringPattern]
+    let hidden: [RecurringPattern]
+    @Binding var showExpenses: Bool
+    @Binding var showIncome: Bool
+    @Binding var showInactive: Bool
+    @Binding var interval: String?
+    @Binding var detecting: Bool
+    @State private var hiddenTab = false
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(RecurringPattern.intervalLabel(interval))
-                        .font(.system(.caption, design: .rounded, weight: .bold))
-                        .foregroundStyle(WimgTheme.textSecondary)
-                        .textCase(.uppercase)
-                        .tracking(0.5)
-                        .padding(.horizontal)
-
-                    ForEach(items) { pattern in
-                        patternCard(pattern)
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Hero Card
-
-    private var heroCard: some View {
-        ZStack(alignment: .topTrailing) {
-            Circle()
-                .fill(.white.opacity(0.25))
-                .frame(width: 140, height: 140)
-                .blur(radius: 30)
-                .offset(x: 40, y: -40)
-
-            VStack(spacing: 12) {
-                HStack(spacing: 6) {
-                    Text(#L("Monatliche Fixkosten"))
-                        .font(.system(.subheadline, design: .rounded, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.8))
-                        .textCase(.uppercase)
-                        .tracking(1)
-                    InfoTooltip(text: #L("Summe aller erkannten monatlichen Abos und Fixkosten. Quartals- und Jahresbeiträge werden nicht eingerechnet."))
-                        .foregroundStyle(.white.opacity(0.8))
-                }
-
-                Text(formatAmountShort(monthlyTotal))
-                    .font(.system(size: 36, weight: .black, design: .rounded))
-                    .foregroundStyle(.white)
-                    .tracking(-1)
-
-                Text(#L("\(activePatterns.count) erkannte Muster"))
-                    .font(.system(.subheadline, design: .rounded, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.7))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(24)
-        }
-        .background(Color.green.opacity(0.75))
-        .clipShape(RoundedRectangle(cornerRadius: WimgTheme.radiusXL, style: .continuous))
-        .shadow(color: .black.opacity(0.08), radius: 16, y: 4)
-        .padding(.horizontal)
-    }
-
-    // MARK: - Price Alerts
-
-    private var priceAlertsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Text(#L("Preisänderungen"))
-                    .font(.system(.headline, design: .rounded, weight: .bold))
-                    .foregroundStyle(WimgTheme.text)
-                InfoTooltip(text: #L("Wenn ein erkanntes Abo seinen Preis ändert, erscheint hier eine Warnung mit altem und neuem Betrag. So bemerkst du schleichende Preiserhöhungen frühzeitig."))
-            }
-            .padding(.horizontal)
-
-            ForEach(priceAlerts) { alert in
-                HStack(spacing: 12) {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(alert.isPriceUp ? Color.red.opacity(0.1) : Color.green.opacity(0.1))
-                        .frame(width: 40, height: 40)
-                        .overlay {
-                            Image(systemName: alert.isPriceUp ? "arrow.up" : "arrow.down")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundStyle(alert.isPriceUp ? .red : .green)
+                    if !hidden.isEmpty {
+                        Picker("", selection: $hiddenTab) {
+                            Text(L("Aktiv (%d)", all.count)).tag(false)
+                            Text(L("Ausgeblendet (%d)", hidden.count)).tag(true)
                         }
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(alert.merchant)
-                            .font(.system(.subheadline, design: .rounded, weight: .bold))
-                            .foregroundStyle(WimgTheme.text)
-                            .lineLimit(1)
-                        Text("\(formatAmountShort(abs(alert.prev_amount ?? 0))) → \(formatAmountShort(abs(alert.amount)))")
-                            .font(.system(.caption, design: .rounded))
-                            .foregroundStyle(WimgTheme.textSecondary)
+                        .pickerStyle(.segmented)
                     }
-
-                    Spacer()
-
-                    Text("\(alert.isPriceUp ? "+" : "")\(formatAmountShort(alert.price_change ?? 0))")
-                        .font(.system(.subheadline, design: .rounded, weight: .bold))
-                        .foregroundStyle(alert.isPriceUp ? .red : .green)
-                }
-                .padding(16)
-                .wimgCard(radius: WimgTheme.radiusSmall)
-                .padding(.horizontal)
-            }
-        }
-    }
-
-    // MARK: - Pattern Card
-
-    private func patternCard(_ pattern: RecurringPattern) -> some View {
-        let cat = WimgCategory.from(pattern.category)
-
-        return HStack(spacing: 12) {
-            // Category icon
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(cat.color.opacity(0.15))
-                .frame(width: 44, height: 44)
-                .overlay {
-                    Image(systemName: cat.icon)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(cat.color)
-                }
-
-            // Info
-            VStack(alignment: .leading, spacing: 3) {
-                Text(pattern.merchant)
-                    .font(.system(.subheadline, design: .rounded, weight: .bold))
-                    .foregroundStyle(WimgTheme.text)
-                    .lineLimit(1)
-                HStack(spacing: 4) {
-                    if let nextDue = pattern.nextDueFormatted {
-                        Text(nextDue)
-                            .font(.system(.caption2, design: .rounded, weight: .medium))
-                            .foregroundStyle(WimgTheme.textSecondary)
+                    if hiddenTab && !hidden.isEmpty {
+                        WimgGroup {
+                            ForEach(Array(hidden.enumerated()), id: \.element.id) { i, h in
+                                if i > 0 { RowDivider() }
+                                WimgRow(title: h.displayName,
+                                        desc: L(intervalLabel(h.interval)) + " · " + amountText(abs(h.amount), showPlus: false)) {
+                                    EmptyView()
+                                } trailing: {
+                                    Button(L("Wieder anzeigen")) {
+                                        try? LibWimg.setRecurringHidden(id: h.id, hidden: false)
+                                        Changes.bump()
+                                        if hidden.count == 1 { hiddenTab = false }
+                                    }
+                                    .wimgStyle(WimgType.chip).foregroundStyle(Wimg.text)
+                                    .padding(.horizontal, 14).padding(.vertical, 9)
+                                    .background(Wimg.neutralTint, in: Capsule())
+                                }
+                            }
+                        }
+                        QuietLine(text: L("Ausgeblendete Muster erkennt wimg nicht neu. Wieder anzeigen holt sie mit allen Zahlungen zurück."))
+                    } else {
+                        GroupLabel(text: L("Zeigen"))
+                        HStack(spacing: 8) {
+                            chip(L("Ausgaben"), showExpenses) { showExpenses.toggle() }
+                            chip(L("Einnahmen"), showIncome) { showIncome.toggle() }
+                            chip(L("Inaktive"), showInactive) { showInactive.toggle() }
+                        }
+                        GroupLabel(text: L("Intervall"))
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                chip(L("Alle"), interval == nil, check: false) { interval = nil }
+                                ForEach(recurringIntervals.filter { iv in all.contains { $0.interval == iv.id } }, id: \.id) { iv in
+                                    chip(L(iv.label), interval == iv.id, check: false) { interval = interval == iv.id ? nil : iv.id }
+                                }
+                            }
+                        }
+                        Button {
+                            detecting = true
+                            Task {
+                                let n = await Task.detached { LibWimg.detectRecurring() }.value
+                                detecting = false
+                                Changes.bump()
+                                dismiss()
+                                Dock.shared.info(L("Erneut erkannt"), sub: L("%d feste Zahlungen", n))
+                            }
+                        } label: {
+                            Label(detecting ? L("Suche Muster…") : L("Erneut erkennen"), systemImage: "arrow.clockwise")
+                                .wimgStyle(WimgType.button).foregroundStyle(Wimg.text)
+                                .frame(maxWidth: .infinity, minHeight: 50)
+                                .overlay(Capsule().stroke(Wimg.line, lineWidth: 1))
+                        }
+                        .buttonStyle(.wimgPress)
+                        .disabled(detecting)
+                        .padding(.top, 12)
                     }
-                    Text(#L("· Zuletzt: \(pattern.lastSeenFormatted)"))
-                        .font(.system(.caption2, design: .rounded, weight: .medium))
-                        .foregroundStyle(WimgTheme.textSecondary)
                 }
+                .padding(.horizontal, WimgDimens.sheetPadding)
+                .padding(.bottom, 24)
             }
-
-            Spacer()
-
-            // Amount
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(formatAmountShort(abs(pattern.amount)))
-                    .font(.system(.subheadline, design: .rounded, weight: .bold))
-                    .foregroundStyle(WimgTheme.text)
-                if pattern.hasPriceChange {
-                    Text("\(pattern.isPriceUp ? "+" : "")\(formatAmountShort(pattern.price_change ?? 0))")
-                        .font(.system(.caption2, design: .rounded, weight: .bold))
-                        .foregroundStyle(pattern.isPriceUp ? .red : .green)
-                }
+            .background(Wimg.sheet)
+            .navigationTitle(L("Ansicht"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button(L("Fertig")) { dismiss() } }
             }
         }
-        .padding(16)
-        .wimgCard(radius: WimgTheme.radiusMedium)
-        .padding(.horizontal)
+        .tint(Wimg.accent)
+        .presentationDetents([.medium, .large])
+        .presentationBackground(Wimg.sheet)
+        .presentationDragIndicator(.visible)
     }
 
-    // MARK: - Data
-
-    private func reload() {
-        Task.detached {
-            let p = LibWimg.getRecurring()
-            await MainActor.run { patterns = p }
-        }
-    }
-
-    private func handleDetect() {
-        detecting = true
-        Task.detached {
-            LibWimg.detectRecurring()
-            let p = LibWimg.getRecurring()
-            await MainActor.run {
-                patterns = p
-                detecting = false
+    private func chip(_ label: String, _ on: Bool, check: Bool = true, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if on && check { Image(systemName: "checkmark").font(.system(size: 12, weight: .bold)) }
+                Text(label).wimgStyle(WimgType.rowTitle)
             }
+            .foregroundStyle(on ? Wimg.inkText : Wimg.text)
+            .padding(.horizontal, 16).frame(height: 40)
+            .background(on ? Wimg.ink : .clear, in: Capsule())
+            .overlay(Capsule().stroke(on ? Wimg.ink : Wimg.line, lineWidth: 1))
         }
+        .buttonStyle(.wimgPress)
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
