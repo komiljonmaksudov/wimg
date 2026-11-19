@@ -4,13 +4,12 @@ import WimgI18n
 struct AboutView: View {
     var scrollToFAQ: String?
 
-    // FAQ list mirrors wimg-web/src/routes/(app)/about/+page.svelte (minus the
-    // web-only "DevTools" entry). Keep both in sync when adding entries.
+    // To be replaced by Android's FAQ (AboutScreen.kt) in the iOS catch-up.
     private let faqs: [(q: String, a: String)] = [
         ("Sind meine Daten sicher?",
          "Ja. Alle Finanzdaten werden lokal in einer SQLite-Datenbank auf deinem Gerät gespeichert. Sync ist Ende-zu-Ende verschlüsselt — der Server sieht nur Chiffretext."),
         ("Welche Banken werden unterstützt?",
-         "CSV-Import von Comdirect, Trade Republic und Scalable Capital. Da wimg Open-Source ist, können weitere Formate jederzeit hinzugefügt werden."),
+         "Rund 1.700 deutsche Banken direkt per FinTS. Dazu Kontoauszüge (MT940, CAMT) von jeder Bank und CSV-Dateien von Comdirect, Trade Republic, Scalable und Revolut."),
         ("Wie funktioniert der Import?",
          "Lade deinen Kontoauszug im CSV-Format hoch. wimg erkennt das Format automatisch, analysiert die Transaktionen lokal und kategorisiert sie mit intelligenten Regeln."),
         ("Wie funktioniert die Kategorisierung?",
@@ -18,7 +17,7 @@ struct AboutView: View {
         ("Ist wimg wirklich kostenlos?",
          "Ja. wimg ist ein Leidenschaftsprojekt unter Open-Source-Lizenz. Keine Abonnements, keine versteckten Kosten, kein Verkauf deiner Daten."),
         ("Wo werden die Daten gespeichert?",
-         "Im Browser: OPFS (Origin Private File System). Auf iOS: lokale SQLite-Datei. Deine Daten verlassen dein Gerät nur bei aktivierter Sync — dann Ende-zu-Ende verschlüsselt."),
+         "In einer SQLite-Datei auf deinem Gerät. Deine Daten verlassen es nur bei aktivierter Sync, dann Ende-zu-Ende verschlüsselt."),
         ("Was ist der MCP-Server?",
          "Mit aktivierter Synchronisierung wird dein Sync-Schlüssel zum MCP-Zugang. Claude.ai oder andere KI-Tools können Ausgaben abfragen und Kategorien setzen — Ende-zu-Ende verschlüsselt, in Echtzeit synchronisiert."),
         ("Wie funktioniert Auto-Learn?",
@@ -28,11 +27,11 @@ struct AboutView: View {
         ("Wie erkennt wimg Abos und wiederkehrende Zahlungen?",
          "wimg analysiert deine Transaktionen automatisch und erkennt regelmäßige Muster (monatlich, vierteljährlich, jährlich). Unter Mehr → Wiederkehrend siehst du alle erkannten Abos mit Betrag, Intervall und dem nächsten Fälligkeitsdatum."),
         ("Funktioniert wimg offline?",
-         "Ja, vollständig. Alle Daten liegen lokal in SQLite. Du brauchst kein Internet für Import, Kategorisierung, Analyse oder irgendeine Kernfunktion. Sync ist optional und funktioniert nur bei Internetverbindung."),
+         "Ja, vollständig. Alle Daten liegen lokal in SQLite. Import, Kategorien und Übersicht brauchen kein Internet. Nur Bankabruf und Sync brauchen eine Verbindung."),
         ("Gibt es eine iOS-App?",
-         "Ja! wimg gibt es als native SwiftUI-App für iPhone. Tritt der TestFlight-Beta bei. Die iOS-App hat volle Feature-Parität mit der Web-App inklusive FinTS-Bankverbindung, Sync und Dark Mode."),
+         "Ja, du nutzt sie gerade. Neue Versionen kommen über TestFlight."),
         ("Gibt es eine Android-App?",
-         "Ja! Die native Kotlin/Compose-App kann als APK von der GitHub Releases-Seite heruntergeladen werden. Unter Einstellungen → Unbekannte Quellen erlauben, dann die APK installieren. Volle Feature-Parität mit iOS und Web."),
+         "Ja, über Google Play (gerade im geschlossenen Test) oder als APK von wimg.komiljonmaksudov.com. Sync verbindet beide."),
         ("Gibt es einen Dark Mode?",
          "Ja! In den Einstellungen kannst du zwischen Hell, Dunkel und System wählen. Der Dark Mode hat ein Premium-Design mit dunklem Hintergrund und dezenten Akzenten."),
         ("Kann ich mehrere Konten verwalten?",
@@ -143,7 +142,7 @@ struct AboutView: View {
                 .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
 
                 // MARK: - GitHub Button
-                Link(destination: URL(string: "https://github.com/milimyname/wimg")!) {
+                Link(destination: URL(string: "https://github.com/komiljonmaksudov/wimg")!) {
                     HStack(spacing: 8) {
                         Image(systemName: "chevron.left.forwardslash.chevron.right")
                             .font(.subheadline)

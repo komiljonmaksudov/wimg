@@ -196,9 +196,6 @@ struct SearchView: View {
             VStack(spacing: 24) {
                 // Navigation
                 actionSection(#L("Navigation")) {
-                    navLink("Analyse", icon: "chart.bar", color: .indigo) {
-                        AnalysisView(selectedAccount: $selectedAccount)
-                    }
                     navLink("Wiederkehrend", icon: "arrow.triangle.2.circlepath", color: .green, feature: "recurring") {
                         RecurringView()
                     }

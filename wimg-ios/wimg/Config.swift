@@ -12,7 +12,7 @@ enum WimgConfig {
 
     // MARK: - GitHub
 
-    static let releasesURL = "https://github.com/milimyname/wimg/releases"
+    static let releasesURL = "https://github.com/komiljonmaksudov/wimg/releases"
 
     // MARK: - UserDefaults keys
 

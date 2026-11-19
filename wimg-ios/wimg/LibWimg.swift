@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-/// Swift wrapper over libwimg C ABI. Mirrors wimg-web/src/lib/wasm.ts.
+/// Swift wrapper over libwimg C ABI (same calls as Android's bridge/LibWimg.kt).
 /// Pattern: call C function -> get pointer to length-prefixed JSON -> decode -> free pointer.
 final class LibWimg {
     private init() {}
@@ -163,7 +163,10 @@ final class LibWimg {
         }
     }
 
-    static func setCategory(id: String, category: UInt8) throws {
+    /// Returns how many other bookings of the same merchant moved with it (libwimg moves
+    /// the uncategorised ones and those in Sonstiges; one undo covers all).
+    @discardableResult
+    static func setCategory(id: String, category: UInt8) throws -> Int {
         try withWimgAbi {
             try ensureInit()
             let idData = Array(id.utf8)
@@ -173,6 +176,7 @@ final class LibWimg {
             if rc < 0 {
                 throw WimgError.operationFailed("setCategory", lastError())
             }
+            return Int(rc)
         }
     }
 

@@ -7,7 +7,6 @@ struct MoreView: View {
     @State private var path = NavigationPath()
 
     private let items: [(title: String, icon: String, color: Color, destination: Destination)] = [
-        ("Analyse", "chart.bar", .indigo, .analysis),
         ("Wiederkehrend", "arrow.triangle.2.circlepath", .green, .recurring),
         ("Import", "square.and.arrow.down", .blue, .import_),
         ("Bankkonto", "building.columns", .teal, .fints),
@@ -17,7 +16,7 @@ struct MoreView: View {
     ]
 
     enum Destination: String, Hashable {
-        case analysis, recurring, import_, fints, review, settings, about
+        case recurring, import_, fints, review, settings, about
     }
 
     var body: some View {
@@ -71,8 +70,6 @@ struct MoreView: View {
     @ViewBuilder
     private func destinationView(for destination: Destination) -> some View {
         switch destination {
-        case .analysis:
-            AnalysisView(selectedAccount: $selectedAccount)
         case .recurring:
             RecurringView()
         case .import_:

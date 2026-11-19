@@ -1,7 +1,6 @@
 import Foundation
 
 /// URLSession-based sync client with real-time WebSocket support + E2E encryption.
-/// Mirrors wimg-web/src/lib/sync.ts + sync-ws.svelte.ts.
 actor SyncService {
     static let shared = SyncService()
 
