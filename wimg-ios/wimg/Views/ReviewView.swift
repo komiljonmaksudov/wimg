@@ -1,497 +1,250 @@
 import SwiftUI
 import WimgI18n
 
+/// Rückblick (Android ReviewScreen.kt): one sentence on the month or
+/// Gehaltsmonat in the band, income / spending / count, and what stood out.
+/// The squirrel opener cards are not on iOS yet.
 struct ReviewView: View {
     @Binding var selectedAccount: String?
-    @State private var year: Int
-    @State private var month: Int
-    @State private var summary: MonthlySummary?
-    @State private var prevSummary: MonthlySummary?
-    @State private var monthTransactions: [Transaction] = []
-
-    private var monthNames: [String] {
-        let isEn = UserDefaults.standard.string(forKey: "wimg_locale") == "en"
-        let locale = Locale(identifier: isEn ? "en_US" : "de_DE")
-        let fmt = DateFormatter()
-        fmt.locale = locale
-        return fmt.standaloneMonthSymbols
-    }
 
     init(selectedAccount: Binding<String?>) {
         _selectedAccount = selectedAccount
-        let cal = Calendar.current
-        let now = Date()
-        _year = State(initialValue: cal.component(.year, from: now))
-        _month = State(initialValue: cal.component(.month, from: now))
     }
 
-    private var saved: Double {
-        (summary?.income ?? 0) + (summary?.expenses ?? 0)
+    @State private var chosen: HomeSelection?
+    @State private var data: ReviewData?
+    @State private var accounts: [Account] = []
+    @State private var showPeriod = false
+    private var periods: PeriodState { PeriodState.shared }
+
+    private var selection: HomeSelection {
+        if let chosen { return chosen }
+        if let p = periods.data, !p.isCalendar, let cur = p.current { return .period(cur) }
+        return .thisMonth
     }
 
-    private var savingsDelta: Int? {
-        let prevSaved = (prevSummary?.income ?? 0) + (prevSummary?.expenses ?? 0)
-        guard prevSaved != 0 else { return nil }
-        return Int(((saved - prevSaved) / abs(prevSaved)) * 100)
-    }
+    private var salaryMode: Bool { periods.data?.isSalary == true }
+    private var periodInfo: PeriodInfo? { if case let .period(p) = selection.kind { return p }; return nil }
 
-    private var topCategories: [CategoryBreakdown] {
-        (summary?.by_category ?? [])
-            .filter { $0.id != 10 && $0.id != 11 && $0.amount != 0 }
-            .sorted { abs($0.amount) > abs($1.amount) }
-            .prefix(5)
-            .map { $0 }
-    }
-
-    private var checklist: [(description: String, amount: Double, date: String)] {
-        let recurringCats = [4, 5, 9, 13]
-        var items: [(String, Double, String)] = []
-
-        for catId in recurringCats {
-            let txns = monthTransactions.filter { $0.category == catId && $0.isExpense }
-            if let biggest = txns.max(by: { abs($0.amount) < abs($1.amount) }) {
-                items.append((biggest.description, biggest.amount, biggest.date))
-            }
-        }
-        return items.sorted { $0.2 < $1.2 }
-    }
-
-    private var anomalies: [(category: Int, current: Double, previous: Double, increase: Double)] {
-        guard let cats = summary?.by_category, let prevCats = prevSummary?.by_category else { return [] }
-        var results: [(Int, Double, Double, Double)] = []
-
-        for cat in cats {
-            if cat.id == 10 || cat.id == 11 { continue }
-            guard let prev = prevCats.first(where: { $0.id == cat.id }), prev.amount != 0 else { continue }
-            let increase = abs(cat.amount) - abs(prev.amount)
-            let pct = (increase / abs(prev.amount)) * 100
-            if increase > 5 && pct > 10 {
-                results.append((cat.id, abs(cat.amount), abs(prev.amount), increase))
-            }
-        }
-        return results.sorted { $0.3 > $1.3 }
-    }
+    private struct LoadKey: Equatable { let sel: HomeSelection; let account: String? }
 
     var body: some View {
-            ScrollView {
-                VStack(spacing: 20) {
-                    MonthPicker(year: $year, month: $month)
-                        .padding(.top, 8)
-
-                    if (summary?.tx_count ?? 0) > 0 {
-                        savingsCard
-                        incomeExpenseRow
-
-                        if !topCategories.isEmpty {
-                            topCategoriesSection
-                        }
-
-                        if !checklist.isEmpty {
-                            checklistSection
-                        }
-
-                        anomalySection
-
-                        statsGrid
-                    } else {
-                        VStack(spacing: 8) {
-                            Text("\u{1F4CB}")
-                                .font(.system(size: 48))
-                            Text(#L("Keine Daten für diesen Monat"))
-                                .font(.system(.title3, design: .rounded, weight: .bold))
-                                .foregroundStyle(WimgTheme.text)
-                            Text(#L("Importiere Bankdaten um den Rückblick zu sehen"))
-                                .font(.system(.subheadline, design: .rounded))
-                                .foregroundStyle(WimgTheme.textSecondary)
-
-                            NavigationLink(destination: ImportView()) {
-                                Text(#L("CSV importieren"))
-                                    .font(.system(.subheadline, design: .rounded, weight: .bold))
-                                    .foregroundStyle(WimgTheme.bg)
-                                    .padding(.horizontal, 20)
-                                    .padding(.vertical, 10)
-                                    .background(WimgTheme.text)
-                                    .clipShape(Capsule())
-                            }
-                            .padding(.top, 4)
-                        }
-                        .padding(.vertical, 40)
-                    }
-                }
-                .padding(.bottom, 24)
-            }
-            .background(WimgTheme.bg)
-            .navigationTitle(#L("\(monthNames[month - 1]) Rückblick"))
-            .onChange(of: year) { reload() }
-            .onChange(of: month) { reload() }
-            .onChange(of: selectedAccount) { reload() }
-            .onAppear { reload() }
-            .onReceive(NotificationCenter.default.publisher(for: .wimgDataChanged)) { _ in
-                reload()
-            }
-    }
-
-    // MARK: - Savings Card
-
-    private var savingsCard: some View {
-        ZStack(alignment: .topTrailing) {
-            Circle()
-                .fill(.white.opacity(0.25))
-                .frame(width: 140, height: 140)
-                .blur(radius: 30)
-                .offset(x: 40, y: -40)
-
-            VStack(spacing: 8) {
-                Text(saved >= 0 ? #L("Gespart") : #L("Defizit"))
-                    .font(.system(.subheadline, design: .rounded, weight: .bold))
-                    .foregroundStyle(WimgTheme.heroText.opacity(0.7))
-                    .textCase(.uppercase)
-                    .tracking(1)
-
-                Text(formatAmountShort(abs(saved)))
-                    .font(.system(size: 40, weight: .black, design: .rounded))
-                    .foregroundStyle(WimgTheme.heroText)
-                    .tracking(-1)
-
-                if let delta = savingsDelta {
-                    HStack(spacing: 4) {
-                        Image(systemName: delta >= 0 ? "arrow.up.right" : "arrow.down.right")
-                            .font(.system(size: 10, weight: .bold))
-                        Text(#L("\(delta >= 0 ? "+" : "")\(delta)% vs. \(monthNames[month == 1 ? 11 : month - 2])"))
-                            .font(.system(.caption, design: .rounded, weight: .bold))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(WimgTheme.heroText)
-                    .clipShape(Capsule())
-                    .padding(.top, 4)
-                }
-
-                Text(savingsMessage)
-                    .font(.system(.caption, design: .rounded, weight: .medium))
-                    .foregroundStyle(WimgTheme.heroText.opacity(0.7))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 4)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 28)
+        BandScreen(title: L("Rückblick"), pushed: true) {
+            BandPeriodButton(fraction: selection.ring, text: selection.buttonText(salary: salaryMode),
+                             label: L("Zeitraum") + ": " + selection.buttonText(salary: salaryMode)) { showPeriod = true }
+        } band: {
+            band
+        } sheet: {
+            sheet
         }
-        .wimgHero()
-        .padding(.horizontal)
-    }
-
-    private var savingsMessage: String {
-        if saved > 0 { return #L("Dein Sparziel wurde erreicht. Super!") }
-        if saved == 0 { return #L("Einnahmen und Ausgaben waren ausgeglichen.") }
-        return #L("Diesen Monat hast du mehr ausgegeben als eingenommen.")
-    }
-
-    // MARK: - Income / Expenses
-
-    private var incomeExpenseRow: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(#L("Einnahmen"))
-                    .font(.system(.caption, design: .rounded, weight: .bold))
-                    .foregroundStyle(WimgTheme.textSecondary)
-                    .textCase(.uppercase)
-                    .tracking(0.5)
-                Text(formatAmountShort(summary?.income ?? 0))
-                    .font(.system(.headline, design: .rounded, weight: .bold))
-                    .foregroundStyle(WimgTheme.text)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .wimgCard(radius: WimgTheme.radiusMedium)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(#L("Ausgaben"))
-                    .font(.system(.caption, design: .rounded, weight: .bold))
-                    .foregroundStyle(WimgTheme.textSecondary)
-                    .textCase(.uppercase)
-                    .tracking(0.5)
-                Text(formatAmountShort(abs(summary?.expenses ?? 0)))
-                    .font(.system(.headline, design: .rounded, weight: .bold))
-                    .foregroundStyle(WimgTheme.text)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .wimgCard(radius: WimgTheme.radiusMedium)
+        .sheet(isPresented: $showPeriod) {
+            PeriodSheet(selection: selection, allowCustom: false, selectedAccount: $selectedAccount, accounts: accounts) { chosen = $0 }
         }
-        .padding(.horizontal)
+        .task { if periods.data == nil { await periods.reload() } }
+        .task { accounts = await Task.detached { LibWimg.getAccounts() }.value }
+        .task(id: LoadKey(sel: selection, account: selectedAccount)) { await load() }
+        .onReceive(NotificationCenter.default.publisher(for: .wimgDataChanged)) { _ in Task { await load() } }
     }
 
-    // MARK: - Top Categories
+    // MARK: Band
 
-    private var topCategoriesSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(#L("Top Kategorien"))
-                .font(.system(.title3, design: .rounded, weight: .bold))
-                .foregroundStyle(WimgTheme.text)
-                .padding(.horizontal)
-
-            VStack(spacing: 12) {
-                ForEach(topCategories) { cat in
-                    let category = WimgCategory.from(cat.id)
-                    let pct = abs(summary?.expenses ?? 1) > 0
-                        ? abs(cat.amount) / abs(summary?.expenses ?? 1)
-                        : 0
-
-                    HStack(spacing: 14) {
-                        ZStack {
-                            Circle()
-                                .fill(category.color.opacity(0.12))
-                                .frame(width: 48, height: 48)
-                            Image(systemName: category.icon)
-                                .font(.system(size: 18))
-                                .foregroundStyle(category.color)
-                        }
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(L(cat.name))
-                                    .font(.system(.subheadline, design: .rounded, weight: .bold))
-                                    .foregroundStyle(WimgTheme.text)
-                                Spacer()
-                                Text(formatAmountShort(abs(cat.amount)))
-                                    .font(.system(.subheadline, design: .rounded, weight: .bold))
-                                    .foregroundStyle(WimgTheme.text)
-                            }
-
-                            HStack(spacing: 8) {
-                                GeometryReader { geo in
-                                    ZStack(alignment: .leading) {
-                                        RoundedRectangle(cornerRadius: 3)
-                                            .fill(Color(.systemGray5))
-                                            .frame(height: 6)
-                                        RoundedRectangle(cornerRadius: 3)
-                                            .fill(category.color)
-                                            .frame(width: geo.size.width * pct, height: 6)
-                                    }
-                                }
-                                .frame(height: 6)
-
-                                Text(String(format: "%.0f%%", pct * 100))
-                                    .font(.system(.caption2, design: .rounded, weight: .bold))
-                                    .foregroundStyle(WimgTheme.textSecondary)
-                                    .frame(width: 32, alignment: .trailing)
-                            }
-                        }
-                    }
-                    .padding(16)
-                    .wimgCard(radius: WimgTheme.radiusMedium)
-                }
-            }
-            .padding(.horizontal)
+    private var overLine: String {
+        let cur = selection.isCurrent
+        switch selection.kind {
+        case .month:
+            if cur, let last = data?.lastDate { return L("Monatsabschluss · Vorschau mit Daten bis %s", WimgDates.short(last)) }
+            return L("Monatsabschluss")
+        case let .period(p):
+            let range = PeriodLabels.short(p)
+            if salaryMode { return cur ? L("Gehaltsmonat %s · läuft noch", range) : L("Gehaltsmonat %s", range) }
+            return cur ? L("%s · läuft noch", range) : range
+        case .custom:
+            return "\(PeriodLabels.dotted(selection.from)) – \(PeriodLabels.dotted(selection.to))"
         }
     }
 
-    // MARK: - Checklist
+    /// The sentence with the net amount coloured: (before, amount, after).
+    private var headline: (String, String, String)? {
+        guard let s = data?.summary, s.tx_count > 0 else { return nil }
+        let net = s.income - abs(s.expenses)
+        let template: String
+        if case let .month(_, m) = selection.kind {
+            let month = WimgDates.months()[m - 1]
+            template = net < 0 ? L("Dein %s: Du hast %s mehr ausgegeben als eingenommen.", month, "\u{0}")
+                : L("Dein %s: Du hast %s mehr eingenommen als ausgegeben.", month, "\u{0}")
+        } else if salaryMode && net >= 0 {
+            template = selection.isCurrent ? L("Vom Gehalt sind noch %s übrig.", "\u{0}") : L("Vom Gehalt sind %s übrig geblieben.", "\u{0}")
+        } else {
+            template = net < 0 ? L("Du hast %s mehr ausgegeben als eingenommen.", "\u{0}") : L("Du hast %s mehr eingenommen als ausgegeben.", "\u{0}")
+        }
+        let parts = template.components(separatedBy: "\u{0}")
+        return (parts.first ?? "", amountText(abs(net), showPlus: false), parts.count > 1 ? parts[1] : "")
+    }
 
-    private var checklistSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(#L("Zahlungs-Checkliste"))
-                .font(.system(.title3, design: .rounded, weight: .bold))
-                .foregroundStyle(WimgTheme.text)
-                .padding(.horizontal)
+    private var change: Int? {
+        guard let s = data?.summary, let p = data?.previous, abs(p.expenses) >= 0.01 else { return nil }
+        let c = Int(((abs(s.expenses) - abs(p.expenses)) / abs(p.expenses) * 100).rounded())
+        return c == 0 ? nil : c
+    }
 
-            VStack(spacing: 10) {
-                ForEach(checklist, id: \.description) { item in
-                    HStack(spacing: 14) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.green.opacity(0.1))
-                                .frame(width: 48, height: 48)
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundStyle(.green)
-                        }
-
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(item.description)
-                                .font(.system(.subheadline, design: .rounded, weight: .bold))
-                                .lineLimit(1)
-                                .foregroundStyle(WimgTheme.text)
-                            Text(#L("am \(formatDateShort(item.date))"))
-                                .font(.system(.caption, design: .rounded, weight: .medium))
-                                .foregroundStyle(WimgTheme.textSecondary)
-                        }
-
-                        Spacer()
-
-                        Text(formatAmountShort(abs(item.amount)))
-                            .font(.system(.subheadline, design: .rounded, weight: .bold))
-                            .foregroundStyle(WimgTheme.text)
-                    }
-                    .padding(16)
-                    .wimgCard(radius: WimgTheme.radiusMedium)
-                }
-            }
-            .padding(.horizontal)
+    @ViewBuilder private var band: some View {
+        BandOver(text: overLine)
+        if let (a, amount, b) = headline {
+            let net = (data?.summary?.income ?? 0) - abs(data?.summary?.expenses ?? 0)
+            (Text(a) + Text(amount).foregroundStyle(net < 0 ? Wimg.bandNeg : Wimg.bandPos) + Text(b))
+                .font(WimgType.title.font).tracking(WimgType.title.tracking)
+                .foregroundStyle(.white)
+                .padding(.top, 6)
+        } else {
+            Text(L("In diesem Zeitraum gibt es noch keine Umsätze."))
+                .wimgStyle(WimgType.title).foregroundStyle(.white).padding(.top, 6)
+        }
+        if let c = change {
+            Text(changeLine(c)).wimgStyle(WimgType.body).foregroundStyle(Wimg.bandSub).padding(.top, 8)
         }
     }
 
-    // MARK: - Anomalies
+    private func changeLine(_ c: Int) -> String {
+        switch selection.kind {
+        case let .month(_, m):
+            let prev = WimgDates.months()[(m + 10) % 12]
+            return c < 0 ? L("%d %% weniger Ausgaben als im %s.", -c, prev) : L("%d %% mehr Ausgaben als im %s.", c, prev)
+        default:
+            let range = selection.previous(in: periods.data).map { "\(PeriodLabels.dotted($0.from)) – \(PeriodLabels.dotted($0.to))" } ?? ""
+            if salaryMode {
+                return c < 0 ? L("%d %% weniger ausgegeben als im Gehaltsmonat davor (%s).", -c, range)
+                    : L("%d %% mehr ausgegeben als im Gehaltsmonat davor (%s).", c, range)
+            }
+            return c < 0 ? L("%d %% weniger ausgegeben als im Monat davor (%s).", -c, range)
+                : L("%d %% mehr ausgegeben als im Monat davor (%s).", c, range)
+        }
+    }
 
-    private var anomalySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(#L("Markierte Anomalien"))
-                .font(.system(.title3, design: .rounded, weight: .bold))
-                .foregroundStyle(WimgTheme.text)
-                .padding(.horizontal)
+    // MARK: Sheet
 
-            if anomalies.isEmpty {
-                HStack(spacing: 14) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.green.opacity(0.1))
-                            .frame(width: 44, height: 44)
-                        Image(systemName: "checkmark.seal.fill")
-                            .font(.system(size: 20))
-                            .foregroundStyle(.green)
-                    }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(#L("Keine Auffälligkeiten"))
-                            .font(.system(.subheadline, design: .rounded, weight: .bold))
-                            .foregroundStyle(Color.green)
-                        Text(#L("Keine ungewöhnlichen Preiserhöhungen erkannt."))
-                            .font(.system(.caption, design: .rounded))
-                            .foregroundStyle(Color.green.opacity(0.7))
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(20)
-                .background(Color.green.opacity(0.06))
-                .clipShape(RoundedRectangle(cornerRadius: WimgTheme.radiusLarge, style: .continuous))
-                .padding(.horizontal)
-            } else {
-                ForEach(anomalies, id: \.category) { item in
-                    let category = WimgCategory.from(item.category)
-                    let pct = item.previous > 0 ? Int((item.increase / item.previous) * 100) : 0
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(spacing: 12) {
-                            ZStack {
-                                Circle()
-                                    .fill(.white.opacity(0.1))
-                                    .frame(width: 40, height: 40)
-                                Image(systemName: "chart.line.uptrend.xyaxis")
-                                    .font(.system(size: 16))
-                                    .foregroundStyle(.white)
-                            }
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(#L("Preiserhöhung erkannt"))
-                                    .font(.system(.subheadline, design: .rounded, weight: .bold))
-                                    .foregroundStyle(.white)
-                                // Interpolated strings never match a static
-                                let catName = L(category.name)
-                                let amt = formatAmountShort(item.increase)
-                                Text(#L("\(catName): +\(amt) (\(pct)% mehr)"))
-                                    .font(.system(.caption, design: .rounded))
-                                    .foregroundStyle(.white.opacity(0.7))
-                            }
-                        }
-
-                        HStack(spacing: 16) {
-                            Text(#L("Vormonat: \(formatAmountShort(item.previous))"))
-                            Text(#L("Aktuell: \(formatAmountShort(item.current))"))
-                        }
-                        .font(.system(.caption2, design: .rounded, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.5))
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(20)
-                    .background(WimgTheme.heroText)
-                    .clipShape(RoundedRectangle(cornerRadius: WimgTheme.radiusLarge, style: .continuous))
-                    .shadow(color: .black.opacity(0.08), radius: 16, y: 4)
-                    .padding(.horizontal)
+    @ViewBuilder private var sheet: some View {
+        if let d = data, let s = d.summary, s.tx_count > 0 {
+            let expenses = abs(s.expenses)
+            HStack(spacing: 10) {
+                tile(L("Einnahmen"), amountText(s.income), Wimg.pos)
+                tile(L("Ausgaben"), amountText(-expenses), Wimg.text)
+                if let p = periodInfo { tile(L("Tage"), "\(p.days)", Wimg.text) } else { tile(L("Umsätze"), "\(s.tx_count)", Wimg.text) }
+            }
+            GroupLabel(text: L("Aufgefallen"))
+            WimgGroup {
+                ForEach(Array(items(d, s).enumerated()), id: \.offset) { i, item in
+                    if i > 0 { RowDivider() }
+                    item
                 }
             }
         }
     }
 
-    // MARK: - Stats Grid
-
-    private var statsGrid: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(#L("Statistiken"))
-                .font(.system(.title3, design: .rounded, weight: .bold))
-                .foregroundStyle(WimgTheme.text)
-                .padding(.horizontal)
-
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                statTile(title: "Transaktionen", value: "\(summary?.tx_count ?? 0)")
-                statTile(title: "Kategorien", value: "\((summary?.by_category ?? []).filter { $0.count > 0 }.count)")
-                statTile(
-                    title: "Ausgaben/Tag",
-                    value: formatAmountShort(
-                        abs(summary?.expenses ?? 0) / Double(daysInMonth)
-                    )
-                )
-
-                let rate = (summary?.income ?? 0) > 0
-                    ? Int((saved / (summary?.income ?? 1)) * 100)
-                    : 0
-                statTile(title: "Sparquote", value: "\(rate)%", color: rate >= 0 ? .green : .red)
-            }
-            .padding(.horizontal)
-        }
-    }
-
-    private func statTile(title: String, value: String, color: Color? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(L(title))
-                .font(.system(.caption, design: .rounded, weight: .bold))
-                .foregroundStyle(WimgTheme.textSecondary)
-                .textCase(.uppercase)
-                .tracking(0.5)
-            Text(value)
-                .font(.system(.title3, design: .rounded, weight: .bold))
-                .foregroundStyle(color ?? WimgTheme.text)
+    private func tile(_ label: String, _ value: String, _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2).lineLimit(1)
+            Text(value).wimgStyle(WimgType.amountStat).foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .wimgCard(radius: WimgTheme.radiusMedium)
+        .padding(14)
+        .background(Wimg.card, in: RoundedRectangle(cornerRadius: WimgShape.group, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: WimgShape.group, style: .continuous).stroke(Wimg.line, lineWidth: 1))
+        .accessibilityElement(children: .combine)
     }
 
-    private var daysInMonth: Int {
-        Calendar.current.range(of: .day, in: .month, for: {
-            var comps = DateComponents()
-            comps.year = year
-            comps.month = month
-            comps.day = 1
-            return Calendar.current.date(from: comps) ?? Date()
-        }())?.count ?? 30
+    private func items(_ d: ReviewData, _ s: MonthlySummary) -> [AnyView] {
+        var out: [AnyView] = []
+        let expenses = abs(s.expenses)
+        if let t = d.biggest {
+            out.append(AnyView(item("dollarsign.circle", Wimg.category(13), L("Größte Einzelausgabe"),
+                                    "\(t.displayTitle) · \(WimgDates.short(t.date))", amountText(t.amount))))
+        }
+        // Category changes vs. the range before, over categories in both.
+        let prevById = Dictionary((d.previous?.by_category ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let changes: [(CategoryBreakdown, Int)] = s.by_category.filter { $0.amount != 0 && $0.id != 0 && $0.id != 10 }.compactMap { cat in
+            guard let p = prevById[cat.id], abs(p.amount) >= 0.01 else { return nil }
+            return (cat, Int(((abs(cat.amount) - abs(p.amount)) / abs(p.amount) * 100).rounded()))
+        }
+        let prevShort: String? = { if case let .month(_, m) = selection.kind { return WimgDates.shortMonths()[(m + 10) % 12] }; return nil }()
+        if let (cat, pct) = changes.filter({ $0.1 > 0 }).max(by: { $0.1 < $1.1 }) {
+            out.append(AnyView(item("chart.line.uptrend.xyaxis", Wimg.danger,
+                                    prevShort.map { L("Stärkster Anstieg vs. %s", $0) } ?? L("Stärkster Anstieg"),
+                                    "\(L(WimgCategory.from(cat.id).name)) ▲ \(pct) %", amountText(abs(cat.amount), showPlus: false))))
+        }
+        if let (cat, pct) = changes.filter({ $0.1 < 0 }).min(by: { $0.1 < $1.1 }) {
+            out.append(AnyView(item("chart.line.downtrend.xyaxis", Wimg.pos,
+                                    prevShort.map { L("Stärkster Rückgang vs. %s", $0) } ?? L("Stärkster Rückgang"),
+                                    "\(L(WimgCategory.from(cat.id).name)) ▼ \(-pct) %", amountText(abs(cat.amount), showPlus: false))))
+        }
+        if let cat = s.by_category.first(where: { $0.id == 0 && $0.amount != 0 }) {
+            let share = expenses != 0 ? Int((abs(cat.amount) / expenses * 100).rounded()) : 0
+            out.append(AnyView(item("tag", Wimg.text2, L("Noch nicht zugeordnet"), "\(L("Unkategorisiert")) · \(share) %",
+                                    amountText(abs(cat.amount), showPlus: false)) {
+                TxTarget.shared.category = 0
+                TxTarget.shared.period = selection.txPeriod(salary: salaryMode)
+                AppNav.shared.open(.transactions)
+            }))
+        }
+        if let t = d.otherIncome {
+            out.append(AnyView(item("arrow.uturn.backward", Wimg.text2, L("Weitere Einnahme"), t.displayTitle, amountText(t.amount))))
+        }
+        if !d.fixedPaid.isEmpty {
+            let names = d.fixedPaid.map(\.0)
+            let title = names.count == 1 ? names[0]
+                : L("%d Zahlungen · %s", names.count, names.prefix(2).joined(separator: ", ") + (names.count > 2 ? " …" : ""))
+            out.append(AnyView(item("arrow.clockwise", Wimg.accent, L("Fixkosten bezahlt"), title,
+                                    amountText(d.fixedPaid.reduce(0) { $0 + $1.1 })) { AppNav.shared.open(.recurring) }))
+        }
+        return out
     }
 
-    // MARK: - Data
-
-    private func reload() {
-        let y = year, m = month, account = selectedAccount
-        Task.detached {
-            let s = LibWimg.getSummaryFiltered(year: y, month: m, account: account)
-            let pm = m == 1 ? 12 : m - 1
-            let py = m == 1 ? y - 1 : y
-            let ps = LibWimg.getSummaryFiltered(year: py, month: pm, account: account)
-            let all = (try? LibWimg.getTransactionsFiltered(account: account)) ?? []
-            let prefix = String(format: "%04d-%02d", y, m)
-            let mtx = all.filter { $0.date.hasPrefix(prefix) }
-            await MainActor.run {
-                summary = s
-                prevSummary = ps
-                monthTransactions = mtx
-            }
+    private func item(_ icon: String, _ tint: Color, _ over: String, _ title: String, _ amount: String, action: (() -> Void)? = nil) -> some View {
+        WimgRow(title: title, desc: over, chevron: action != nil, action: action) {
+            IconTile(systemImage: icon, tint: tint)
+        } trailing: {
+            Text(amount).wimgStyle(WimgType.amountRow).foregroundStyle(Wimg.text).lineLimit(1)
         }
     }
 
-    private func formatDateShort(_ dateStr: String) -> String {
-        let parts = dateStr.split(separator: "-")
-        guard parts.count == 3, let day = Int(parts[2]), let m = Int(parts[1]),
-              m >= 1, m <= 12 else { return dateStr }
-        let shortMonths = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"]
-        return "\(day). \(shortMonths[m - 1])"
+    // MARK: Data
+
+    private func load() async {
+        let sel = selection, account = selectedAccount, salary = salaryMode
+        let prev = sel.previous(in: periods.data)
+        data = await Task.detached { ReviewData.load(sel, prev: prev, account: account, salaryMode: salary) }.value
+    }
+}
+
+struct ReviewData {
+    var summary: MonthlySummary?
+    var previous: MonthlySummary?
+    var biggest: Transaction?
+    var lastDate: String?
+    var fixedPaid: [(String, Double)] = []
+    /// Gehaltsmonat: the largest income that is not the salary.
+    var otherIncome: Transaction?
+
+    nonisolated static func load(_ sel: HomeSelection, prev: HomeSelection?, account: String?, salaryMode: Bool) -> ReviewData {
+        let summary = LibWimg.getSummaryRange(from: sel.from, to: sel.to, account: account)
+        let previous = prev.flatMap { LibWimg.getSummaryRange(from: $0.from, to: $0.to, account: account) }
+        let today = WimgDates.todayIso()
+        // Up to today only: scheduled (and demo) bookings dated later don't count yet.
+        let inRange = ((try? LibWimg.getTransactionsFiltered(account: account)) ?? [])
+            .filter { $0.date >= sel.from && $0.date <= sel.to && !$0.isExcluded && $0.date <= today }
+        let fixed = LibWimg.getRecurring()
+            .filter { $0.isActive && !$0.isHidden && $0.amount < 0 && $0.last_seen >= sel.from && $0.last_seen <= sel.to }
+            .map { ($0.displayName, $0.amount) }
+        var other: Transaction?
+        if salaryMode, case .period = sel.kind {
+            other = inRange.filter { $0.amount > 0 && $0.date != sel.from }.max { $0.amount < $1.amount }
+        }
+        return ReviewData(
+            summary: summary,
+            previous: (previous?.tx_count ?? 0) > 0 ? previous : nil,
+            biggest: inRange.filter { $0.amount < 0 }.min { $0.amount < $1.amount },
+            lastDate: inRange.map(\.date).max(),
+            fixedPaid: fixed,
+            otherIncome: other
+        )
     }
 }
