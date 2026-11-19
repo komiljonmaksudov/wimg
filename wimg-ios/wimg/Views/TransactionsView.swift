@@ -158,7 +158,7 @@ struct TransactionsView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            BandScreen(title: L("Umsätze")) {
+            BandScreen(title: L("Umsätze"), compact: AnyView(compactBand)) {
                 BandButton(systemImage: "slider.horizontal.3", label: L("Filter"), badge: tags.count) {
                     showFilter = true
                 }
@@ -239,6 +239,15 @@ struct TransactionsView: View {
         }
         parts.append(filtered.count == 1 ? L("1 Umsatz") : L("%d Umsätze", filtered.count))
         return parts.joined(separator: " · ")
+    }
+
+    /// Pinned at the top while scrolling: what the sum is, and the sum.
+    private var compactBand: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title).wimgStyle(WimgType.caption).foregroundStyle(Wimg.bandSub).lineLimit(1)
+            Amount(euros: total, style: WimgType.amountLarge, centsStyle: WimgType.amountStat,
+                   color: .white, showPlus: !anchored)
+        }
     }
 
     @ViewBuilder private var band: some View {

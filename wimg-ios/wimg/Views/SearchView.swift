@@ -241,16 +241,19 @@ struct SearchView: View {
 
     private func tile(_ title: String, _ sub: String, _ icon: String, _ tint: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 10) {
+            // Icon above the text: the text gets the tile's whole width (side by
+            // side, "Bankverbindung" broke inside the word).
+            VStack(alignment: .leading, spacing: 8) {
                 IconTile(systemImage: icon, tint: tint)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title).wimgStyle(WimgType.rowTitle).foregroundStyle(Wimg.text).lineLimit(1).minimumScaleFactor(0.8)
-                    if !sub.isEmpty { Text(sub).wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2).lineLimit(2) }
+                    Text(title).wimgStyle(WimgType.rowTitle).foregroundStyle(Wimg.text).lineLimit(1).minimumScaleFactor(0.85)
+                    if !sub.isEmpty {
+                        Text(sub).wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2).lineLimit(1).minimumScaleFactor(0.85)
+                    }
                 }
-                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, minHeight: 64)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
             .background(Wimg.card, in: RoundedRectangle(cornerRadius: WimgShape.group, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: WimgShape.group, style: .continuous).stroke(Wimg.line, lineWidth: 1))
         }

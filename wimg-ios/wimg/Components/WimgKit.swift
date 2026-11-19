@@ -81,11 +81,14 @@ struct BandScreen<Controls: View, Band: View, Sheet: View>: View {
     /// A pushed page (detail): the system bar stays, in band colour, with its
     /// back button and swipe-back; the title sits in the bar.
     var pushed = false
+    /// Shown pinned to the top once the band has scrolled away (Umsätze: the sum).
+    var compact: AnyView? = nil
     @ViewBuilder let controls: () -> Controls
     @ViewBuilder let band: () -> Band
     @ViewBuilder let sheet: () -> Sheet
 
     private var hasControls: Bool { Controls.self != EmptyView.self }
+    @State private var bandGone = false
 
     var body: some View {
         ScrollView {
@@ -124,6 +127,11 @@ struct BandScreen<Controls: View, Band: View, Sheet: View>: View {
                 .padding(.top, 4)
                 .padding(.bottom, 22)
                 .environment(\.colorScheme, .dark)
+                .onGeometryChange(for: Bool.self) { g in
+                    g.frame(in: .named("bandScroll")).maxY < 64
+                } action: { gone in
+                    withAnimation(WimgMotion.out(0.16)) { bandGone = gone }
+                }
                 // Lazy: Umsätze puts thousands of rows in here.
                 LazyVStack(alignment: .leading, spacing: 0) { sheet() }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -134,6 +142,28 @@ struct BandScreen<Controls: View, Band: View, Sheet: View>: View {
                     .background(Wimg.sheet,
                                 in: UnevenRoundedRectangle(topLeadingRadius: WimgShape.sheetTop,
                                                            topTrailingRadius: WimgShape.sheetTop, style: .continuous))
+            }
+        }
+        .coordinateSpace(name: "bandScroll")
+        .overlay(alignment: .top) {
+            // Rows never scroll visibly under the status bar: it keeps the band colour.
+            if !pushed {
+                Color.clear.frame(height: 0).background(Wimg.band.ignoresSafeArea(edges: .top))
+            }
+        }
+        .overlay(alignment: .top) {
+            if let compact, bandGone {
+                HStack(spacing: 10) {
+                    compact
+                    Spacer(minLength: 0)
+                    controls()
+                }
+                .environment(\.colorScheme, .dark)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(Wimg.band.ignoresSafeArea(edges: .top))
+                .transition(.opacity)
             }
         }
         // Band above, sheet below: overscroll at either end shows the right colour.
