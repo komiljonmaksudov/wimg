@@ -51,6 +51,9 @@ struct wimgApp: App {
         // Migrate credentials from UserDefaults to Keychain (one-time on update)
         SyncService.shared.migrateIfNeeded()
 
+        // "Systemsprache": resolve the phone's language before the first frame.
+        LocaleChoice.apply()
+
         // Register BGAppRefreshTask handler — must happen here, not later.
         // iOS rejects late registrations.
         BackgroundRefresh.register()
