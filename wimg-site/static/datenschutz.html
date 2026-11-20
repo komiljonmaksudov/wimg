@@ -18,6 +18,7 @@
 <meta property="og:image:alt" content="wimg, Wo ist mein Geld? Die App-Übersicht mit verfügbarem Geld, Sparquote und Ausgaben nach Kategorie (Beispieldaten).">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+<link rel="alternate" hreflang="en" href="https://wimg.komiljonmaksudov.com/privacy.html">
 <style>
 @font-face{font-family:"Manrope";font-weight:800;font-display:swap;src:url(fonts/manrope-latin-800-normal.woff2) format("woff2")}
 @font-face{font-family:"Inter";font-weight:400;font-display:swap;src:url(fonts/inter-latin-400-normal.woff2) format("woff2")}
@@ -30,6 +31,7 @@ header{background:var(--band);color:#fff}
 .wrap{max-width:720px;margin:0 auto;padding:0 20px}
 .top{display:flex;align-items:center;gap:12px;height:76px}
 .top a{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;font:800 20px Manrope,sans-serif;letter-spacing:-.5px}
+.top .lang{margin-left:auto;font:600 15px Inter,sans-serif;color:rgba(255,255,255,.75)}
 .top img{width:34px;height:34px;border-radius:9px}
 h1{font:800 clamp(32px,5vw,44px)/1.1 Manrope,sans-serif;letter-spacing:-.03em;margin:0;padding:32px 0 40px}
 h2{font:600 19px/1.35 Inter,sans-serif;margin:40px 0 8px}
@@ -43,7 +45,7 @@ footer{margin:56px 0 40px;font-size:14px;color:var(--text2)}
 <body>
 <header>
   <div class="wrap">
-    <div class="top"><a href="./"><img src="img/logo.svg" alt="">wimg</a></div>
+    <div class="top"><a href="./"><img src="img/logo.svg" alt="">wimg</a><a class="lang" href="privacy.html" lang="en" hreflang="en">English</a></div>
     <h1>Datenschutz</h1>
   </div>
 </header>
@@ -55,7 +57,7 @@ footer{margin:56px 0 40px;font-size:14px;color:var(--text2)}
   <ul>
     <li>Deine Umsätze, Kategorien und Einstellungen liegen in einer Datenbank auf deinem Telefon.</li>
     <li>Die Bankverbindung (FinTS) läuft direkt zwischen deinem Telefon und deiner Bank. Kein anderer Dienst sitzt dazwischen.</li>
-    <li>Deine Bank-PIN geht nur an deine Bank. Sie wird nie an den Sync-Server übertragen und nicht synchronisiert.</li>
+    <li>Deine Bank-PIN geht nur an deine Bank. Sie wird nie an den Sync-Server übertragen und nicht synchronisiert. Merkst du sie dir in der App, liegt sie verschlüsselt im Schlüsselspeicher deines Telefons (iOS-Schlüsselbund, Android Keystore).</li>
     <li>Ein Konto, eine E-Mail-Adresse oder ein Passwort gibt es nicht.</li>
   </ul>
 
@@ -64,24 +66,23 @@ footer{margin:56px 0 40px;font-size:14px;color:var(--text2)}
   <p>Der Sync-Server protokolliert technische Zugriffe: IP-Adresse, Zeitpunkt und aufgerufene Adresse. Der Sync-Schlüssel wird dabei aus der Adresse entfernt. Für diese Protokolle gibt es derzeit noch keine feste Löschfrist.</p>
   <p>Ohne Sync verlässt nichts dein Telefon außer der Verbindung zu deiner Bank.</p>
 
+  <h2>Claude und andere KI-Assistenten (optional)</h2>
+  <p>Mit eingeschaltetem Sync kannst du selbst einen KI-Assistenten (z. B. Claude) per MCP mit dem Sync-Server verbinden. Für jede Anfrage des Assistenten entschlüsselt der Server dann deine Daten mit deinem Sync-Schlüssel im Arbeitsspeicher, beantwortet die Anfrage und speichert nichts Entschlüsseltes. Namen, IBANs und ähnliche Angaben entfernt er vorher aus den Antworten. Was der Assistent mit den Antworten macht, regeln dessen eigene Datenschutzbestimmungen. Verbindest du keinen Assistenten, entschlüsselt der Server nie etwas.</p>
+
   <h2 id="daten-loeschen">Deine Daten löschen</h2>
   <ul>
-    <li><strong>Auf dem Telefon:</strong> Einstellungen › Daten › „Alle Daten löschen“ (gedrückt halten). Das löscht Umsätze, Kategorien, Regeln, Bankverbindungen und die gespeicherte PIN. Die App deinstallieren löscht ebenfalls alles.</li>
+    <li><strong>Auf dem Telefon:</strong> Einstellungen › „Alle Daten löschen“. Das löscht Umsätze, Kategorien, Regeln, Bankverbindungen und die gespeicherte PIN. Die App deinstallieren löscht ebenfalls alles.</li>
     <li><strong>Bank-Zugangsdaten</strong> liegen nur auf deinem Telefon und bei deiner Bank. Bei uns gibt es davon nichts zu löschen.</li>
     <li><strong>Sync (falls eingeschaltet):</strong> „Alle Daten löschen“ löscht auch die verschlüsselte Kopie auf dem Sync-Server. „Sync beenden“ allein trennt nur dein Gerät; dann bleibt die verschlüsselte Kopie, bis du „Alle Daten löschen“ wählst oder an die Kontaktadresse im Google Play Store schreibst.</li>
   </ul>
 
   <h2>Downloads</h2>
-  <p>Die Android-App wird über GitHub ausgeliefert, die iPhone-Version über Apples TestFlight. Beim Download gelten die Datenschutzbestimmungen von <a href="https://docs.github.com/de/site-policy/privacy-policies/github-general-privacy-statement">GitHub</a> und <a href="https://www.apple.com/de/legal/privacy/">Apple</a>.</p>
+  <p>Die Apps werden über Apples App Store und TestFlight, Google Play und GitHub ausgeliefert. Beim Download gelten die Datenschutzbestimmungen von <a href="https://www.apple.com/de/legal/privacy/">Apple</a>, <a href="https://policies.google.com/privacy?hl=de">Google</a> und <a href="https://docs.github.com/de/site-policy/privacy-policies/github-general-privacy-statement">GitHub</a>.</p>
 
   <h2>Hosting</h2>
   <p>Website und Sync-Server laufen auf einem Server der Hetzner Online GmbH in Deutschland.</p>
 
-  <section class="en" lang="en">
-    <h2>In English</h2>
-    <p>This website sets no cookies, uses no tracking or analytics, loads nothing from third-party servers and keeps no access logs. The app stores your data on your phone and talks to your bank directly. Optional sync is end-to-end encrypted: the server only stores ciphertext. The sync server logs technical requests (IP address, time, path with the sync key removed); there is no fixed deletion period yet. Downloads come from GitHub (Android) and Apple TestFlight (iPhone).</p>
-    <p id="delete-data"><strong>Deleting your data:</strong> in the app, Einstellungen › Daten › “Alle Daten löschen” (press and hold) deletes everything on the phone; uninstalling does too. Bank login details exist only on your phone and at your bank. With sync on, “Alle Daten löschen” also deletes the encrypted copy on the sync server; “Sync beenden” alone only disconnects the device (the copy stays until you delete all data or write to the contact address in the Google Play listing).</p>
-  </section>
+  <p class="en" lang="en"><a href="privacy.html">Privacy policy in English</a></p>
 
   <footer><a href="./">← Zurück zur Startseite</a></footer>
 </main>

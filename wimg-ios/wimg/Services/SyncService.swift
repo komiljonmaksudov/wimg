@@ -215,6 +215,16 @@ actor SyncService {
     /// server copy under the old key is deleted, only the removal marks are
     /// written back there (so the others learn they are out), and everything is
     /// pushed again under a fresh key. False: nothing changed, the old key stays.
+    /// "Alle Daten löschen": removes everything stored under this sync key on the
+    /// server (as Android). True when the server confirmed it, or sync is off.
+    func deleteRemote() async -> Bool {
+        guard let key = syncKey, let url = URL(string: "\(baseURL)/sync/\(key)") else { return true }
+        var del = URLRequest(url: url)
+        del.httpMethod = "DELETE"
+        guard let (_, resp) = try? await URLSession.shared.data(for: del) else { return false }
+        return (resp as? HTTPURLResponse)?.statusCode == 200
+    }
+
     func replaceKey() async -> Bool {
         guard let old = syncKey else { return false }
         do {

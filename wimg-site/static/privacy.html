@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy · wimg</title>
+<meta name="theme-color" content="#1D1C1A">
+<meta name="description" content="What wimg does with your data: everything stays on your phone, no account, no tracking.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="wimg">
+<meta property="og:title" content="Privacy · wimg">
+<meta property="og:description" content="What wimg does with your data: everything stays on your phone, no account, no tracking.">
+<meta property="og:url" content="https://wimg.komiljonmaksudov.com/privacy.html">
+<meta property="og:locale" content="en_GB">
+<meta property="og:image" content="https://wimg.komiljonmaksudov.com/img/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="wimg, Where's my money? The app overview with money left, savings rate and spending by category (sample data).">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+<link rel="alternate" hreflang="de" href="https://wimg.komiljonmaksudov.com/datenschutz.html">
+<style>
+@font-face{font-family:"Manrope";font-weight:800;font-display:swap;src:url(fonts/manrope-latin-800-normal.woff2) format("woff2")}
+@font-face{font-family:"Inter";font-weight:400;font-display:swap;src:url(fonts/inter-latin-400-normal.woff2) format("woff2")}
+@font-face{font-family:"Inter";font-weight:600;font-display:swap;src:url(fonts/inter-latin-600-normal.woff2) format("woff2")}
+:root{--bg:#FAF9F6;--text:#1A1A1A;--text2:#6B6A66;--line:#ECE8E1;--band:#1D1C1A;--accent:#4A6D96}
+@media (prefers-color-scheme:dark){:root{--bg:#111114;--text:#F2F2F3;--text2:#9A9BA0;--line:rgba(255,255,255,.08);--band:#161618;--accent:#8FB0D3}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:400 16px/1.65 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+header{background:var(--band);color:#fff}
+.wrap{max-width:720px;margin:0 auto;padding:0 20px}
+.top{display:flex;align-items:center;gap:12px;height:76px}
+.top a{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;font:800 20px Manrope,sans-serif;letter-spacing:-.5px}
+.top .lang{margin-left:auto;font:600 15px Inter,sans-serif;color:rgba(255,255,255,.75)}
+.top img{width:34px;height:34px;border-radius:9px}
+h1{font:800 clamp(32px,5vw,44px)/1.1 Manrope,sans-serif;letter-spacing:-.03em;margin:0;padding:32px 0 40px}
+h2{font:600 19px/1.35 Inter,sans-serif;margin:40px 0 8px}
+p,li{color:var(--text2)}
+ul{padding-left:20px}
+a{color:var(--accent)}
+.en{margin-top:56px;padding-top:24px;border-top:1px solid var(--line)}
+footer{margin:56px 0 40px;font-size:14px;color:var(--text2)}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="top"><a href="./"><img src="img/logo.svg" alt="">wimg</a><a class="lang" href="datenschutz.html" lang="de" hreflang="de">Deutsch</a></div>
+    <h1>Privacy</h1>
+  </div>
+</header>
+<main class="wrap">
+  <h2>In short</h2>
+  <p>This website sets no cookies, uses no tracking or analytics and loads nothing from other servers. Fonts and images are on the same server as the page. No access logs are kept for this website.</p>
+
+  <h2>The app</h2>
+  <ul>
+    <li>Your transactions, categories and settings are stored in a database on your phone.</li>
+    <li>The bank connection (FinTS) runs directly between your phone and your bank. No other service sits in between.</li>
+    <li>Your bank PIN only goes to your bank. It is never sent to the sync server and never synced. If you let the app remember it, it is kept encrypted in your phone's secure storage (iOS Keychain, Android Keystore).</li>
+    <li>There is no account, email address or password.</li>
+  </ul>
+
+  <h2>Sync between your devices (optional)</h2>
+  <p>When you turn sync on, the app encrypts your data on the device with a key derived from your sync key (end-to-end). The sync server only stores this encrypted data and cannot read it.</p>
+  <p>The sync server logs technical requests: IP address, time and requested path, with the sync key removed from the path. There is no fixed deletion period for these logs yet.</p>
+  <p>Without sync, nothing leaves your phone except the connection to your bank.</p>
+
+  <h2>Claude and other AI assistants (optional)</h2>
+  <p>With sync on, you can connect an AI assistant such as Claude to the sync server yourself (MCP). For each of the assistant's requests the server then decrypts your data in memory with your sync key, answers the request and stores nothing decrypted. It removes names, IBANs and similar details from the answers first. What the assistant does with the answers is governed by its own privacy policy. If you connect no assistant, the server never decrypts anything.</p>
+
+  <h2 id="delete-data">Deleting your data</h2>
+  <ul>
+    <li><strong>On the phone:</strong> Settings › “Delete all data”. This deletes transactions, categories, rules, bank connections and the saved PIN. Uninstalling the app deletes everything too.</li>
+    <li><strong>Bank login details</strong> exist only on your phone and at your bank. There is nothing of them with us to delete.</li>
+    <li><strong>Sync (if on):</strong> “Delete all data” also deletes the encrypted copy on the sync server. Turning sync off alone only disconnects your device; the encrypted copy then stays until you choose “Delete all data” or write to the contact address in the Google Play Store.</li>
+  </ul>
+
+  <h2>Downloads</h2>
+  <p>The apps are distributed through Apple's App Store and TestFlight, Google Play and GitHub. Downloading is subject to the privacy policies of <a href="https://www.apple.com/legal/privacy/">Apple</a>, <a href="https://policies.google.com/privacy">Google</a> and <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub</a>.</p>
+
+  <h2>Hosting</h2>
+  <p>The website and the sync server run on a server of Hetzner Online GmbH in Germany.</p>
+
+  <footer><a href="./">← Back to the home page</a></footer>
+</main>
+</body>
+</html>

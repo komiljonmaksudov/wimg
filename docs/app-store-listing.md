@@ -82,7 +82,7 @@ wimg is open source (MIT licence). The code is on GitHub.
 ```
 
 ### URLs
-- Privacy policy: `https://wimg.komiljonmaksudov.com/datenschutz.html`
+- Privacy policy: DE `https://wimg.komiljonmaksudov.com/datenschutz.html`, EN `https://wimg.komiljonmaksudov.com/privacy.html`
 - Support: `https://github.com/komiljonmaksudov/wimg/issues`
 - Marketing (optional): `https://wimg.komiljonmaksudov.com`
 

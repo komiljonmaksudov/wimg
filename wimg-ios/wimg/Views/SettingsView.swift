@@ -54,7 +54,8 @@ struct SettingsView: View {
             Button(L("Ja, alles löschen"), role: .destructive) { handleResetData() }
             Button(L("Abbrechen"), role: .cancel) {}
         } message: {
-            Text(L("Alle lokalen Daten werden unwiderruflich gelöscht. Diese Aktion kann nicht rückgängig gemacht werden."))
+            Text(L("Alle lokalen Daten werden unwiderruflich gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.")
+                 + " " + L("wimg Sync") + ": " + L("Wird beendet, die verschlüsselte Kopie auf dem Server gelöscht. Andere Geräte behalten ihre eigene."))
         }
         .task {
             await loadSync()
@@ -312,7 +313,21 @@ struct SettingsView: View {
         }
     }
 
+    /// With sync on, the encrypted copy on the server goes too (as Android). If
+    /// the server can't be reached, say so instead of leaving it there silently.
     private func handleResetData() {
+        Task {
+            if await SyncService.shared.deleteRemote() {
+                resetLocal()
+            } else {
+                Dock.shared.error(L("Server nicht erreichbar"),
+                                  sub: L("Die verschlüsselte Kopie auf dem Sync-Server wurde nicht gelöscht. Versuch es mit Internet noch einmal."),
+                                  action: L("Nur hier löschen")) { resetLocal() }
+            }
+        }
+    }
+
+    private func resetLocal() {
         LibWimg.isResetting = true
         // Defer close to the next runloop tick so in-flight SwiftUI body
         // evaluations see isResetting=true and bail out before the DB goes.
