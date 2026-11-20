@@ -238,6 +238,23 @@ jobs:
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
 
+      # This fresh Mac made its own "Apple Development" certificate for the
+      # archive. Revoke it again, or the account fills up (Apple's limit stopped
+      # v1.0.1). Only certificates in this runner's keychain, only development
+      # ones; a failure here never fails the release.
+      - name: Revoke this run's development certificate
+        if: always() && steps.asc.outputs.ok == 'true'
+        continue-on-error: true
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          serials=$(security find-certificate -a -c "Apple Development" -p 2>/dev/null \
+            | awk '/BEGIN CERT/{c=""} {c=c $0 "\n"} /END CERT/{printf "%s", c | "openssl x509 -noout -serial"; close("openssl x509 -noout -serial")}' \
+            | sed 's/^serial=//' | sort -u)
+          echo "development certificates on this runner: ${serials:-none}"
+          ASC_KEY_PATH=~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8 swift scripts/asc-revoke-cert.swift $serials
+
   build-android:
     needs: [check, detect-changes]
     if: needs.detect-changes.outputs.android == 'true'
