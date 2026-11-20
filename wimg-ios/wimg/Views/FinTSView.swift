@@ -814,6 +814,11 @@ struct FinTSView: View {
         let retryLabel: String?
     }
 
+    /// The bank refused the login itself (libwimg's isLoginRejected → "Authentication failed").
+    static func loginRefused(_ message: String?) -> Bool {
+        message?.range(of: "Authentication failed", options: .caseInsensitive) != nil
+    }
+
     private func classify(_ raw: String) -> ClassifiedError {
         let lower = raw.lowercased()
         // Order matters — most specific first.
@@ -846,11 +851,10 @@ struct FinTSView: View {
                 retryLabel: "Neu versuchen"
             )
         }
-        if lower.contains("anmeldung fehlgeschlagen")
-            || lower.contains("pin")
-            || lower.contains("9050") // ING-style permission denied
-            || lower.contains("9400")
-        {
+        // Only a login the bank refused (libwimg: "Authentication failed", from
+        // 9340/9910/993x/994x or a text naming PIN/Kennung) is a wrong PIN. 9050
+        // ("Nachricht enthält Fehler") is the bank's own problem, not the user's.
+        if Self.loginRefused(raw) {
             return ClassifiedError(
                 kind: .auth,
                 title: ErrorKind.auth.defaultTitle,
@@ -858,10 +862,12 @@ struct FinTSView: View {
                 retryLabel: "Daten prüfen"
             )
         }
-        if lower.contains("9110") || lower.contains("9120") || lower.contains("9800") || lower.contains("hbci") {
+        if lower.contains("9050") || lower.contains("9400") || lower.contains("9900") || lower.contains("3905")
+            || lower.contains("9110") || lower.contains("9120") || lower.contains("9800") || lower.contains("hbci")
+            || lower.contains("bank refused") {
             return ClassifiedError(
                 kind: .bank,
-                title: "Bank lehnt Anfrage ab",
+                title: "Abruf fehlgeschlagen",
                 detail: raw,
                 retryLabel: nil
             )
@@ -894,7 +900,7 @@ struct FinTSView: View {
                 .frame(width: 36, height: 36)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(err.title)
+                    Text(L(err.title))
                         .font(WimgFont.font(.manrope, .heavy, 15, relativeTo: .subheadline))
                         .foregroundStyle(err.kind.color)
                     Text(err.detail)
@@ -1034,8 +1040,9 @@ struct FinTSView: View {
                     if isDecoupledChallenge {
                         Task { await handleSendTan() }
                     }
-                } else {
-                    // Auth failed — clear stored PIN, fall back to manual
+                } else if Self.loginRefused(result.message) {
+                    // The bank refused the login itself: a wrong stored PIN must not be
+                    // retried (background fetch), or the bank locks the access.
                     refreshing = false
                     KeychainService.clearFintsPIN(); BankConnections.storeActiveSlots(name: selectedBank?.name ?? "")
                     pin = ""
@@ -1043,6 +1050,10 @@ struct FinTSView: View {
                     refreshCachedKeychainState()
                     BackgroundRefresh.cancel()
                     errorMessage = result.message ?? "Anmeldung fehlgeschlagen. Bitte erneut manuell anmelden."
+                } else {
+                    // Any other bank error (maintenance, a message it didn't like): keep the PIN.
+                    refreshing = false
+                    errorMessage = result.message ?? "Abruf fehlgeschlagen"
                 }
             }
         } catch {
