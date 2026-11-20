@@ -31,12 +31,14 @@
 ## Encryption Compliance
 
 Decided 2026-11-20: libwimg encrypts sync data itself (XChaCha20-Poly1305, a
-standard algorithm not provided by iOS). Apple's table: that needs a French
-encryption declaration only for distribution in France, so wimg is not offered
-in France. `ITSAppUsesNonExemptEncryption: true`; for each uploaded build App Store
-Connect asks: answer "standard encryption algorithms instead of, or in addition
-to, Apple's" and not available in France. TestFlight testers get a build only
-after that answer. Listing and answers: `docs/app-store-listing.md`.
+standard algorithm not provided by iOS); wimg is not offered in France, so Apple
+needs no documentation and keeps none (its "App Encryption Documentation" form
+saves nothing for that answer). `ITSAppUsesNonExemptEncryption: true` then made the
+upload fail ("Invalid Export Compliance Code", v1.0.0), so the key is left out:
+each uploaded build shows "Missing Compliance" in App Store Connect; answer
+"standard encryption algorithms instead of, or in addition to, Apple's" and not
+in France. TestFlight testers get a build only after that answer. Listing and
+answers: `docs/app-store-listing.md`.
 
 ## Notes
 

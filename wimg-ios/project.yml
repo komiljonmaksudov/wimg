@@ -56,10 +56,12 @@ targets:
       path: wimg/Info.plist
       properties:
         UILaunchScreen: {}
-        # libwimg encrypts sync data itself (XChaCha20-Poly1305, standard, not Apple's
-        # crypto): App Store Connect asks per build; answer "standard algorithms",
-        # not distributed in France (docs/app-store-listing.md).
-        ITSAppUsesNonExemptEncryption: true
+        # No ITSAppUsesNonExemptEncryption on purpose: libwimg encrypts sync data
+        # itself (XChaCha20-Poly1305, standard, not Apple's crypto). `true` without an
+        # export-compliance code makes Apple refuse the upload (2026-11-20), and no code
+        # exists: for standard algorithms outside France Apple keeps no documentation.
+        # So App Store Connect asks per build ("Missing Compliance"): answer "standard
+        # algorithms", not in France (docs/app-store-listing.md).
         CFBundleDisplayName: wimg
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)

@@ -123,5 +123,6 @@ after servicing the request needs no disclosure.
   (otherwise Apple shows address and phone). Revisit if wimg earns money.
 - Export compliance (decided 2026-11-20): libwimg's own XChaCha20-Poly1305 is a
   standard algorithm not provided by iOS → French encryption declaration only for
-  France, so France is left out. `ITSAppUsesNonExemptEncryption: true`; per build
+  France, so France is left out and Apple keeps no documentation. No
+  `ITSAppUsesNonExemptEncryption` key (`true` failed the 1.0.0 upload); per build
   answer "standard encryption algorithms instead of, or in addition to, Apple's".
