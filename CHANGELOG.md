@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.0.0 (2026-11-20)
+
+- fix(ios): the bank screens in English (21 texts had no translation); PIN deleted message no longer reads like the button
+- docs: App Store screenshots at the required 6.3-inch size
+- docs: Play release notes for 0.9.14
+- docs: App Store privacy answer is no collected data (Apple's definition: nothing readable is kept); privacy manifest matches
+- feat: privacy policy in English, and it names the optional Claude connection; iOS Alle Daten löschen also deletes the encrypted copy on the sync server, as on Android
+- chore(ios): ready for the App Store: privacy manifests, iPhone only, store listing and screenshots (demo data); Rückblick headline wraps instead of being cut off
+
 ## v0.9.14 (2026-11-20)
 
 - fix(ios): a bank error after a good sign-in says Abruf fehlgeschlagen with the bank's reason; the stored PIN is only forgotten when the bank refuses the login, as on Android
