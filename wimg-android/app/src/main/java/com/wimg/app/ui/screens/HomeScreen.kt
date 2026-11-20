@@ -195,10 +195,10 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
         chip = if (!hasData) null else if (period != null) {
             val left = com.wimg.app.ui.components.PeriodLabels.daysLeft(period)
             when {
-                !period.current -> BarChipSpec(com.wimg.app.ui.components.PeriodLabels.short(period), pickerOpen, { pickerOpen = !pickerOpen })
+                !period.current -> BarChipSpec(com.wimg.app.ui.components.PeriodLabels.short(period), pickerOpen, { if (!pickerOpen) pickingAccount = false; pickerOpen = !pickerOpen })
                 // Same ring as the calendar month: days left until the salary.
                 else -> BarChipSpec(
-                    "$left", pickerOpen, { pickerOpen = !pickerOpen }, ring = left.toFloat() / period.days.coerceAtLeast(1),
+                    "$left", pickerOpen, { if (!pickerOpen) pickingAccount = false; pickerOpen = !pickerOpen }, ring = left.toFloat() / period.days.coerceAtLeast(1),
                     contentDescription = if (periods.isSalary) L("Zeitraum: Gehaltsmonat, noch %d Tage", left) else L("Zeitraum: noch %d Tage", left),
                 )
             }
@@ -208,14 +208,14 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
             BarChipSpec(
                 label = if (isCurrent) "$left" else shortMonths[month - 1],
                 active = pickerOpen,
-                onClick = { pickerOpen = !pickerOpen },
+                onClick = { if (!pickerOpen) pickingAccount = false; pickerOpen = !pickerOpen },
                 ring = if (isCurrent) left.toFloat() / daysInMonth else 1f,
                 contentDescription = if (isCurrent) L("Zeitraum: %s, noch %d Tage", months[month - 1], left) else L("Zeitraum: %s %d", months[month - 1], year),
             )
         },
         panel = if (pickerOpen) {
             {
-                if (pickingAccount) AccountsPanel(selectedAccount, onPick = onSelectAccount, onDone = { pickingAccount = false; pickerOpen = false })
+                if (pickingAccount) AccountsPanel(selectedAccount, onPick = onSelectAccount, onDone = { pickerOpen = false })
                 else if (period != null) PeriodPanel(periods, period, onPick = { periodIdx = periods.periods.indexOf(it); pickerOpen = false }) {
                     if (accounts.size > 1) {
                         PanelLabel(L("Konto"))
@@ -235,7 +235,9 @@ fun HomeScreen(selectedAccount: String?, navController: NavController? = null, o
                 }
             }
         } else null,
-        onPanelDismiss = { pickerOpen = false; pickingAccount = false },
+        // Only close: switching back to the month page in the same frame showed it
+        // for the length of the closing animation. It resets when the panel opens.
+        onPanelDismiss = { pickerOpen = false },
     )
 
     val d = data
