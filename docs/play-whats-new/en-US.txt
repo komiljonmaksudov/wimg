@@ -1,5 +1,6 @@
-# 0.9.13
-• New search: it shows the total right away, for example what you spent at a shop
-• Pages like "Settings" or "Sync" can be found with search, Enter opens them
-• Filter by amount and "Recurring only" in Transactions
-• Import names bank statements and Revolut
+# 0.9.14
+• Bank fetches ask in the new CAMT format first, MT940 only when the bank needs it
+• The first fetch over many months now works with large answers too
+• PINs with characters like + or ' and TAN devices with umlauts work
+• The squirrel's speech bubble fits on narrow phones
+• "Done" in the account menu on Overview closes without a flicker

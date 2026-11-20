@@ -1,5 +1,6 @@
-# 0.9.13
-• Neue Suche: Sie zeigt gleich die Summe, zum Beispiel was du bei einem Händler ausgegeben hast
-• Seiten wie „Einstellungen“ oder „Sync“ findest du über die Suche, Enter öffnet sie
-• Filter nach Betrag und „Nur wiederkehrende“ in Umsätze
-• Import nennt Kontoauszüge und Revolut
+# 0.9.14
+• Bankabruf fragt zuerst im neuen Format CAMT, MT940 nur noch, wenn die Bank es braucht
+• Der erste Abruf über viele Monate klappt jetzt auch bei großen Antworten
+• PINs mit Sonderzeichen wie + oder ' und TAN-Geräte mit Umlauten funktionieren
+• Die Sprechblase des Eichhörnchens passt auch auf schmale Telefone
+• „Fertig“ im Konto-Menü der Übersicht schließt ohne Flackern
