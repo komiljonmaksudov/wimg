@@ -1,5 +1,42 @@
 # Changelog
 
+## v0.9.14 (2026-11-20)
+
+- fix(ios): a bank error after a good sign-in says Abruf fehlgeschlagen with the bank's reason; the stored PIN is only forgotten when the bank refuses the login, as on Android
+- fix: a first bank fetch over months no longer fails (CAMT answers up to several MB, transaction list off the FinTS thread's stack); iOS sends a TAN only once at a time
+- fix: the squirrel's bubble stays on screen (narrow phones, long lines); iOS Umsätze sum follows the scroll as on Android
+- feat(ios): App-Sperre as on Android: lock after (immediately, 1, 5 or 15 min) and hide amounts in the app switcher and in screen recordings
+- feat(ios): Einstellungen as on Android: wimg Sync and App-Sperre on their own pages, Mitteilungen next to Konten; transaction details as flat rows
+- fix(android): Fertig in the account panel on Übersicht no longer flashes the month panel while it closes
+- feat(ios): Wiederkehrend, Rückblick, Import and Über wimg as on Android; demo data as on Android (Gehaltsmonat, cash, nothing after today); the squirrel catches price rises; new app icon on the lock and welcome screens
+- feat(ios): Übersicht and Umsätze as on Android: squirrel in the day ring, last fetch time, one colour bar for the categories, category icons, the latest day's bookings, flat rows
+- feat(ios): FAQ as on Android (grouped, searchable); the pinned Umsätze bar follows the scroll, smaller, with a soft edge
+- docs: CAMT first tested on the phone
+- fix(ios): Umsätze keeps the sum and its buttons at the top while scrolling; rows no longer run under the status bar; Suche tiles no longer break words
+- feat: bank fetches ask for CAMT first wherever the bank offers it, MT940 only as the fallback (MT940 is being retired); Android names MT940 on a bank that needs it
+- docs: field note on the unescaped PIN and the UTF-8 TAN media names
+- fix: bank logins send text as ISO-8859-1 like other FinTS clients (TAN media with umlauts match), and a PIN or TAN with + : ' ? @ no longer breaks the message
+- docs: CLAUDE.md, TODO and parity describe the new iOS app
+- test: Maestro flows for iOS (onboarding, filter, manual entry with undo, search, 12 months, notifications, Rückblick cards) via scripts/maestro ios
+- feat(ios): Rückblick opener: cards with the squirrel for a finished month (what's left, Sparquote, quiet days, a caught price rise), once by itself and any time from the review
+- refactor(ios): remove five old components nothing uses anymore (UndoToast, old category editor, month picker, account picker, info tooltip)
+- feat(ios): several bank logins: switch between banks, remove one, background refresh fetches from every bank with a saved PIN
+- feat(ios): the squirrel in the Übersicht band: its pose says how the month is going, a tap says it in one line, a short moment plays once (Gehalt da, Knapp, Leer, kein Euro raus)
+- feat(ios): Wiederkehrend has the 12-month view: paid per month this year, the forecast for the months ahead, a month's payments below
+- feat(ios): linking sync checks the key first ("Schlüssel passt nicht") and can scan the QR code; Mitteilungen settings with a quiet time; month-end notice and price-rise notice, a tap opens the page
+- feat(ios): English texts for the new Übersicht, Wiederkehrend, Rückblick, Einstellungen, widgets and onboarding; parity notes after the iOS catch-up
+- feat(ios): new Übersicht with what's left until the salary, a period sheet (Kalendermonat, Gehaltsmonat, Fester Tag, own range), Wiederkehrend with price changes and one-off payments, and Rückblick in the new look
+- feat(ios): bank pages in the new look (connected bank with balance and Schnellabfrage, five-step connect); new app icon, the denim pocket, with dark and tinted versions
+- feat(ios): new welcome, first-start choice (bank, file or empty) and lock screen on the dark band, as on Android
+- feat(ios): Einstellungen in the new look, grouped as on Android; Zeitraum page to start the month with the salary, on the 1st or a fixed day; Systemsprache as a language choice
+- feat(ios): three home screen widgets (Bis zum Gehalt / Monat, Fixkosten offen, Heute) and lock screen widgets in the new look, with hidden amounts as •••• €
+- feat(ios): new Suche with the answer in the band and page words; Konten, Gelernte Regeln and Geräte in Einstellungen; statement files (MT940, CAMT) in Import; the old pages in the new colours and fonts
+- feat(ios): enter a transaction by hand with + on Umsätze; manual entries can be edited and deleted from their page
+- feat(ios): new look on iPhone: tabs Übersicht, Umsätze, Wiederkehrend, Mehr and Suche; Umsätze with filters, booking page, category sheet and undo above the tab bar
+- docs: sync server README without the old Cloudflare Worker, with the delete route and the real deploy command
+- test: Maestro flows for Back through places, the theme switch and a panel that stays open; the theme switch tells TalkBack which option is on
+- fix(ios): category names as in libwimg (Umbuchung, Abonnements), current repo links and FAQ facts, Analyse removed as on Android, setCategory returns how many moved
+
 ## v0.9.13 (2026-11-18)
 
 - docs: notes for 0.9.13 (Neuigkeiten, Play What's new, test log)
