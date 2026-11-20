@@ -50,8 +50,9 @@ pub fn sendFintsMessage(
     if (http_callback) |cb| {
         // Use file-level static to avoid stack overflow on iOS GCD threads
         const S = struct {
-            var resp_b64_buf: [262144]u8 = undefined;
-            var clean_buf: [262144]u8 = undefined;
+            // A first statement fetch over months is several hundred KB (CAMT).
+            var resp_b64_buf: [5 * 1024 * 1024]u8 = undefined;
+            var clean_buf: [5 * 1024 * 1024]u8 = undefined;
         };
         const resp_b64_len = cb(
             url.ptr,

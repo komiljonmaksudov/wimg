@@ -1203,6 +1203,9 @@ struct FinTSView: View {
     }
 
     private func handleSendTan() async {
+        // One TAN message at a time: a second one in flight (double tap, retry)
+        // reuses the message number and Comdirect aborts the whole dialog (9120, 9800).
+        guard !sendingTan else { return }
         sendingTan = true
         errorMessage = nil
 

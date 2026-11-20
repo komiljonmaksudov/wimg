@@ -244,6 +244,13 @@ pub const ResponseCode = struct {
     }
 };
 
+/// Booked CAMT XML of a statement answer. A first fetch over months is
+/// several hundred KB (Comdirect, 2026-11-20: 474 KB base64 for one account),
+/// far too big for the response struct on a thread's stack. One fetch runs at
+/// a time, so every response shares this store.
+pub const camt_capacity = 3 * 1024 * 1024;
+var camt_store: [camt_capacity]u8 = undefined;
+
 /// Parsed response from a FinTS message exchange.
 pub const ParsedResponse = struct {
     codes: [16]ResponseCode,
@@ -254,7 +261,7 @@ pub const ParsedResponse = struct {
     system_id_len: u8,
     mt940_data: [32768]u8, // up to 32 KB of MT940 data (booked only)
     mt940_len: u32,
-    camt_data: [65536]u8, // up to 64 KB of CAMT XML data (booked only)
+    camt_data: *[camt_capacity]u8, // booked CAMT XML, in `camt_store`
     camt_len: u32,
     // Not yet booked ("vorgemerkt"): HIKAZ DE 2 (MT942) / HICAZ DE 4 (camt.052).
     // Kept apart so they are never imported as booked transactions.
@@ -289,7 +296,7 @@ pub const ParsedResponse = struct {
         r.decoupled = false;
         r.tan_media_count = 0;
         @memset(&r.mt940_data, 0);
-        @memset(&r.camt_data, 0);
+        r.camt_data = &camt_store;
         @memset(&r.pending_mt940_data, 0);
         @memset(&r.pending_camt_data, 0);
         @memset(&r.dialog_id, 0);

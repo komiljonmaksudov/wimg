@@ -2399,11 +2399,14 @@ fn wimg_fints_send_tan(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
 /// Pending transactions collected over all pages of one fetch (file-level, too
 /// big for the FinTS thread's stack next to the booked buffer).
 var fints_pending_store: [300]Transaction = undefined;
+/// Booked transactions of one statement page (~800 KB): static, the FinTS
+/// thread's 2 MB stack had no room left for it (iOS crashed with SIGBUS).
+var fints_txn_store: [2000]Transaction = undefined;
 
 /// Fetch bank statements. Input JSON: {"from":"2026-01-01","to":"2026-03-01"}
 /// Opens a new authenticated dialog, sends HKKAZ, parses MT940, inserts transactions.
 /// Returns length-prefixed JSON: {"imported":N,"duplicates":N} or {"status":"tan_required",...}
-var fints_fetch_resp_store: [196608]u8 = undefined;
+var fints_fetch_resp_store: [4 * 1024 * 1024]u8 = undefined;
 
 /// "YYYYMMDD" minus n days, written into out. Null if `date` isn't a date.
 fn daysBefore(date: []const u8, n: i64, out: *[8]u8) ?[]const u8 {
@@ -2977,11 +2980,11 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         if (resp.mt940_len > 0) {
             saw_mt940 = true;
 
-            var txn_buf: [2000]Transaction = undefined;
+            const txn_buf = &fints_txn_store;
             const mt940_result = mt940_mod.parseMt940(
                 resp.mt940_data[0..resp.mt940_len],
                 account_name,
-                &txn_buf,
+                txn_buf,
             );
 
             if (mt940_result.closing_balance_date > balance_date_int) {
@@ -3008,12 +3011,12 @@ fn wimg_fints_fetch(data: [*]const u8, len: u32) callconv(.c) ?[*]const u8 {
         } else if (resp.camt_len > 0) {
             saw_camt = true;
 
-            var txn_buf: [2000]Transaction = undefined;
+            const txn_buf = &fints_txn_store;
             // Next to MT940 history (format camt): value dates, like MT940.
             const camt_result = if (camt_short)
-                camt_mod.parseCamtValueDated(resp.camt_data[0..resp.camt_len], account_name, &txn_buf)
+                camt_mod.parseCamtValueDated(resp.camt_data[0..resp.camt_len], account_name, txn_buf)
             else
-                camt_mod.parseCamt(resp.camt_data[0..resp.camt_len], account_name, &txn_buf);
+                camt_mod.parseCamt(resp.camt_data[0..resp.camt_len], account_name, txn_buf);
 
             if (camt_result.closing_balance_date > balance_date_int) {
                 balance_date_int = camt_result.closing_balance_date;
