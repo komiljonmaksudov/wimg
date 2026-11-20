@@ -56,7 +56,10 @@ targets:
       path: wimg/Info.plist
       properties:
         UILaunchScreen: {}
-        ITSAppUsesNonExemptEncryption: false
+        # libwimg encrypts sync data itself (XChaCha20-Poly1305, standard, not Apple's
+        # crypto): App Store Connect asks per build; answer "standard algorithms",
+        # not distributed in France (docs/app-store-listing.md).
+        ITSAppUsesNonExemptEncryption: true
         CFBundleDisplayName: wimg
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)

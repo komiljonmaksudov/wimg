@@ -121,8 +121,7 @@ after servicing the request needs no disclosure.
 - Price: free; all countries where German banks matter, or all.
 - EU Digital Services Act trader status: free app, no income → **not a trader**
   (otherwise Apple shows address and phone). Revisit if wimg earns money.
-- Export compliance: **open** — libwimg encrypts sync data itself
-  (XChaCha20-Poly1305, standard algorithm), not with Apple's crypto. Check Apple's
-  "Complying with Encryption Export Regulations" before answering; then set
-  `ITSAppUsesNonExemptEncryption` in `wimg-ios/project.yml` and the note in
-  `.claude/rules/testflight.md` to match.
+- Export compliance (decided 2026-11-20): libwimg's own XChaCha20-Poly1305 is a
+  standard algorithm not provided by iOS → French encryption declaration only for
+  France, so France is left out. `ITSAppUsesNonExemptEncryption: true`; per build
+  answer "standard encryption algorithms instead of, or in addition to, Apple's".

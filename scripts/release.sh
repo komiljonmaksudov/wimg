@@ -67,6 +67,19 @@ esac
 
 echo "Bumping $OLD → $NEW"
 
+# Play takes the release notes from docs/play-whats-new/*.txt and uploads a draft
+# (no tester gets it) when their first line isn't "# <version>". Say so now.
+for notes in "$ROOT"/docs/play-whats-new/*.txt; do
+  if [[ "$(head -1 "$notes")" != "# $NEW" ]]; then
+    echo "  ! $(basename "$notes") starts with \"$(head -1 "$notes")\", not \"# $NEW\": Play will upload a draft."
+    STALE_NOTES=true
+  fi
+done
+if [[ "${STALE_NOTES:-}" == true ]]; then
+  read -r -p "  Release anyway? [y/N] " answer
+  [[ "$answer" == [yY]* ]] || die "update docs/play-whats-new first"
+fi
+
 # ── update package.json ──────────────────────────────────────────────────────
 
 
