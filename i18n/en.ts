@@ -315,6 +315,11 @@ export const en: Record<string, string> = {
   "%d Zeilen konnte wimg nicht lesen.": "wimg couldn't read %d rows.",
   "%s · Schritt %d von %d": "%s · step %d of %d",
   "Schritt %d von %d": "Step %d of %d",
+  "Auf diesem Gerät ist kein Gerätecode eingerichtet. Richte ihn in den iOS-Einstellungen ein.":
+    "This device has no passcode. Set one up in the iOS settings.",
+  "Beim Öffnen mit Face ID entsperren": "Unlock with Face ID when opening",
+  "Beim Öffnen mit Touch ID entsperren": "Unlock with Touch ID when opening",
+  "Beim Öffnen mit dem Gerätecode entsperren": "Unlock with the device passcode when opening",
   "Auf GitHub": "On GitHub",
   "Auf diesem iPhone": "On this iPhone",
   "Alles: Umsätze, Kategorien, Regeln und, wenn du sie merkst, deine Bank-PIN im Schlüsselbund von iOS.":

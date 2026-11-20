@@ -7,10 +7,6 @@ import WimgI18n
 struct SettingsView: View {
     @State private var syncEnabled = false
     @State private var syncKey = ""
-    @State private var syncing = false
-    @State private var showSyncKey = false
-    @State private var showQRSheet = false
-    @State private var showLinkSheet = false
     @State private var periods: Periods?
 
     @State private var showExport = false
@@ -21,17 +17,7 @@ struct SettingsView: View {
 
     @ObservedObject private var biometricLock = BiometricLock.shared
     @AppStorage("wimg_lock_enabled") private var lockEnabled = false
-    /// Mirrored in the App Group so the widget process sees the same value.
-    @State private var widgetMaskAmounts: Bool =
-        UserDefaults(suiteName: "group.com.wimg.app")?.bool(forKey: "wimg_widget_mask_amounts") ?? false
-
     private var themeManager = ThemeManager.shared
-
-    /// Matches the web mask: first 4 + middle hyphenated dots + last 4.
-    private var maskedSyncKey: String {
-        guard syncKey.count > 8 else { return syncKey }
-        return syncKey.prefix(4) + "••••-••••-••••-" + syncKey.suffix(4)
-    }
 
     var body: some View {
         BandScreen(title: L("Einstellungen"), pushed: true) {
@@ -53,11 +39,9 @@ struct SettingsView: View {
             case .period: SettingsPeriodView()
             case .language: SettingsLanguageView()
             case .notifications: NotificationSettingsView()
+            case .sync: SyncSettingsView()
+            case .lock: LockSettingsView()
             }
-        }
-        .sheet(isPresented: $showQRSheet) { SyncQRSheet(syncKey: syncKey) }
-        .sheet(isPresented: $showLinkSheet) {
-            SyncLinkSheet(onLinked: { Task { await loadSync() } })
         }
         .confirmationDialog(L("Daten exportieren"), isPresented: $showExport) {
             Button(L("Transaktionen (CSV)")) { exportData(format: "csv") }
@@ -136,52 +120,14 @@ struct SettingsView: View {
     @ViewBuilder private var sync: some View {
         GroupLabel(text: L("Synchronisierung"))
         WimgGroup {
-            if syncEnabled {
-                NavigationLink(value: MorePage.devices) {
-                    WimgRow(title: L("wimg Sync"), desc: L("Ende-zu-Ende-verschlüsselt zwischen deinen Geräten, ohne Konto"), chevron: true) {
-                        EmptyView()
-                    } trailing: {
-                        statusValue(on: true)
-                    }
-                }
-                .buttonStyle(.plain)
-                RowDivider()
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(L("Sync-Schlüssel")).wimgStyle(WimgType.rowTitle).foregroundStyle(Wimg.text)
-                        Text(showSyncKey ? syncKey : maskedSyncKey)
-                            .wimgStyle(WimgType.mono).foregroundStyle(Wimg.text2)
-                            .lineLimit(1).truncationMode(.middle)
-                            .textSelection(.enabled)
-                    }
-                    Spacer(minLength: 4)
-                    iconButton(showSyncKey ? "eye.slash" : "eye",
-                               showSyncKey ? L("Sync-Schlüssel verbergen") : L("Sync-Schlüssel anzeigen")) { showSyncKey.toggle() }
-                    iconButton("doc.on.doc", L("Sync-Schlüssel kopieren")) {
-                        UIPasteboard.general.string = syncKey
-                        Dock.shared.info(L("Schlüssel kopiert"))
-                    }
-                    iconButton("qrcode", L("QR-Code anzeigen")) { showQRSheet = true }
-                }
-                .padding(.horizontal, 16)
-                .frame(minHeight: 64)
-                RowDivider()
-                WimgRow(title: syncing ? L("Synchronisiere…") : L("Jetzt synchronisieren"), action: syncing ? nil : { Task { await handleSyncNow() } }) {
-                    IconTile(systemImage: "arrow.triangle.2.circlepath", tint: Wimg.accent)
-                }
-            } else {
-                WimgRow(title: L("Sync aktivieren"), desc: L("Erstellt einen Schlüssel und lädt deine Daten verschlüsselt hoch"),
-                        action: syncing ? nil : { Task { await handleEnableSync() } }) {
-                    IconTile(systemImage: "sparkles", tint: Wimg.accent)
+            NavigationLink(value: SettingsSubpage.sync) {
+                WimgRow(title: L("wimg Sync"), desc: L("Ende-zu-Ende-verschlüsselt zwischen deinen Geräten, ohne Konto"), chevron: true) {
+                    EmptyView()
                 } trailing: {
-                    statusValue(on: false)
-                }
-                RowDivider()
-                WimgRow(title: L("Ich nutze wimg schon"), desc: L("Sync-Schlüssel eines anderen Geräts eingeben"), chevron: true,
-                        action: { showLinkSheet = true }) {
-                    IconTile(systemImage: "link", tint: Wimg.text2)
+                    statusValue(on: syncEnabled)
                 }
             }
+            .buttonStyle(.plain)
         }
         if !syncEnabled && SyncService.wasRemoved {
             QuietLine(text: L("Dieses Gerät ist nicht mehr verknüpft: es wurde entfernt oder der Schlüssel ersetzt. Deine Daten sind noch hier."),
@@ -215,19 +161,19 @@ struct SettingsView: View {
             .opacity(hasSavedFintsCreds ? 1 : 0.6)
             .padding(.horizontal, 16)
             .frame(minHeight: 72)
-            RowDivider()
-            NavigationLink(value: SettingsSubpage.notifications) {
-                WimgRow(title: L("Mitteilungen"), desc: L("Was wimg dir meldet, und wann nicht"), chevron: true)
-            }
-            .buttonStyle(.plain)
         }
     }
 
     @ViewBuilder private var accounts: some View {
-        GroupLabel(text: L("Konten"))
+        GroupLabel(text: L("Konten und Mitteilungen"))
         WimgGroup {
             NavigationLink(value: MorePage.accounts) {
                 WimgRow(title: L("Konten"), desc: L("Ein- und ausblenden, umbenennen"), chevron: true)
+            }
+            .buttonStyle(.plain)
+            RowDivider()
+            NavigationLink(value: SettingsSubpage.notifications) {
+                WimgRow(title: L("Mitteilungen"), desc: L("Monatsabschluss, neue Umsätze, Preise, TAN"), chevron: true)
             }
             .buttonStyle(.plain)
         }
@@ -236,34 +182,14 @@ struct SettingsView: View {
     @ViewBuilder private var security: some View {
         GroupLabel(text: L("Sicherheit"))
         WimgGroup {
-            Toggle(isOn: Binding(get: { lockEnabled }, set: { v in
-                lockEnabled = v
-                biometricLock.setEnabled(v)
-            })) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(L("App-Sperre")).wimgStyle(WimgType.rowTitle).foregroundStyle(Wimg.text)
-                    Text(lockSubtitle).wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2)
+            NavigationLink(value: SettingsSubpage.lock) {
+                WimgRow(title: L("App-Sperre"), desc: lockSubtitle, chevron: true) {
+                    EmptyView()
+                } trailing: {
+                    valueText(lockEnabled ? L("An") : L("Aus"))
                 }
             }
-            .toggleStyle(.wimg)
-            .disabled(biometricLock.availableMethod == .none)
-            .padding(.horizontal, 16)
-            .frame(minHeight: 64)
-            RowDivider()
-            Toggle(isOn: Binding(get: { widgetMaskAmounts }, set: { v in
-                widgetMaskAmounts = v
-                UserDefaults(suiteName: "group.com.wimg.app")?.set(v, forKey: "wimg_widget_mask_amounts")
-                WidgetCenter.shared.reloadAllTimelines()
-            })) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(L("Beträge in Widgets ausblenden")).wimgStyle(WimgType.rowTitle).foregroundStyle(Wimg.text)
-                    Text(L("Zeigt ••• € statt echter Beträge. Sperrbildschirm-Widget wird zusätzlich von iOS verdeckt, wenn das Gerät gesperrt ist."))
-                        .wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2)
-                }
-            }
-            .toggleStyle(.wimg)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .buttonStyle(.plain)
         }
     }
 
@@ -352,18 +278,6 @@ struct SettingsView: View {
         }
     }
 
-    private func iconButton(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Wimg.text2)
-                .frame(width: 36, height: 36)
-                .background(Wimg.neutralTint, in: RoundedRectangle(cornerRadius: WimgShape.iconTile, style: .continuous))
-        }
-        .buttonStyle(.wimgPress)
-        .accessibilityLabel(label)
-    }
-
     private var lockSubtitle: String {
         switch biometricLock.availableMethod {
         case .faceID: L("Mit Face ID schützen")
@@ -383,36 +297,6 @@ struct SettingsView: View {
             syncEnabled = false
             syncKey = ""
         }
-    }
-
-    private func handleEnableSync() async {
-        let key = UUID().uuidString.lowercased() // lowercase: typed on Android too
-        SyncService.shared.setSyncKey(key)
-        syncKey = key
-        syncEnabled = true
-        syncing = true
-        do {
-            _ = try await SyncService.shared.push()
-            await SyncService.shared.connectWebSocket()
-            Dock.shared.info(L("Sync aktiv"), sub: L("Deine Daten sind verschlüsselt hochgeladen."))
-        } catch {
-            Dock.shared.error(L("Nicht synchron"), sub: L("Keine Verbindung zum Sync-Server. Später erneut versuchen."))
-        }
-        syncing = false
-    }
-
-    private func handleSyncNow() async {
-        guard !syncKey.isEmpty else { return }
-        syncing = true
-        do {
-            let r = try await SyncService.shared.syncFull()
-            Dock.shared.info(L("Synchron"), sub: r.pulled > 0 ? L("%d Änderungen übernommen", r.pulled) : nil)
-            if r.pulled > 0 { Changes.bump() }
-        } catch {
-            Dock.shared.error(L("Nicht synchron"), sub: L("Keine Verbindung zum Sync-Server. Später erneut versuchen."))
-        }
-        await loadSync()
-        syncing = false
     }
 
     private func autoCategorize() {
@@ -476,4 +360,4 @@ struct SettingsView: View {
 }
 
 /// Pages pushed from Einstellungen (the rest are MorePage values).
-enum SettingsSubpage: Hashable { case period, language, notifications }
+enum SettingsSubpage: Hashable { case period, language, notifications, sync, lock }

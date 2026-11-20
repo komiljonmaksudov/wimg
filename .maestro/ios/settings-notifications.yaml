@@ -5,8 +5,8 @@ appId: com.wimg.app
 - tapOn: "Mehr"
 - tapOn: "Einstellungen"
 - scrollUntilVisible:
-    element: "Was wimg dir meldet, und wann nicht"
+    element: "Monatsabschluss, neue Umsätze, Preise, TAN"
     centerElement: true
-- tapOn: "Was wimg dir meldet, und wann nicht"
+- tapOn: "Monatsabschluss, neue Umsätze, Preise, TAN"
 - tapOn: "22:00 – 8:00"
 - assertVisible: "Ruhezeit"

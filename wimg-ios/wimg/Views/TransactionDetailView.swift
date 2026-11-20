@@ -53,9 +53,9 @@ struct TransactionDetailView: View {
                 Text(accountName).wimgStyle(WimgType.desc).foregroundStyle(Wimg.bandSub).padding(.top, 4)
             }
         } sheet: {
-            WimgGroup {
+            VStack(spacing: 0) {
                 infoRow(L("Datum"), WimgDates.full(tx.date))
-                RowDivider()
+                FlatDivider()
                 Button { showCategory = true } label: {
                     HStack(spacing: 8) {
                         Text(L("Kategorie")).wimgStyle(WimgType.body).foregroundStyle(Wimg.text2)
@@ -66,16 +66,16 @@ struct TransactionDetailView: View {
                             Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold)).foregroundStyle(Wimg.text3)
                         }
                     }
-                    .padding(.horizontal, 16)
                     .frame(minHeight: WimgDimens.rowMinHeight)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(isPending)
                 .accessibilityElement(children: .combine)
+                FlatDivider()
                 if !accountName.isEmpty {
-                    RowDivider()
                     infoRow(L("Konto"), accountName)
+                    FlatDivider()
                 }
             }
 
@@ -100,18 +100,15 @@ struct TransactionDetailView: View {
                 QuietLine(text: L("Noch nicht gebucht. Die Bank kann Betrag oder Text noch ändern; bis zur Buchung zählt er nirgends mit."))
                     .padding(.top, 10)
             } else {
-                Spacer().frame(height: 16)
-                WimgGroup {
-                    Toggle(isOn: Binding(get: { tx.isExcluded }, set: { setExcluded(tx, $0) })) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(L("Aus Summen ausschließen")).wimgStyle(WimgType.rowTitle).foregroundStyle(Wimg.text)
-                            Text(L("Zählt dann nicht in der Übersicht")).wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2)
-                        }
+                FlatDivider().padding(.top, 20)
+                Toggle(isOn: Binding(get: { tx.isExcluded }, set: { setExcluded(tx, $0) })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L("Aus Summen ausschließen")).wimgStyle(WimgType.rowTitle).foregroundStyle(Wimg.text)
+                        Text(L("Zählt dann nicht in der Übersicht")).wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2)
                     }
-                    .toggleStyle(.wimg)
-                    .padding(.horizontal, 16)
-                    .frame(minHeight: 64)
                 }
+                .toggleStyle(.wimg)
+                .frame(minHeight: 72)
             }
         }
         .sheet(isPresented: $showCategory) {
@@ -143,7 +140,6 @@ struct TransactionDetailView: View {
             Spacer(minLength: 12)
             Text(value).wimgStyle(WimgType.body).foregroundStyle(Wimg.text).multilineTextAlignment(.trailing)
         }
-        .padding(.horizontal, 16)
         .frame(minHeight: WimgDimens.rowMinHeight)
         .accessibilityElement(children: .combine)
     }
