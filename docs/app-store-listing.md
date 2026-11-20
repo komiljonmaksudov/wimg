@@ -3,8 +3,10 @@
 Copy-paste source for App Store Connect (iPhone only). German is the primary
 language, English the second. Limits: name 30, subtitle 30, promotional text 170,
 keywords 100 (comma-separated, no spaces needed), description 4000 characters.
-Screenshots: `docs/app-store/<lang>/` (6.9", 1320 × 2868, demo data only), made by
-`.maestro/store/screens.yaml` (command in that file).
+Screenshots: `docs/app-store/<lang>/6.3/` (1206 × 2622, the **required** size since
+Apple's 2026 rules) and `docs/app-store/<lang>/6.9/` (1320 × 2868, optional), demo data
+only, made by `.maestro/store/screens.yaml` (command in that file; 6.3 is the default
+simulator, 6.9 needs `WIMG_IOS_SIM=wimg-store WIMG_IOS_MODEL="iPhone 16 Pro Max"`).
 
 ## Store listing
 
