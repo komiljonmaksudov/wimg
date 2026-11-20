@@ -78,6 +78,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import com.wimg.app.ui.components.SquirrelMoment
 import com.wimg.app.i18n.__t
 import com.wimg.app.ui.theme.LocaleState
@@ -1155,7 +1157,12 @@ private fun BandFigure(pose: SquirrelPose, line: String, periodDays: Int, dayInd
     // Below 380 dp of width the figure shrinks to 88 % (board).
     val narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 380
     val size = if (narrow) 99.dp else 112.dp
-    Box(Modifier.size(size)) {
+    // Room left of the ring, so the bubble never runs off the screen (narrow phones, long German lines).
+    var room by remember { mutableStateOf(236.dp) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    Box(Modifier.size(size).onGloballyPositioned { c ->
+        room = with(density) { (c.positionInWindow().x.toDp() + 10.dp - 16.dp).coerceIn(140.dp, 236.dp) }
+    }) {
         com.wimg.app.ui.components.SquirrelRing(
             frame = frame, periodDays = periodDays, dayIndex = dayIndex, noSpendDays = noSpend,
             size = size, blink = blink, ghostPrices = prices,
@@ -1164,13 +1171,13 @@ private fun BandFigure(pose: SquirrelPose, line: String, periodDays: Int, dayInd
         Box(Modifier.matchParentSize().clip(CircleShape).pressable(label = L("Eichhörnchen: Zustand erklären")) {
             if (line.isNotEmpty()) bubble = if (bubble?.text == line) null else Bubble(line)
         })
-        SquirrelBubble(bubble, Modifier.align(Alignment.CenterStart))
+        SquirrelBubble(bubble, room, size, Modifier.align(Alignment.CenterStart))
     }
 }
 
 /** The squirrel's speech bubble, left of the ring and pointing at it; grows from its tail. */
 @Composable
-private fun SquirrelBubble(bubble: Bubble?, modifier: Modifier = Modifier) {
+private fun SquirrelBubble(bubble: Bubble?, room: androidx.compose.ui.unit.Dp, ring: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier) {
     var last by remember { mutableStateOf(bubble) }
     if (bubble != null) last = bubble
     androidx.compose.animation.AnimatedVisibility(
@@ -1181,15 +1188,16 @@ private fun SquirrelBubble(bubble: Bubble?, modifier: Modifier = Modifier) {
         modifier = modifier
             // Hangs out to the left of the ring, over the amount, without taking room.
             .layout { m, cs ->
-                val p = m.measure(cs.copy(minWidth = 0, maxWidth = 236.dp.roundToPx()))
-                layout(0, 0) { p.place(-p.width + 10.dp.roundToPx(), -p.height / 2) }
+                val p = m.measure(cs.copy(minWidth = 0, maxWidth = room.roundToPx()))
+                // Centred on the ring, but never higher than its top: a tall bubble grows down, not into the status bar.
+                layout(0, 0) { p.place(-p.width + 10.dp.roundToPx(), maxOf(-p.height / 2, -ring.roundToPx() / 2)) }
             },
     ) {
         val b = last ?: return@AnimatedVisibility
         val c = Wimg.colors
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(
-                Modifier.widthIn(max = 220.dp)
+                Modifier.widthIn(max = room - 8.dp)
                     .shadow(10.dp, RoundedCornerShape(16.dp), ambientColor = Color.Black.copy(alpha = 0.3f), spotColor = Color.Black.copy(alpha = 0.3f))
                     .clip(RoundedCornerShape(16.dp)).background(Color.White).padding(horizontal = 14.dp, vertical = 10.dp),
             ) {

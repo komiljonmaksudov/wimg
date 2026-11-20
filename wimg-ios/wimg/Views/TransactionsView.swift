@@ -149,6 +149,11 @@ struct TransactionsView: View {
     @State private var filtered: [Transaction] = []
     @State private var groups: [(date: String, txs: [Transaction])] = []
     @State private var shownPending: [Transaction] = []
+    /// before[i] = sum of rows 0 until i of `filtered`; and each row's position.
+    @State private var before: [Double] = [0]
+    @State private var indexOf: [String: Int] = [:]
+    /// Rows scrolled up past the top (under the band); the first row below them is "top".
+    @State private var passed = Set<Int>()
 
     @State private var showFilter = false
     @State private var showManual = false
@@ -225,8 +230,16 @@ struct TransactionsView: View {
         return filter.isActive ? L("Summe der Treffer") : L("Summe der Umsätze")
     }
 
+    /// As Android: the value at the topmost visible row. With a bank balance it
+    /// is the balance after that row (walking back through history); without
+    /// one, that row and everything older. Filtered: the total of every match,
+    /// standing still while scrolling.
     private var total: Double {
-        anchored ? (balance ?? 0) : filtered.reduce(0) { $0 + $1.amount }
+        let n = before.count - 1
+        let top = min((passed.max() ?? -1) + 1, n)
+        if anchored { return (balance ?? 0) - before[top] }
+        if filter.isActive { return before[n] }
+        return before[n] - before[top]
     }
 
     private var countLine: String {
@@ -344,6 +357,11 @@ struct TransactionsView: View {
             ForEach(Array(group.txs.enumerated()), id: \.element.id) { i, tx in
                 if i > 0 { FlatDivider() }
                 TxRow(tx: tx) { path.append(TxRoute(id: tx.id)) }
+                    // Flips only when the row passes under the pinned bar.
+                    .onGeometryChange(for: Bool.self) { $0.frame(in: .named("bandScroll")).maxY < 130 } action: { above in
+                        guard let idx = indexOf[tx.id] else { return }
+                        if above { passed.insert(idx) } else { passed.remove(idx) }
+                    }
             }
         }
     }
@@ -404,9 +422,18 @@ struct TransactionsView: View {
             }
             return (list, grouped, pend.filter { f.matches($0, recurringIds: ids) })
         }.value
+        let (b, idx) = await Task.detached {
+            var b = [0.0]; b.reserveCapacity(list.count + 1)
+            var idx: [String: Int] = [:]; idx.reserveCapacity(list.count)
+            for (i, t) in list.enumerated() { b.append(b[i] + t.amount); idx[t.id] = i }
+            return (b, idx)
+        }.value
         filtered = list
         groups = grouped
         shownPending = p
+        before = b
+        indexOf = idx
+        passed = []
     }
 
     /// Category → sum of the rows that pass every filter but the category one.

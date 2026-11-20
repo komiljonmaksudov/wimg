@@ -68,7 +68,7 @@ struct SquirrelView: View {
             .onTapGesture { if !line.isEmpty { show(bubble == line ? nil : line) } }
             // As on Android: a white bubble left of the ring, pointing at it,
             // over the amount without taking room.
-            .overlay(alignment: .leading) {
+            .overlay(alignment: .trailing) {
                 if let text = bubble {
                     HStack(spacing: 0) {
                         VStack(alignment: .leading, spacing: 6) {
@@ -83,9 +83,9 @@ struct SquirrelView: View {
                         .shadow(color: .black.opacity(0.3), radius: 10, y: 4)
                         BubbleTail().fill(.white).frame(width: 8, height: 14)
                     }
-                    .frame(maxWidth: 228, alignment: .trailing)
                     .frame(width: 228, alignment: .trailing)
-                    .alignmentGuide(.leading) { d in d[.trailing] - 10 }
+                    // Right edge (the tail) 10 pt inside the ring's left edge.
+                    .offset(x: -(size - 10))
                     .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .trailing)))
                     .onTapGesture { withAnimation(WimgMotion.out(0.15)) { bubble = nil } }
                 }
