@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- No tracking, no tracking domains. Collected data: only with wimg Sync on, the
-     transactions go to wimg's own server end-to-end encrypted; a Claude (MCP)
-     request decrypts them on the server for that request only (as declared on Play).
-     Keep this in step with the App Store "App Privacy" answers. -->
+<!-- No tracking, no tracking domains, no collected data in Apple's sense
+     ("stored in a readable form for longer than servicing the request"): sync
+     stores only end-to-end encrypted rows; a Claude (MCP) request is decrypted in
+     memory and discarded. Keep in step with the App Store "App Privacy" answers
+     (Google Play's Data safety is stricter and does declare the MCP case). -->
 <plist version="1.0">
 <dict>
 	<key>NSPrivacyTracking</key>
@@ -11,20 +12,7 @@
 	<key>NSPrivacyTrackingDomains</key>
 	<array/>
 	<key>NSPrivacyCollectedDataTypes</key>
-	<array>
-		<dict>
-			<key>NSPrivacyCollectedDataType</key>
-			<string>NSPrivacyCollectedDataTypeOtherFinancialInfo</string>
-			<key>NSPrivacyCollectedDataTypeLinked</key>
-			<false/>
-			<key>NSPrivacyCollectedDataTypeTracking</key>
-			<false/>
-			<key>NSPrivacyCollectedDataTypePurposes</key>
-			<array>
-				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
-			</array>
-		</dict>
-	</array>
+	<array/>
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
 		<dict>

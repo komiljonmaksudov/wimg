@@ -101,16 +101,18 @@ wimg Sync (Settings) is optional and end-to-end encrypted. The camera is used on
 
 ## App Privacy (App Store Connect) — your declaration, read before submitting
 
-Same facts as Play's Data safety (`docs/play-store-listing.md`):
-- Tracking: **No**. No third-party SDKs, analytics or ads.
-- Bank login and TAN go from the phone to the user's own bank at the user's
-  request; wimg never receives them.
-- Sync (optional): end-to-end encrypted, the server can't read it.
-- Claude via MCP (optional, the user sets it up): the server decrypts the rows in
-  memory for that request. Declared like on Play: **Financial Info → Other
-  Financial Info**, used for App Functionality, **not linked** to the user's
-  identity, not used for tracking. `wimg-ios/wimg/PrivacyInfo.xcprivacy` says the
-  same; keep the two in step.
+Answer: **"No, we do not collect data from this app."** Apple's definition
+(developer.apple.com/app-store/app-privacy-details, checked 2026-11-20): "Collect"
+means transmitting data off the device and storing it in a readable form for
+longer than it takes to service the request; data sent to a server and discarded
+after servicing the request needs no disclosure.
+- Sync: stored only end-to-end encrypted, not readable → not collected.
+- Claude via MCP (optional): decrypted in memory for one request, nothing readable
+  kept → not collected (Apple's own example). Google Play's Data safety is
+  stricter and does declare it (`docs/play-store-listing.md`).
+- Bank login and TAN: from the phone to the user's bank, never to wimg.
+- Tracking: **No**. `wimg-ios/wimg/PrivacyInfo.xcprivacy` declares no collected
+  data; keep the two in step.
 
 ## Other questions
 - Age rating: answer **None / No** everywhere.
