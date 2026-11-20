@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.1 (2026-11-20)
+
+- fix(ios): leave the export-compliance key out, App Store Connect asks per build (true without a code failed the 1.0.0 upload)
+
 ## v1.0.0 (2026-11-20)
 
 - fix(ios): the bank screens in English (21 texts had no translation); PIN deleted message no longer reads like the button
