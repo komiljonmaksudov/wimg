@@ -27,6 +27,8 @@ targets:
       base:
         SWIFT_VERSION: "5.10"
         PRODUCT_BUNDLE_IDENTIFIER: com.wimg.app
+        # iPhone only for the first App Store version (no iPad screenshots or review).
+        TARGETED_DEVICE_FAMILY: "1"
         MARKETING_VERSION: "0.9.14"
         CURRENT_PROJECT_VERSION: 1
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -79,11 +81,6 @@ targets:
           - com.wimg.app.digest
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-        UISupportedInterfaceOrientations~ipad:
-          - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationPortraitUpsideDown
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
 
   wimgWidget:
     type: app-extension
@@ -105,6 +102,7 @@ targets:
       base:
         SWIFT_VERSION: "5.10"
         PRODUCT_BUNDLE_IDENTIFIER: com.wimg.app.widget
+        TARGETED_DEVICE_FAMILY: "1"
         MARKETING_VERSION: "0.9.14"
         CURRENT_PROJECT_VERSION: 1
         CODE_SIGN_IDENTITY: "Apple Development"

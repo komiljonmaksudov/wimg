@@ -1,0 +1,124 @@
+# App Store: listing and App Store Connect answers
+
+Copy-paste source for App Store Connect (iPhone only). German is the primary
+language, English the second. Limits: name 30, subtitle 30, promotional text 170,
+keywords 100 (comma-separated, no spaces needed), description 4000 characters.
+Screenshots: `docs/app-store/<lang>/` (6.9", 1320 × 2868, demo data only), made by
+`.maestro/store/screens.yaml` (command in that file).
+
+## Store listing
+
+### Name
+`wimg – Wo ist mein Geld?`
+
+### Subtitle
+- **DE:** `Deine Bank, ohne Umweg`
+- **EN:** `Your bank, no middleman`
+
+### Promotional text
+- **DE:** `Hol deine Umsätze direkt von deiner Bank, sieh, was bis zum Gehalt bleibt, und finde Abos, die teurer werden. Alles bleibt auf deinem iPhone.`
+- **EN:** `Fetch your transactions straight from your bank, see what's left until payday and spot subscriptions that got dearer. Everything stays on your iPhone.`
+
+### Keywords
+- **DE:** `Haushaltsbuch,Finanzen,Ausgaben,Budget,FinTS,Konto,Bank,Comdirect,Sparkasse,Fixkosten,Abo,Gehalt`
+- **EN:** `budget,expenses,finance,bank,FinTS,German bank,Comdirect,Sparkasse,subscriptions,salary,spending`
+
+### Description (DE)
+
+```
+wimg zeigt dir, wo dein Geld hingeht. Deine Daten bleiben auf deinem iPhone.
+
+DIREKT VON DEINER BANK
+Hol deine Umsätze per FinTS direkt von deiner Bank, ohne Dienst dazwischen. Rund 1.700 deutsche Banken, mit TAN, photoTAN oder Freigabe in der Banking-App. Mehrere Banken gleichzeitig. Oder importiere einen Kontoauszug (MT940, CAMT) von jeder Bank oder eine CSV-Datei von Comdirect, Trade Republic, Scalable oder Revolut.
+
+WAS DU SIEHST
+• Übersicht: was bis zum Gehalt noch verfügbar ist, Sparquote, Ausgaben nach Kategorie im Vergleich zum Monat davor
+• Umsätze: alle Buchungen nach Tag, mit Suche und Filtern, vorgemerkte Umsätze getrennt
+• Wiederkehrend: erkennt Fixkosten und Abos und sagt dir Bescheid, wenn ein Preis steigt
+• Rückblick: was am Ende übrig blieb und was auffiel
+• Widgets für Home- und Sperrbildschirm, auf Wunsch ohne Beträge
+
+AUTOMATISCH SORTIERT
+wimg ordnet Umsätze per Stichwort-Regeln Kategorien zu. Ordnest du etwas von Hand zu, lernt wimg daraus.
+
+DEINE DATEN BLEIBEN BEI DIR
+• Alles wird auf deinem iPhone gespeichert. wimg funktioniert komplett offline.
+• Kein Konto, keine Werbung, kein Tracking, keine Analyse-Dienste.
+• Deine Bank-PIN wird nur auf Wunsch gespeichert, im iOS-Schlüsselbund.
+• Optionaler Abgleich zwischen deinen Geräten, Ende-zu-Ende-verschlüsselt: der Server sieht nur unlesbare Daten.
+• App-Sperre mit Face ID, Touch ID oder Gerätecode.
+
+OPEN SOURCE
+wimg ist quelloffen (MIT-Lizenz). Den Code findest du auf GitHub.
+```
+
+### Description (EN)
+
+```
+wimg shows you where your money goes. Your data stays on your iPhone.
+
+STRAIGHT FROM YOUR BANK
+Fetch your transactions directly from your bank via FinTS, with no service in between. About 1,700 German banks, with TAN, photoTAN or approval in your banking app. Several banks at once. Or import a bank statement (MT940, CAMT) from any bank, or a CSV file from Comdirect, Trade Republic, Scalable or Revolut.
+
+WHAT YOU SEE
+• Overview: what's left until payday, savings rate, spending by category compared with the month before
+• Transactions: every booking by day, with search and filters, pending bookings shown apart
+• Recurring: detects fixed costs and subscriptions and tells you when a price goes up
+• Review: what was left over at the end and what stood out
+• Widgets for the Home and Lock Screen, optionally without amounts
+
+SORTED AUTOMATICALLY
+wimg sorts transactions into categories by keyword rules. When you change one by hand, wimg learns from it.
+
+YOUR DATA STAYS WITH YOU
+• Everything is stored on your iPhone. wimg works fully offline.
+• No account, no ads, no tracking, no analytics.
+• Your bank PIN is only saved if you want, in the iOS Keychain.
+• Optional sync between your devices, end-to-end encrypted: the server only sees unreadable data.
+• App lock with Face ID, Touch ID or your passcode.
+
+OPEN SOURCE
+wimg is open source (MIT licence). The code is on GitHub.
+```
+
+### URLs
+- Privacy policy: `https://wimg.komiljonmaksudov.com/datenschutz.html`
+- Support: `https://github.com/komiljonmaksudov/wimg/issues`
+- Marketing (optional): `https://wimg.komiljonmaksudov.com`
+
+## App Review information
+
+- Sign-in required: **No**.
+- Notes (English):
+
+```
+No account or login is needed. On first start tap "Let's go", choose "Start empty", then "Look at demo data" on the empty Overview: every screen then shows invented sample data.
+
+"Connect bank" (More › Banks) talks to German banks via FinTS, the German online-banking standard (registered FinTS product ID with Die Deutsche Kreditwirtschaft). It needs the user's own German online-banking login and is optional. The login goes from the phone straight to the user's bank; it never reaches a wimg server.
+
+wimg Sync (Settings) is optional and end-to-end encrypted. The camera is used only to scan a sync key QR code.
+```
+
+## App Privacy (App Store Connect) — your declaration, read before submitting
+
+Same facts as Play's Data safety (`docs/play-store-listing.md`):
+- Tracking: **No**. No third-party SDKs, analytics or ads.
+- Bank login and TAN go from the phone to the user's own bank at the user's
+  request; wimg never receives them.
+- Sync (optional): end-to-end encrypted, the server can't read it.
+- Claude via MCP (optional, the user sets it up): the server decrypts the rows in
+  memory for that request. Declared like on Play: **Financial Info → Other
+  Financial Info**, used for App Functionality, **not linked** to the user's
+  identity, not used for tracking. `wimg-ios/wimg/PrivacyInfo.xcprivacy` says the
+  same; keep the two in step.
+
+## Other questions
+- Age rating: answer **None / No** everywhere.
+- Price: free; all countries where German banks matter, or all.
+- EU Digital Services Act trader status: free app, no income → **not a trader**
+  (otherwise Apple shows address and phone). Revisit if wimg earns money.
+- Export compliance: **open** — libwimg encrypts sync data itself
+  (XChaCha20-Poly1305, standard algorithm), not with Apple's crypto. Check Apple's
+  "Complying with Encryption Export Regulations" before answering; then set
+  `ITSAppUsesNonExemptEncryption` in `wimg-ios/project.yml` and the note in
+  `.claude/rules/testflight.md` to match.

@@ -30,13 +30,18 @@
 
 ## Encryption Compliance
 
-Select "None of the algorithms mentioned above" — the app uses only standard
-Apple-provided encryption (HTTPS/TLS).
+Open (2026-11-20): libwimg encrypts sync data itself (XChaCha20-Poly1305, a
+standard algorithm), not with Apple's crypto, so "None of the algorithms" (and
+`ITSAppUsesNonExemptEncryption: false`) may be wrong. Check Apple's "Complying
+with Encryption Export Regulations" before the first App Store submission and
+update both. Store listing and answers: `docs/app-store-listing.md`.
 
 ## Notes
 
 - Internal testing: up to 100 testers, no Apple review, builds available immediately after processing
 - External testing: up to 10,000 testers, first build requires beta review (~24h)
+- Privacy manifests: `wimg/PrivacyInfo.xcprivacy`, `wimgWidget/PrivacyInfo.xcprivacy`
+  (UserDefaults reasons CA92.1 + 1C8F.1; keep the collected data in step with App Privacy)
 - `embed: false` for libwimg.xcframework — it's a static library (.a), linked at compile time
 - App icon must be 1024x1024 PNG with no alpha channel
-- iPad builds require all 4 orientation entries in Info.plist
+- iPhone only (`TARGETED_DEVICE_FAMILY: "1"`, 2026-11-20): no iPad screenshots or iPad review

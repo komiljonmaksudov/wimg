@@ -1,0 +1,33 @@
+# App Store screenshots (6.9", demo data only). Not a test: run with
+#   WIMG_IOS_SIM=wimg-store WIMG_IOS_MODEL="iPhone 16 Pro Max" WIMG_IOS_LOCALE=de scripts/maestro ios .maestro/store/screens.yaml
+# Labels are matched in either language. Copy the PNGs to docs/app-store/<lang>/.
+appId: com.wimg.app
+---
+- launchApp
+- tapOn: "Beispieldaten ansehen|Look at demo data"
+# The squirrel's moment shows a bubble over the amount for a few seconds: let it go.
+- extendedWaitUntil:
+    notVisible: "Hab dich.*|Gotcha.*|.*Gehalt ist da.*|.*Salary.s in.*"
+    timeout: 12000
+    optional: true
+- waitForAnimationToEnd
+- takeScreenshot: 1-overview
+- tapOn: "Umsätze|Transactions"
+- waitForAnimationToEnd
+- takeScreenshot: 2-transactions
+- tapOn: "Wiederkehrend|Recurring"
+- waitForAnimationToEnd
+- takeScreenshot: 3-recurring
+- tapOn: "Übersicht|Overview"
+- tapOn: "Mehr|More"
+- tapOn: "Rückblick|Review"
+- tapOn:
+    text: "Überspringen|Skip"
+    optional: true
+- waitForAnimationToEnd
+- takeScreenshot: 4-review
+- tapOn: "Mehr|More"
+- tapOn: "Mehr|More"
+- tapOn: "Banken|Banks"
+- waitForAnimationToEnd
+- takeScreenshot: 5-banks

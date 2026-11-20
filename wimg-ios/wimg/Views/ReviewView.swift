@@ -125,6 +125,8 @@ struct ReviewView: View {
             (Text(a) + Text(amount).foregroundStyle(net < 0 ? Wimg.bandNeg : Wimg.bandPos) + Text(b))
                 .font(WimgType.title.font).tracking(WimgType.title.tracking)
                 .foregroundStyle(.white)
+                // Wraps instead of "Vom Gehalt sind noc…" next to the period button.
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 6)
         } else {
             Text(L("In diesem Zeitraum gibt es noch keine Umsätze."))
