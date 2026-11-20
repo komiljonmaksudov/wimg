@@ -302,6 +302,7 @@ private val translations: Map<String, String> = mapOf(
     "%d Zeilen konnte wimg nicht lesen." to "wimg couldn't read %d rows.",
     "%s · Schritt %d von %d" to "%s · step %d of %d",
     "Schritt %d von %d" to "Step %d of %d",
+    "In der App-Übersicht und bei Bildschirmaufnahmen" to "In the app switcher and in screen recordings",
     "Auf diesem Gerät ist kein Gerätecode eingerichtet. Richte ihn in den iOS-Einstellungen ein." to "This device has no passcode. Set one up in the iOS settings.",
     "Beim Öffnen mit Face ID entsperren" to "Unlock with Face ID when opening",
     "Beim Öffnen mit Touch ID entsperren" to "Unlock with Touch ID when opening",

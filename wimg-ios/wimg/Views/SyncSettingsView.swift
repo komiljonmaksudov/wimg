@@ -175,8 +175,28 @@ struct LockSettingsView: View {
                 QuietLine(text: L("Auf diesem Gerät ist kein Gerätecode eingerichtet. Richte ihn in den iOS-Einstellungen ein."),
                           systemImage: "exclamationmark.triangle", color: Wimg.warn)
             }
+            GroupLabel(text: L("Sperren nach"))
+            Picker(L("Sperren nach"), selection: Binding(get: { biometricLock.lockAfterMs }, set: { biometricLock.setLockAfter($0) })) {
+                Text(L("Sofort")).tag(0)
+                Text(L("1 Min.")).tag(60_000)
+                Text(L("5 Min.")).tag(300_000)
+                Text(L("15 Min.")).tag(900_000)
+            }
+            .pickerStyle(.segmented)
+            .disabled(!lockEnabled)
+
             GroupLabel(text: L("Privatsphäre"))
             WimgGroup {
+                Toggle(isOn: Binding(get: { biometricLock.secureScreen }, set: { biometricLock.setSecureScreen($0) })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L("Beträge ausblenden")).wimgStyle(WimgType.rowTitle).foregroundStyle(Wimg.text)
+                        Text(L("In der App-Übersicht und bei Bildschirmaufnahmen")).wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2)
+                    }
+                }
+                .toggleStyle(.wimg)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 64)
+                RowDivider()
                 Toggle(isOn: Binding(get: { widgetMaskAmounts }, set: { v in
                     widgetMaskAmounts = v
                     UserDefaults(suiteName: "group.com.wimg.app")?.set(v, forKey: "wimg_widget_mask_amounts")

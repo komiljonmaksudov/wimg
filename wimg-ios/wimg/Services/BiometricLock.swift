@@ -1,6 +1,7 @@
 import Foundation
 import LocalAuthentication
 import SwiftUI
+import UIKit
 
 /// Biometric (Face ID / Touch ID) app lock.
 ///
@@ -29,7 +30,43 @@ final class BiometricLock: ObservableObject {
     /// password manager) don't fire the lock; only absences longer than
     /// `backgroundGrace` do. Mirrors the web build's 30-second grace.
     private var backgroundedAt: Date?
-    private let backgroundGrace: TimeInterval = 30
+
+    /// "Sperren nach" (as Android): how long wimg may be away before it locks.
+    static let lockAfterKey = "wimg_lock_after_ms"
+    static let lockAfterSteps: [Int] = [0, 60_000, 300_000, 900_000]
+    @Published var lockAfterMs: Int = UserDefaults.standard.object(forKey: "wimg_lock_after_ms") as? Int ?? 60_000
+
+    func setLockAfter(_ ms: Int) {
+        lockAfterMs = ms
+        UserDefaults.standard.set(ms, forKey: Self.lockAfterKey)
+    }
+
+    /// "Beträge ausblenden" (as Android's secure screen): cover wimg in the app
+    /// switcher and while the screen is recorded or mirrored. iOS lets no app
+    /// block screenshots. Unset: follows the lock, as on Android.
+    static let secureScreenKey = "wimg_secure_screen"
+    @Published var secureScreen: Bool = UserDefaults.standard.object(forKey: "wimg_secure_screen") as? Bool
+        ?? UserDefaults.standard.bool(forKey: "wimg_lock_enabled")
+
+    func setSecureScreen(_ on: Bool) {
+        secureScreen = on
+        UserDefaults.standard.set(on, forKey: Self.secureScreenKey)
+        updateCaptured()
+    }
+
+    /// The screen is being recorded or mirrored.
+    @Published private(set) var captured = false
+
+    func updateCaptured() {
+        captured = secureScreen && UIScreen.main.isCaptured
+    }
+
+    private init() {
+        NotificationCenter.default.addObserver(forName: UIScreen.capturedDidChangeNotification, object: nil, queue: .main) { _ in
+            Task { @MainActor in BiometricLock.shared.updateCaptured() }
+        }
+        Task { @MainActor in updateCaptured() }
+    }
 
     var isEnabled: Bool {
         UserDefaults.standard.bool(forKey: "wimg_lock_enabled")
@@ -87,7 +124,7 @@ final class BiometricLock: ObservableObject {
     func handleScenePhase(_ phase: ScenePhase) {
         switch phase {
         case .background:
-            showPrivacyOverlay = true
+            showPrivacyOverlay = secureScreen
             // Record the start of a background interval instead of locking
             // immediately. The lock is decided when we come back to .active.
             if isEnabled, backgroundedAt == nil {
@@ -95,12 +132,12 @@ final class BiometricLock: ObservableObject {
             }
         case .inactive:
             // App switcher snapshot is taken in `.inactive` — cover the UI.
-            showPrivacyOverlay = true
+            showPrivacyOverlay = secureScreen
         case .active:
             showPrivacyOverlay = false
             if isEnabled, let at = backgroundedAt {
                 let elapsed = Date().timeIntervalSince(at)
-                if elapsed >= backgroundGrace {
+                if elapsed * 1000 >= Double(lockAfterMs) {
                     isLocked = true
                 }
             }

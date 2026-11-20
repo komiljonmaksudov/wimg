@@ -35,7 +35,7 @@ struct wimgApp: App {
                     LockScreen(lock: lock)
                         .transition(.opacity)
                 }
-                if lock.showPrivacyOverlay {
+                if lock.showPrivacyOverlay || lock.captured {
                     PrivacyOverlay()
                         .transition(.opacity)
                 }
