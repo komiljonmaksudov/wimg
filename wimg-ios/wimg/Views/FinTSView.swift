@@ -297,7 +297,7 @@ struct FinTSView: View {
         rememberPIN = false
         refreshCachedKeychainState()
         BackgroundRefresh.cancel()
-        Dock.shared.info(L("PIN vergessen"))
+        Dock.shared.info(L("PIN gelöscht"))
     }
 
     // MARK: - Pieces
