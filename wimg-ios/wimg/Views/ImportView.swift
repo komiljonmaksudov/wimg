@@ -2,586 +2,307 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WimgI18n
 
+/// Import in three steps, as Android's ImportScreen: choose a file (with how to
+/// get it from each bank), preview what is new, done. Nothing is written
+/// before "importieren".
 struct ImportView: View {
     var onViewTransactions: (() -> Void)?
 
-    enum Stage {
-        case idle
-        case preview
-        case imported
+    private enum Step { case source, preview, done }
+
+    private struct Source {
+        let format, name, account: String
+        let steps: [String]
     }
 
-    @State private var stage: Stage = .idle
-    @State private var isPickerPresented = false
-    @State private var isParsing = false
-    @State private var isImporting = false
-    @State private var errorMessage: String?
+    private static let sources: [Source] = [
+        Source(format: "comdirect", name: "Comdirect", account: "Girokonto",
+               steps: ["Bei Comdirect im Browser anmelden.", "Umsätze des Girokontos öffnen und als CSV exportieren.", "Die Datei hier auswählen. Sie bleibt auf deinem Gerät."]),
+        Source(format: "trade_republic", name: "Trade Republic", account: "Verrechnungskonto",
+               steps: ["In der Trade-Republic-App oder im Browser das Profil öffnen.", "Unter Transaktionen den Export als CSV anfordern.", "Die Datei hier auswählen. Sie bleibt auf deinem Gerät."]),
+        Source(format: "scalable_capital", name: "Scalable", account: "Verrechnungskonto",
+               steps: ["Bei Scalable Capital im Browser anmelden.", "Unter Transaktionen die Umsätze als CSV exportieren.", "Die Datei hier auswählen. Sie bleibt auf deinem Gerät."]),
+        Source(format: "revolut", name: "Revolut", account: "Konto (CSV)",
+               steps: ["In der Revolut-App das Konto öffnen, dann ⋯ und „Kontoauszug“.", "„Excel“ wählen (das ist eine CSV-Datei) und den Zeitraum.", "Die Datei hier auswählen. Sie bleibt auf deinem Gerät."]),
+        Source(format: "statement", name: "Andere Bank", account: "Kontoauszug als MT940 oder CAMT",
+               steps: ["Im Online-Banking deiner Bank die Umsätze oder Kontoauszüge öffnen.", "Als MT940 (.sta) oder CAMT (.xml) exportieren. Oft heißt das „Export für Finanzsoftware“.", "Die Datei hier auswählen. Sie bleibt auf deinem Gerät."]),
+    ]
 
-    // Preview state
-    @State private var parseResult: ParseResult?
-    @State private var csvData: Data?
-    /// The chosen file is an MT940 or CAMT statement, not a CSV.
-    @State private var isStatement = false
-
-    // Post-import state
-    @State private var importResult: ImportResult?
-
-    // Multi-file queue
-    @State private var fileQueue: [URL] = []
-    @State private var queueIndex = 0
-
-    // Auto-categorize state
-    @State private var rulesCategorizedCount: Int?
-
-    private var previewTotals: (income: Double, expenses: Double) {
-        guard let txns = parseResult?.transactions else { return (0, 0) }
-        var income = 0.0
-        var expenses = 0.0
-        for txn in txns {
-            if txn.amount >= 0 { income += txn.amount }
-            else { expenses += txn.amount }
-        }
-        return (income, expenses)
+    /// A read file waiting for confirmation.
+    private struct Picked {
+        let name: String
+        let data: Data
+        let format: String
+        let rows: [Transaction]
+        let duplicates: Int
+        let statement: Bool
+        let account: String
     }
+
+    @State private var step: Step = .source
+    @State private var openHelp: Int?
+    @State private var picked: Picked?
+    @State private var result: ImportResult?
+    @State private var busy = false
+    @State private var error: String?
+    @State private var showPicker = false
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-            ScrollView {
-                VStack(spacing: 20) {
-                    if fileQueue.count > 1 {
-                        Text(#L("Datei \(queueIndex + 1) von \(fileQueue.count)"))
-                            .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
-                            .foregroundStyle(WimgTheme.textSecondary)
-                    }
-
-                    if stage == .idle || stage == .preview {
-                        filePickerCard
-                    }
-
-                    if let error = errorMessage {
-                        errorCard(error)
-                    }
-
-                    if stage == .preview, let result = parseResult {
-                        previewSection(result)
-                    }
-
-                    if stage == .imported, let result = importResult {
-                        importedSection(result)
-                        categorizationSection
-                    }
-
-                    if stage == .idle {
-                        supportedFormats
-                    }
-                }
-                .padding(.top, 20)
-                .padding(.bottom, 40)
-            }
-            .background(WimgTheme.bg)
-            .navigationTitle("Import")
-            .fileImporter(
-                isPresented: $isPickerPresented,
-                // CSV, and statement files: MT940 (.sta, .mt940, .txt) and CAMT (.xml).
-                allowedContentTypes: [.commaSeparatedText, .xml, .plainText]
-                    + ["csv", "sta", "mt940", "camt"].compactMap { UTType(filenameExtension: $0) },
-                allowsMultipleSelection: true
-            ) { result in
-                handleFileImport(result)
-            }
-    }
-
-    // MARK: - File Picker Card
-
-    private var filePickerCard: some View {
-        VStack(spacing: 20) {
-            ZStack {
-                Circle()
-                    .fill(WimgTheme.accent.opacity(0.2))
-                    .frame(width: 80, height: 80)
-                Image(systemName: "doc.badge.arrow.up")
-                    .font(.system(size: 32))
-                    .foregroundStyle(WimgTheme.text)
-            }
-
-            VStack(spacing: 6) {
-                Text(#L("Kontoauszug oder CSV"))
-                    .font(WimgFont.font(.manrope, .bold, 20, relativeTo: .title3))
-                    .foregroundStyle(WimgTheme.text)
-
-                Text(#L("Kontoauszug als MT940 oder CAMT, oder eine CSV von Comdirect, Trade Republic oder Scalable Capital"))
-                    .font(WimgFont.font(.inter, .regular, 15, relativeTo: .subheadline))
-                    .foregroundStyle(WimgTheme.textSecondary)
-                    .multilineTextAlignment(.center)
-            }
-
-            Button {
-                isPickerPresented = true
-            } label: {
-                Label(#L("Datei auswählen"), systemImage: "folder")
-                    .font(WimgFont.font(.manrope, .bold, 17, relativeTo: .headline))
-                    .frame(maxWidth: .infinity)
-                    .padding(16)
-                    .background(WimgTheme.text)
-                    .foregroundStyle(WimgTheme.bg)
-                    .clipShape(Capsule())
-            }
-            .disabled(isParsing || isImporting)
-
-            if isParsing {
-                ProgressView("Analysiere...")
-                    .font(WimgFont.font(.inter, .regular, 12, relativeTo: .caption))
+        BandScreen(title: L("Import"), pushed: true) {
+            stepBand
+        } sheet: {
+            switch step {
+            case .source: sourceStep
+            case .preview: previewStep
+            case .done: doneStep
             }
         }
-        .padding(28)
-        .wimgCard(radius: WimgTheme.radiusLarge)
-        .padding(.horizontal)
+        .fileImporter(isPresented: $showPicker, allowedContentTypes: [.commaSeparatedText, .xml, .plainText, .data]) { read($0) }
+        .navigationBarBackButtonHidden(step == .preview)
+        .toolbar {
+            if step == .preview {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { back() } label: { Image(systemName: "chevron.left") }.accessibilityLabel(L("Zurück"))
+                }
+            }
+        }
     }
 
-    // MARK: - Preview Section
+    // MARK: Band
 
-    private func previewSection(_ result: ParseResult) -> some View {
-        VStack(spacing: 16) {
-            // Format badge
-            if result.format != "unknown" {
-                HStack(spacing: 12) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.green.opacity(0.1))
-                            .frame(width: 40, height: 40)
-                        Image(systemName: "doc.text.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(.green)
-                    }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(#L("\(formatLabel(result.format)) CSV erkannt"))
-                            .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
-                            .foregroundStyle(WimgTheme.text)
-                        Text(#L("\(result.total_rows) Zeilen gelesen"))
-                            .font(WimgFont.font(.inter, .regular, 12, relativeTo: .caption))
-                            .foregroundStyle(WimgTheme.textSecondary)
+    private var stepIndex: Int { step == .source ? 1 : step == .preview ? 2 : 3 }
+
+    @ViewBuilder private var stepBand: some View {
+        Text(L("Schritt %d von %d", stepIndex, 3)).wimgStyle(WimgType.bandOver).foregroundStyle(Wimg.bandSub)
+        HStack(spacing: 6) {
+            ForEach(1...3, id: \.self) { i in
+                Capsule().fill(i <= stepIndex ? Color.white : Color.white.opacity(0.18)).frame(height: 4)
+            }
+        }
+        .padding(.top, 10).padding(.bottom, 14)
+        .accessibilityHidden(true)
+        Text(step == .source ? L("Datei wählen") : step == .preview ? L("Vorschau") : L("Fertig"))
+            .wimgStyle(WimgType.title).foregroundStyle(.white)
+    }
+
+    // MARK: Step 1
+
+    @ViewBuilder private var sourceStep: some View {
+        Text(L("Wähle einen Kontoauszug (MT940, CAMT) oder eine CSV-Datei deiner Bank. wimg erkennt selbst, was es ist; die Datei bleibt auf deinem Gerät."))
+            .wimgStyle(WimgType.body).foregroundStyle(Wimg.text2).padding(.horizontal, 4).padding(.top, 4)
+        GroupLabel(text: L("So kommst du an die Datei"))
+        WimgGroup {
+            ForEach(Array(Self.sources.enumerated()), id: \.offset) { i, src in
+                if i > 0 { FlatDivider() }
+                helpRow(i, src)
+            }
+        }
+        errorLine
+        primaryButton(L("Datei wählen")) { showPicker = true }
+            .padding(.top, 20)
+    }
+
+    private func helpRow(_ i: Int, _ src: Source) -> some View {
+        let open = openHelp == i
+        return Button {
+            withAnimation(WimgMotion.out(0.2)) { openHelp = open ? nil : i }
+        } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(L(src.name)).font(WimgFont.font(.inter, .bold, 16)).foregroundStyle(Wimg.text)
+                        Text(L(src.account)).wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2)
                     }
                     Spacer()
+                    Image(systemName: open ? "minus" : "plus").foregroundStyle(open ? Wimg.accent : Wimg.text2)
                 }
-                .padding(16)
-                .background(Color.green.opacity(0.06))
-                .clipShape(RoundedRectangle(cornerRadius: WimgTheme.radiusMedium, style: .continuous))
-                .padding(.horizontal)
-            }
-
-            // Summary
-            VStack(spacing: 8) {
-                Text(#L("\(result.transactions.count) Buchungen gefunden"))
-                    .font(WimgFont.font(.manrope, .bold, 17, relativeTo: .headline))
-                    .foregroundStyle(WimgTheme.text)
-
-                HStack(spacing: 16) {
-                    if previewTotals.income > 0 {
-                        Label(formatAmountShort(previewTotals.income), systemImage: "arrow.down.circle.fill")
-                            .font(WimgFont.font(.inter, .medium, 12, relativeTo: .caption))
-                            .foregroundStyle(.green)
-                    }
-                    if previewTotals.expenses < 0 {
-                        Label(formatAmountShort(previewTotals.expenses), systemImage: "arrow.up.circle.fill")
-                            .font(WimgFont.font(.inter, .medium, 12, relativeTo: .caption))
-                            .foregroundStyle(.red)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(20)
-            .wimgCard(radius: WimgTheme.radiusMedium)
-            .padding(.horizontal)
-
-            // Transaction preview list
-            VStack(spacing: 0) {
-                ForEach(result.transactions.prefix(10)) { txn in
-                    TransactionCard(transaction: txn)
-                    if txn.id != result.transactions.prefix(10).last?.id {
-                        Divider().padding(.leading, 78)
-                    }
-                }
-
-                if result.transactions.count > 10 {
-                    Text(#L("... und \(result.transactions.count - 10) weitere"))
-                        .font(WimgFont.font(.inter, .medium, 12, relativeTo: .caption))
-                        .foregroundStyle(WimgTheme.textSecondary)
-                        .padding(.vertical, 14)
-                }
-            }
-            .wimgCard(radius: WimgTheme.radiusLarge)
-            .padding(.horizontal)
-
-            // Action buttons
-            HStack(spacing: 12) {
-                Button {
-                    confirmImport()
-                } label: {
-                    Group {
-                        if isImporting {
-                            ProgressView()
-                                .tint(WimgTheme.heroText)
-                        } else {
-                            Text(#L("Importieren (\(result.transactions.count))"))
+                if open {
+                    ForEach(Array(src.steps.enumerated()), id: \.offset) { n, line in
+                        HStack(alignment: .top, spacing: 0) {
+                            Text("\(n + 1).").frame(width: 22, alignment: .leading)
+                            Text(L(line)).fixedSize(horizontal: false, vertical: true)
                         }
+                        .wimgStyle(WimgType.body).foregroundStyle(Wimg.text)
+                        .padding(.top, 8)
                     }
-                    .font(WimgFont.font(.manrope, .bold, 17, relativeTo: .headline))
-                    .frame(maxWidth: .infinity)
-                    .padding(16)
-                    .background(WimgTheme.accent)
-                    .foregroundStyle(WimgTheme.heroText)
-                    .clipShape(Capsule())
                 }
-                .disabled(isImporting)
-
-                Button {
-                    cancelPreview()
-                } label: {
-                    Text(#L("Abbrechen"))
-                        .font(WimgFont.font(.manrope, .bold, 17, relativeTo: .headline))
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 16)
-                        .background(Color(.systemGray5))
-                        .foregroundStyle(WimgTheme.text)
-                        .clipShape(Capsule())
-                }
-                .disabled(isImporting)
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 16).padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(open ? Wimg.accentSoft : .clear)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(open ? .isSelected : [])
     }
 
-    // MARK: - Imported Section
+    // MARK: Step 2
 
-    private func importedSection(_ result: ImportResult) -> some View {
-        VStack(spacing: 16) {
-            // Success card
-            VStack(spacing: 16) {
-                ZStack {
-                    Circle()
-                        .fill(Color.green.opacity(0.1))
-                        .frame(width: 64, height: 64)
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 36))
-                        .foregroundStyle(.green)
+    @ViewBuilder private var previewStep: some View {
+        if let p = picked {
+            let src = Self.sources.first { $0.format == p.format }
+            HStack(spacing: 14) {
+                Text(p.statement ? (p.format == "camt" ? "XML" : "STA") : "CSV")
+                    .wimgStyle(WimgType.mono).foregroundStyle(Wimg.text)
+                    .frame(width: 44, height: 44)
+                    .background(Wimg.neutralTint, in: RoundedRectangle(cornerRadius: WimgShape.iconTile, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(p.name).wimgStyle(WimgType.mono).foregroundStyle(Wimg.text).lineLimit(1).truncationMode(.middle)
+                    Text(p.statement ? "\(p.account) · \(L("Kontoauszug")) \(p.format.uppercased())"
+                         : src.map { "\($0.name) · \(L($0.account))" } ?? L("Format erkannt"))
+                        .wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2)
                 }
-
-                Text(#L("Import erfolgreich!"))
-                    .font(WimgFont.font(.manrope, .bold, 17, relativeTo: .headline))
-                    .foregroundStyle(WimgTheme.text)
-
-                Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 8) {
-                    GridRow {
-                        Text(#L("Format"))
-                            .foregroundStyle(WimgTheme.textSecondary)
-                        Text(formatLabel(result.format))
-                            .fontWeight(.semibold)
-                    }
-                    GridRow {
-                        Text(#L("Importiert"))
-                            .foregroundStyle(WimgTheme.textSecondary)
-                        Text("\(result.imported)")
-                            .fontWeight(.semibold)
-                    }
-                    if result.categorized > 0 {
-                        GridRow {
-                            Text(#L("Kategorisiert"))
-                                .foregroundStyle(WimgTheme.textSecondary)
-                            Text("\(result.categorized)")
-                                .fontWeight(.semibold)
-                        }
-                    }
-                    if result.skipped_duplicates > 0 {
-                        GridRow {
-                            Text(#L("Duplikate"))
-                                .foregroundStyle(.orange)
-                            Text("\(result.skipped_duplicates)")
-                                .fontWeight(.semibold)
-                        }
-                    }
-                    if result.errors > 0 {
-                        GridRow {
-                            Text(#L("Fehler"))
-                                .foregroundStyle(.red)
-                            Text("\(result.errors)")
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.red)
-                        }
-                    }
-                }
-                .font(WimgFont.font(.inter, .regular, 15, relativeTo: .subheadline))
-            }
-            .padding(24)
-            .wimgCard(radius: WimgTheme.radiusLarge)
-            .padding(.horizontal)
-
-            // Next file in queue
-            if fileQueue.count > 1 && queueIndex < fileQueue.count - 1 {
-                Button {
-                    loadNextFile()
-                } label: {
-                    Text(#L("Nächste Datei laden (\(queueIndex + 2)/\(fileQueue.count))"))
-                        .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
-                        .frame(maxWidth: .infinity)
-                        .padding(16)
-                        .background(WimgTheme.text)
-                        .foregroundStyle(WimgTheme.bg)
-                        .clipShape(Capsule())
-                }
-                .padding(.horizontal)
-            }
-
-            // Import another
-            Button {
-                fileQueue = []
-                queueIndex = 0
-                resetToIdle()
-            } label: {
-                Label(#L("Weitere Datei importieren"), systemImage: "plus.circle")
-                    .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
-                    .frame(maxWidth: .infinity)
-                    .padding(16)
-                    .background(Color(.systemGray5))
-                    .foregroundStyle(WimgTheme.text)
-                    .clipShape(Capsule())
-            }
-            .padding(.horizontal)
-
-            if let onViewTransactions {
-                Button {
-                    onViewTransactions()
-                } label: {
-                    Label(#L("Transaktionen ansehen"), systemImage: "list.bullet")
-                        .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
-                        .frame(maxWidth: .infinity)
-                        .padding(16)
-                        .background(WimgTheme.accent)
-                        .foregroundStyle(WimgTheme.heroText)
-                        .clipShape(Capsule())
-                }
-                .padding(.horizontal)
-            }
-        }
-    }
-
-    // MARK: - Categorization Section
-
-    private var categorizationSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(#L("Kategorisierung"))
-                .font(WimgFont.font(.manrope, .bold, 20, relativeTo: .title3))
-                .foregroundStyle(WimgTheme.text)
-                .padding(.horizontal)
-
-            // Rules Engine
-            VStack(spacing: 12) {
-                HStack(spacing: 14) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.blue.opacity(0.1))
-                            .frame(width: 44, height: 44)
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .font(.system(size: 18))
-                            .foregroundStyle(.blue)
-                    }
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(#L("Regel-Engine"))
-                            .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
-                            .foregroundStyle(WimgTheme.text)
-                        Text(#L("Keyword-Regeln anwenden"))
-                            .font(WimgFont.font(.inter, .regular, 12, relativeTo: .caption))
-                            .foregroundStyle(WimgTheme.textSecondary)
-                    }
-
-                    Spacer()
-
-                    Button(#L("Starten")) {
-                        let count = LibWimg.autoCategorize()
-                        rulesCategorizedCount = count
-                        if count > 0 {
-                            NotificationCenter.default.post(name: .wimgDataChanged, object: nil)
-                        }
-                    }
-                    .font(WimgFont.font(.inter, .bold, 12, relativeTo: .caption))
-                    .foregroundStyle(WimgTheme.heroText)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(WimgTheme.accent)
-                    .clipShape(Capsule())
-                }
-
-                if let count = rulesCategorizedCount {
-                    Text(#L("\(count) Buchungen kategorisiert"))
-                        .font(WimgFont.font(.inter, .medium, 12, relativeTo: .caption))
-                        .foregroundStyle(.green)
-                        .padding(.leading, 58)
-                }
+                Spacer(minLength: 0)
             }
             .padding(16)
-            .wimgCard(radius: WimgTheme.radiusMedium)
-            .padding(.horizontal)
+            .background(Wimg.card, in: RoundedRectangle(cornerRadius: WimgShape.group, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: WimgShape.group, style: .continuous).stroke(Wimg.line, lineWidth: 1))
 
-        }
-    }
-
-    // MARK: - Error
-
-    private func errorCard(_ error: String) -> some View {
-        VStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 28))
-                .foregroundStyle(.red)
-            Text(error)
-                .font(WimgFont.font(.inter, .regular, 15, relativeTo: .subheadline))
-                .foregroundStyle(WimgTheme.textSecondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding(20)
-        .wimgCard(radius: WimgTheme.radiusMedium)
-        .padding(.horizontal)
-    }
-
-    // MARK: - Supported Formats
-
-    private var supportedFormats: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(#L("Unterstützte Formate"))
-                .font(WimgFont.font(.manrope, .bold, 20, relativeTo: .title3))
-                .foregroundStyle(WimgTheme.text)
-
-            formatRow(icon: "doc.text", name: #L("Kontoauszug"), detail: "MT940 / CAMT", color: Wimg.accent)
-            formatRow(icon: "building.columns", name: "Comdirect", detail: "Semikolon, ISO-8859-1", color: .blue)
-            formatRow(icon: "chart.line.uptrend.xyaxis", name: "Trade Republic", detail: "Komma, UTF-8", color: .green)
-            formatRow(icon: "arrow.up.right", name: "Scalable Capital", detail: "Semikolon, UTF-8", color: .purple)
-        }
-        .padding(20)
-        .wimgCard(radius: WimgTheme.radiusLarge)
-        .padding(.horizontal)
-    }
-
-    private func formatRow(icon: String, name: String, detail: String, color: Color) -> some View {
-        HStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(color.opacity(0.1))
-                    .frame(width: 40, height: 40)
-                Image(systemName: icon)
-                    .font(.system(size: 16))
-                    .foregroundStyle(color)
+            let dates = p.rows.map(\.date).sorted()
+            HStack(spacing: 10) {
+                statCard(L("Neu"), "\(p.rows.count - p.duplicates)")
+                statCard(L("Schon da"), "\(p.duplicates)")
+                statCard(L("Zeitraum"), "\(WimgDates.short(dates.first ?? "")) – \(WimgDates.short(dates.last ?? ""))", small: true)
+                    .layoutPriority(1)
             }
-            VStack(alignment: .leading, spacing: 3) {
-                Text(L(name))
-                    .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
-                    .foregroundStyle(WimgTheme.text)
-                Text(L(detail))
-                    .font(WimgFont.font(.inter, .regular, 12, relativeTo: .caption))
-                    .foregroundStyle(WimgTheme.textSecondary)
+            .padding(.top, 12)
+            if p.rows.count == p.duplicates {
+                Text(L("Alle Umsätze dieser Datei sind schon in wimg.")).wimgStyle(WimgType.body).foregroundStyle(Wimg.text2).padding(.top, 14)
             }
-            Spacer()
-        }
-    }
-
-    // MARK: - Actions
-
-    private func handleFileImport(_ result: Result<[URL], Error>) {
-        errorMessage = nil
-
-        switch result {
-        case .success(let urls):
-            guard !urls.isEmpty else { return }
-            fileQueue = urls
-            queueIndex = 0
-            processURL(urls[0])
-
-        case .failure(let error):
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func processURL(_ url: URL) {
-        guard url.startAccessingSecurityScopedResource() else {
-            errorMessage = "Zugriff auf die Datei nicht möglich."
-            return
-        }
-        defer { url.stopAccessingSecurityScopedResource() }
-
-        isParsing = true
-        do {
-            let data = try Data(contentsOf: url)
-            csvData = data
-            // A statement file (MT940 / CAMT) first; libwimg says nil when it isn't one.
-            if let statement = LibWimg.parseStatement(data) {
-                isStatement = true
-                parseResult = statement
-            } else {
-                isStatement = false
-                parseResult = try LibWimg.parseCSV(data)
+            GroupLabel(text: L("Neueste Umsätze"))
+            ForEach(p.rows.sorted { $0.date > $1.date }.prefix(5), id: \.id) { t in
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(t.title.flatMap { $0.isEmpty ? nil : $0 } ?? t.description)
+                            .wimgStyle(WimgType.rowTitle).foregroundStyle(Wimg.text).lineLimit(1)
+                        Text(WimgDates.full(t.date)).wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2)
+                    }
+                    Spacer(minLength: 0)
+                    Text(amountText(t.amount)).wimgStyle(WimgType.amountRow).foregroundStyle(t.amount > 0 ? Wimg.pos : Wimg.text)
+                }
+                .frame(minHeight: 60)
+                FlatDivider()
             }
-            stage = .preview
-        } catch {
-            errorMessage = error.localizedDescription
-            stage = .idle
-        }
-        isParsing = false
-    }
-
-    private func loadNextFile() {
-        queueIndex += 1
-        stage = .idle
-        importResult = nil
-        parseResult = nil
-        csvData = nil
-        errorMessage = nil
-        rulesCategorizedCount = nil
-        processURL(fileQueue[queueIndex])
-    }
-
-    private func confirmImport() {
-        guard let data = csvData else { return }
-        isImporting = true
-        errorMessage = nil
-
-        do {
-            // Statements go into the bank's account; twins already here are skipped.
-            let result = isStatement ? try LibWimg.importStatement(data) : try LibWimg.importCSV(data)
-            importResult = result
-            csvData = nil
-            parseResult = nil
-            stage = .imported
-
-            if result.imported > 0 {
-                LibWimg.detectRecurring()
-                NotificationCenter.default.post(name: .wimgDataChanged, object: nil)
+            errorLine
+            let n = p.rows.count - p.duplicates
+            primaryButton(n == 0 ? L("Nichts zu importieren") : n == 1 ? L("1 Umsatz importieren") : L("%d Umsätze importieren", n),
+                          busy: busy) {
+                if n > 0 { doImport() } else { AppNav.shared.open(.overview) }
             }
-        } catch {
-            errorMessage = error.localizedDescription
+            .padding(.top, 20)
         }
-        isImporting = false
     }
 
-    private func cancelPreview() {
-        parseResult = nil
-        csvData = nil
-        stage = .idle
+    // MARK: Step 3
+
+    @ViewBuilder private var doneStep: some View {
+        let r = result
+        VStack(spacing: 0) {
+            Image(systemName: "checkmark").font(.system(size: 32, weight: .semibold)).foregroundStyle(Wimg.inkText)
+                .frame(width: 76, height: 76).background(Wimg.ink, in: Circle())
+                .padding(.top, 16)
+            Text(L("Import fertig")).wimgStyle(WimgType.title).foregroundStyle(Wimg.text).padding(.top, 18)
+            Text(L("wimg hat die Umsätze schon nach Kategorien sortiert, so weit es ging."))
+                .wimgStyle(WimgType.body).foregroundStyle(Wimg.text2).multilineTextAlignment(.center).padding(.top, 6)
+        }
+        .frame(maxWidth: .infinity)
+        HStack(spacing: 10) {
+            statCard(L("Importiert"), "\(r?.imported ?? 0)")
+            statCard(L("Schon da, übersprungen"), "\(r?.skipped_duplicates ?? 0)")
+        }
+        .padding(.top, 20)
+        if let e = r?.errors, e > 0 {
+            Text(L("%d Zeilen konnte wimg nicht lesen.", e)).wimgStyle(WimgType.body).foregroundStyle(Wimg.warn).padding(.top, 12)
+        }
+        QuietLine(text: L("Ein Import ist eine Momentaufnahme. Für neue Umsätze: Bank verbinden oder später wieder importieren."))
+        primaryButton(L("Umsätze ansehen")) {
+            if let onViewTransactions { onViewTransactions() } else { AppNav.shared.open(.transactions) }
+        }
+        .padding(.top, 20)
     }
 
-    private func resetToIdle() {
-        stage = .idle
-        importResult = nil
-        parseResult = nil
-        csvData = nil
-        errorMessage = nil
-        rulesCategorizedCount = nil
+    // MARK: Pieces
+
+    @ViewBuilder private var errorLine: some View {
+        if let error {
+            QuietLine(text: error, systemImage: "exclamationmark.triangle", color: Wimg.warn)
+        }
     }
 
-    private func formatLabel(_ format: String) -> String {
-        switch format {
-        case "comdirect": "Comdirect"
-        case "trade_republic": "Trade Republic"
-        case "scalable_capital": "Scalable Capital"
-        case "mt940": "MT940"
-        case "camt": "CAMT"
-        default: format
+    private func statCard(_ label: String, _ value: String, small: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2).lineLimit(1)
+            Text(value).font(small ? WimgType.chip.font : WimgFont.font(.manrope, .heavy, 22))
+                .foregroundStyle(Wimg.text).lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Wimg.card, in: RoundedRectangle(cornerRadius: WimgShape.group, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: WimgShape.group, style: .continuous).stroke(Wimg.line, lineWidth: 1))
+    }
+
+    private func primaryButton(_ title: String, busy: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if busy { ProgressView().tint(Wimg.onAccent) }
+                Text(title).wimgStyle(WimgType.button)
+            }
+            .foregroundStyle(Wimg.onAccent)
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .background(Wimg.accent, in: Capsule())
+        }
+        .buttonStyle(.wimgPress)
+        .disabled(busy)
+    }
+
+    // MARK: Actions
+
+    private func back() {
+        step = .source; picked = nil; error = nil
+    }
+
+    private func read(_ res: Result<URL, Error>) {
+        error = nil
+        guard case let .success(url) = res else { return }
+        let ok = url.startAccessingSecurityScopedResource()
+        defer { if ok { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else {
+            error = L("Import fehlgeschlagen. Es wurde nichts gespeichert."); return
+        }
+        busy = true
+        Task {
+            let p: Picked? = await Task.detached {
+                // A statement file (MT940, CAMT) first; anything else is tried as CSV.
+                if let st = LibWimg.parseStatement(data) {
+                    return st.transactions.isEmpty ? nil : Picked(name: url.lastPathComponent, data: data, format: st.format, rows: st.transactions,
+                                                                  duplicates: st.duplicates ?? 0, statement: true, account: st.account ?? "")
+                }
+                guard let parsed = try? LibWimg.parseCSV(data), !parsed.transactions.isEmpty else { return nil }
+                // Same id scheme as the database, so this matches what import will skip.
+                let existing = Set(((try? LibWimg.getTransactions()) ?? []).map(\.id))
+                return Picked(name: url.lastPathComponent, data: data, format: parsed.format, rows: parsed.transactions,
+                              duplicates: parsed.transactions.filter { existing.contains($0.id) }.count, statement: false, account: "")
+            }.value
+            busy = false
+            if let p { picked = p; step = .preview }
+            else { error = L("wimg erkennt diese Datei nicht. Unterstützt sind Kontoauszüge als MT940 oder CAMT und CSV-Exporte von Comdirect, Trade Republic, Scalable und Revolut.") }
+        }
+    }
+
+    private func doImport() {
+        guard let p = picked else { return }
+        busy = true
+        Task {
+            let r: ImportResult? = await Task.detached {
+                guard let r = try? (p.statement ? LibWimg.importStatement(p.data) : LibWimg.importCSV(p.data)) else { return nil }
+                if r.imported > 0 { _ = LibWimg.detectRecurring() }
+                return r
+            }.value
+            busy = false
+            guard let r else { error = L("Import fehlgeschlagen. Es wurde nichts gespeichert."); return }
+            NotificationCenter.default.post(name: .wimgDataChanged, object: nil)
+            result = r; step = .done
         }
     }
 }

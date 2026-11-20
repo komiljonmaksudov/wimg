@@ -47,12 +47,15 @@ struct SquirrelView: View {
     /// Android's ring around it: one stitch per day of the period, days
     /// already past dim, past days without spending sewn in orange.
     var ring: SquirrelRingDays? = nil
+    /// A link under the moment's line ("Ansehen" on a price rise).
+    var momentAction: (label: String, run: () -> Void)? = nil
 
     @State private var shown: SquirrelPose?
     @State private var blink = false
     @State private var hop: CGFloat = 0
     @State private var squash: CGFloat = 1
     @State private var bubble: String?
+    @State private var bubbleHasAction = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let playedKey = "wimg_moments"
@@ -62,19 +65,29 @@ struct SquirrelView: View {
         figure(current)
             .frame(width: size, height: size)
             .contentShape(Circle())
-            .onTapGesture { show(line) }
-            .overlay(alignment: .topTrailing) {
+            .onTapGesture { if !line.isEmpty { show(bubble == line ? nil : line) } }
+            // As on Android: a white bubble left of the ring, pointing at it,
+            // over the amount without taking room.
+            .overlay(alignment: .leading) {
                 if let text = bubble {
-                    Text(text)
-                        .wimgStyle(WimgType.desc)
-                        .foregroundStyle(Wimg.text)
-                        .padding(.horizontal, 12).padding(.vertical, 8)
-                        .background(Wimg.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .frame(width: 220, alignment: .trailing)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .offset(x: -size * 0.2, y: size * 0.92)
-                        .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .topTrailing)))
-                        .onTapGesture { withAnimation(WimgMotion.out(0.18)) { bubble = nil } }
+                    HStack(spacing: 0) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(text).wimgStyle(WimgType.desc).foregroundStyle(Color(UIColor(rgb: 0x1A1A1A)))
+                                .fixedSize(horizontal: false, vertical: true)
+                            if bubbleHasAction, let a = momentAction {
+                                Button(a.label) { a.run() }.wimgStyle(WimgType.chip).foregroundStyle(Wimg.accent)
+                            }
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .shadow(color: .black.opacity(0.3), radius: 10, y: 4)
+                        BubbleTail().fill(.white).frame(width: 8, height: 14)
+                    }
+                    .frame(maxWidth: 228, alignment: .trailing)
+                    .frame(width: 228, alignment: .trailing)
+                    .alignmentGuide(.leading) { d in d[.trailing] - 10 }
+                    .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .trailing)))
+                    .onTapGesture { withAnimation(WimgMotion.out(0.15)) { bubble = nil } }
                 }
             }
             .zIndex(1)
@@ -112,11 +125,13 @@ struct SquirrelView: View {
         }
     }
 
-    private func show(_ text: String) {
+    private func show(_ text: String?, action: Bool = false) {
+        bubbleHasAction = action
         withAnimation(WimgMotion.out(0.2)) { bubble = text }
+        guard let text else { return }
         Task {
-            try? await Task.sleep(for: .seconds(4))
-            withAnimation(WimgMotion.out(0.2)) { if bubble == text { bubble = nil } }
+            try? await Task.sleep(for: .seconds(action ? 7 : 5))
+            withAnimation(WimgMotion.out(0.15)) { if bubble == text { bubble = nil } }
         }
     }
 
@@ -127,7 +142,8 @@ struct SquirrelView: View {
         guard !played.contains(m.key) else { shown = nil; return }
         played.insert(m.key)
         UserDefaults.standard.set(Array(played.suffix(60)), forKey: Self.playedKey)
-        if reduceMotion { shown = nil; show(m.text); return }
+        let act = momentAction != nil
+        if reduceMotion { shown = nil; show(m.text, action: act); return }
         shown = m.from
         try? await Task.sleep(for: .milliseconds(450))
         withAnimation(WimgMotion.out(0.22)) { squash = 0.93; hop = 2 }
@@ -136,7 +152,7 @@ struct SquirrelView: View {
         withAnimation(.spring(response: 0.32, dampingFraction: 0.55)) { squash = 1.04; hop = -6 }
         try? await Task.sleep(for: .milliseconds(260))
         withAnimation(WimgMotion.inOut(0.26)) { squash = 1; hop = 0 }
-        show(m.text)
+        show(m.text, action: act)
     }
 
     private func blinkLoop() async {
@@ -197,5 +213,17 @@ private struct DayRing: View {
         }
         .frame(width: 112 * k, height: 112 * k)
         .accessibilityHidden(true)
+    }
+}
+
+/// The bubble's tail, pointing right at the squirrel.
+private struct BubbleTail: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.minX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.midY))
+        p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+        p.closeSubpath()
+        return p
     }
 }

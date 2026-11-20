@@ -10,5 +10,5 @@ appId: com.wimg.app
     timeout: 10000
 - tapOn: "Beispieldaten ansehen"
 - extendedWaitUntil:
-    visible: "Ausgaben nach Kategorie"
+    visible: "Ausgaben seit dem Gehalt|Ausgaben nach Kategorie"
     timeout: 10000

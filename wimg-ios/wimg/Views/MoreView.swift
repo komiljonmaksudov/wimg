@@ -59,6 +59,9 @@ struct MoreView: View {
         case .accounts: AccountsView()
         case .rules: RulesView()
         case .devices: SyncDevicesView()
+        case .faq: AboutFAQView()
+        case .privacy: AboutPrivacyView()
+        case .licenses: AboutLicensesView()
         }
     }
 }

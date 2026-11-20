@@ -22,4 +22,5 @@ final class AppNav {
 enum MorePage: Hashable {
     case review, banks, import_, settings, about
     case accounts, rules, devices
+    case faq, privacy, licenses
 }

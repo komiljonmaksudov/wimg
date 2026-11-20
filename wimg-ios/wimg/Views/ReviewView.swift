@@ -238,11 +238,24 @@ struct ReviewView: View {
     }
 
     private func item(_ icon: String, _ tint: Color, _ over: String, _ title: String, _ amount: String, action: (() -> Void)? = nil) -> some View {
-        WimgRow(title: title, desc: over, chevron: action != nil, action: action) {
+        // As on Android: what it is (small) above the name.
+        let row = HStack(spacing: 12) {
             IconTile(systemImage: icon, tint: tint)
-        } trailing: {
-            Text(amount).wimgStyle(WimgType.amountRow).foregroundStyle(Wimg.text).lineLimit(1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(over).wimgStyle(WimgType.desc).foregroundStyle(Wimg.text2).lineLimit(1)
+                Text(title).wimgStyle(WimgType.rowTitle).foregroundStyle(Wimg.text).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Text(amount).wimgStyle(WimgType.amountRow).foregroundStyle(Wimg.text).lineLimit(1).fixedSize()
+            if action != nil { Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(Wimg.text3) }
         }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .frame(minHeight: 64)
+        .contentShape(Rectangle())
+        return Group {
+            if let action { Button(action: action) { row }.buttonStyle(RowPressStyle()) } else { row }
+        }
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: Data

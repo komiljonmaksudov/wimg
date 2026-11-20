@@ -63,12 +63,12 @@ struct RecurringDetailView: View {
                      counted.count == 1 ? L("1 Zahlung") : L("%d Zahlungen", counted.count))
             }
             GroupLabel(text: L("Verlauf"))
-            WimgGroup {
-                ForEach(Array(payments.enumerated()), id: \.element.id) { i, pay in
-                    if i > 0 { RowDivider() }
-                    paymentRow(p, pay, counted: counted, changed: changed, income: income)
-                }
+            // Flat rows, as on Android.
+            ForEach(Array(payments.enumerated()), id: \.element.id) { i, pay in
+                if i > 0 { FlatDivider() }
+                paymentRow(p, pay, counted: counted, changed: changed, income: income)
             }
+            FlatDivider()
         }
         .sheet(isPresented: $showEdit) { EditRecurringSheet(p: p) }
     }
@@ -159,7 +159,6 @@ struct RecurringDetailView: View {
                     .strikethrough(pay.isOneoff)
                     .foregroundStyle(pay.isOneoff ? Wimg.text2 : (income ? Wimg.pos : Wimg.text))
             }
-            .padding(.horizontal, 16)
             .frame(minHeight: 60)
             .contentShape(Rectangle())
         }

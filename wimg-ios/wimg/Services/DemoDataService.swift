@@ -5,15 +5,17 @@ struct DemoDataService {
 
     // MARK: - Fixed monthly transactions
 
-    private static let fixedMonthly: [(desc: String, amount: Int?)] = [
-        ("GEHALT {MONTH} 2026 MUSTER GMBH", 325_000),
-        ("MIETE {MONTH} 2026 HAUSVERWALTUNG MUSTERSTADT", -95_000),
-        ("GRUENSTROM AG STROM GAS", nil), // random -9500...-11500
-        ("FLIMMERKISTE STREAMING", -1_799),
-        ("KLANGWELLE STREAMING", -999),
-        ("MUSTER VERSICHERUNG AG", -8_950),
-        ("RUNDFUNKBEITRAG", -1_836),
-        ("FUNKLINE MOBILFUNK", -3_999),
+    /// Same as Android's DemoDataService. `day`: booking day, nil = one of the first days.
+    private static let fixedMonthly: [(desc: String, amount: Int?, day: Int?)] = [
+        // Salary at the end of the month, like most payrolls (Gehaltsmonat).
+        ("MUSTER GMBH GEHALT {MONTH} 2026", 325_000, 27),
+        ("MIETE {MONTH} 2026 HAUSVERWALTUNG MUSTERSTADT", -95_000, nil),
+        ("GRUENSTROM AG STROM GAS", nil, nil), // random -9500...-11500
+        ("FLIMMERKISTE STREAMING", -1_799, nil),
+        ("KLANGWELLE STREAMING", -999, nil),
+        ("MUSTER VERSICHERUNG AG", -8_950, nil),
+        ("RUNDFUNKBEITRAG", -1_836, nil),
+        ("FUNKLINE MOBILFUNK", -3_999, nil),
     ]
 
     private static let frequent: [(desc: String, min: Int, max: Int, freqMin: Int, freqMax: Int)] = [
@@ -29,6 +31,7 @@ struct DemoDataService {
         ("KAUFHAUS ZENTRUM", -12_000, -1_500),
         ("DROGERIE AM ECK", -2_000, -500),
         ("APOTHEKE AM MARKT", -3_000, -500),
+        ("MUSTERVERSAND ERSTATTUNG", 1_990, 4_990),
     ]
 
     private static let monthNames = [
@@ -53,7 +56,19 @@ struct DemoDataService {
         do {
             let result = try LibWimg.importCSV(data)
             if result.imported > 0 {
+                // A second account: cash entered by hand.
+                let cal = Calendar.current
+                for (back, desc, cents) in [(2, "WOCHENMARKT", -1_840), (6, "BAECKEREI MUSTERMANN", -760), (11, "FLOHMARKT", -2_500)] {
+                    if let d = cal.date(byAdding: .day, value: -back, to: Date()) {
+                        try? LibWimg.addManualTransaction(date: WimgDates.iso(d), description: desc, amountCents: Int64(cents), category: 0, account: "Bargeld")
+                    }
+                }
                 _ = LibWimg.autoCategorize()
+                _ = LibWimg.detectRecurring()
+                // The demo salary comes on the 27th: as Gehaltsmonat the month
+                // starts with it, and the feature shows itself (as on Android).
+                try? LibWimg.setPeriodMode("salary")
+                if let key = LibWimg.getPeriods(count: 1)?.salary?.key { try? LibWimg.answerSalary(key: key, .yes) }
                 UserDefaults.standard.set(true, forKey: demoLoadedKey)
                 NotificationCenter.default.post(name: .wimgDataChanged, object: nil)
             }
@@ -69,16 +84,18 @@ struct DemoDataService {
         let now = Date()
         var rows: [(date: String, desc: String, amount: String, sortKey: Int)] = []
 
-        for offset in 0..<3 {
+        let today = calendar.dateComponents([.year, .month, .day], from: now)
+        let todayKey = today.year! * 10000 + today.month! * 100 + today.day!
+        for offset in 0..<4 {
             guard let monthDate = calendar.date(byAdding: .month, value: -offset, to: now) else { continue }
             let year = calendar.component(.year, from: monthDate)
             let month = calendar.component(.month, from: monthDate)
             let maxDay = calendar.range(of: .day, in: .month, for: monthDate)?.count ?? 28
             let monthName = monthNames[month]
 
-            // Fixed monthly (day 1-5)
+            // Fixed monthly
             for tx in fixedMonthly {
-                let day = Int.random(in: 1...min(5, maxDay))
+                let day = tx.day.map { min($0, maxDay) } ?? Int.random(in: 1...min(5, maxDay))
                 let desc = tx.desc.replacingOccurrences(of: "{MONTH}", with: monthName)
                 let cents: Int
                 if let fixed = tx.amount {
@@ -127,6 +144,8 @@ struct DemoDataService {
             }
         }
 
+        // Nothing after today: a demo shows what already happened.
+        rows.removeAll { $0.sortKey > todayKey }
         // Sort descending (Comdirect order)
         rows.sort { $0.sortKey > $1.sortKey }
 

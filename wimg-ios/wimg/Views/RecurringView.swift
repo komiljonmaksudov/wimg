@@ -149,11 +149,10 @@ struct RecurringView: View {
         ForEach(sections(shown), id: \.title) { section in
             let total = section.items.reduce(0) { $0 + $1.amount }
             GroupLabel(text: section.title, trailing: amountText(total > 0 ? total : abs(total), showPlus: total > 0))
-            WimgGroup {
-                ForEach(Array(section.items.enumerated()), id: \.element.id) { i, p in
-                    if i > 0 { RowDivider() }
-                    PatternRow(p: p, paidNow: inRange(p.last_seen), due: dueDate(p))
-                }
+            // Flat rows on the sheet, as on Android.
+            ForEach(Array(section.items.enumerated()), id: \.element.id) { i, p in
+                if i > 0 { FlatDivider() }
+                PatternRow(p: p, paidNow: inRange(p.last_seen), due: dueDate(p))
             }
         }
     }
@@ -254,7 +253,7 @@ private struct PatternRow: View {
                        color: !p.isActive ? Wimg.text3 : (income ? Wimg.pos : Wimg.text), showPlus: income)
                 StatusDot(paid: paidNow, income: income)
             }
-            .padding(.leading, 8).padding(.trailing, 16).padding(.vertical, 10)
+            .padding(.vertical, 10)
             .frame(minHeight: 66)
             .contentShape(Rectangle())
         }
@@ -485,14 +484,14 @@ private struct RecurringYearView: View {
         let monthTotal = paid.reduce(0) { $0 + abs($1.pay.amount) } + expected.reduce(0) { $0 + abs($1.amount) }
         GroupLabel(text: WimgDates.months()[picked - 1], trailing: amountText(monthTotal, showPlus: false))
         if !paid.isEmpty || !expected.isEmpty {
-            WimgGroup {
+            Group {
                 ForEach(Array(paid.enumerated()), id: \.element.pay.id) { i, item in
-                    if i > 0 { RowDivider() }
+                    if i > 0 { FlatDivider() }
                     row(day: Int(item.pay.date.suffix(2)), name: item.p.displayName,
                         sub: L("%s · bezahlt", L(intervalLabel(item.p.interval))), amount: abs(item.pay.amount), future: false, id: item.p.id)
                 }
                 ForEach(Array(expected.enumerated()), id: \.element.id) { i, p in
-                    if i > 0 || !paid.isEmpty { RowDivider() }
+                    if i > 0 || !paid.isEmpty { FlatDivider() }
                     row(day: p.next_due.flatMap { Int($0.suffix(2)) }, name: p.displayName,
                         sub: L("%s · erwartet", L(intervalLabel(p.interval))), amount: abs(p.amount), future: true, id: p.id)
                 }
@@ -513,7 +512,7 @@ private struct RecurringYearView: View {
                 Text(amountText(amount, showPlus: false)).wimgStyle(WimgType.amountRow)
                     .foregroundStyle(future ? Wimg.text2 : Wimg.text)
             }
-            .padding(.horizontal, 16).frame(minHeight: 62)
+            .frame(minHeight: 62)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

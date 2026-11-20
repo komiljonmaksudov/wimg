@@ -1,12 +1,13 @@
-# Rückblick of a finished month: the cards open from the row, tap through, Überspringen.
+# Rückblick of a finished period: the cards open from the row, tap through, Überspringen.
 appId: com.wimg.app
 ---
 - launchApp
 - tapOn: "Beispieldaten ansehen"
 - tapOn: "Mehr"
 - tapOn: "Rückblick"
+# The demo starts in Gehaltsmonat (as on Android): the period before is the second row.
 - tapOn: "Zeitraum.*"
-- tapOn: "Okt"
+- tapOn: "Gehalt .*"
 - extendedWaitUntil:
     visible: "Rückblick als Karten ansehen|Tippen für weiter"
     timeout: 10000

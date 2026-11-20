@@ -314,6 +314,12 @@ export const en: Record<string, string> = {
   "%d Umsätze importieren": "Import %d transactions",
   "%d Zeilen konnte wimg nicht lesen.": "wimg couldn't read %d rows.",
   "%s · Schritt %d von %d": "%s · step %d of %d",
+  "Schritt %d von %d": "Step %d of %d",
+  "Auf GitHub": "On GitHub",
+  "Auf diesem iPhone": "On this iPhone",
+  "Alles: Umsätze, Kategorien, Regeln und, wenn du sie merkst, deine Bank-PIN im Schlüsselbund von iOS.":
+    "Everything: transactions, categories, rules and, if you save it, your bank PIN in the iOS Keychain.",
+  "Swift, SwiftUI": "Swift, SwiftUI",
   "1 Umsatz importieren": "Import 1 transaction",
   "Alle Umsätze dieser Datei sind schon in wimg.": "All transactions in this file are already in wimg.",
   "Bei Comdirect im Browser anmelden.": "Sign in to Comdirect in the browser.",

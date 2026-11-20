@@ -1,11 +1,88 @@
 import SwiftUI
 import WimgI18n
 
-struct AboutView: View {
-    var scrollToFAQ: String?
+private let repo = "https://github.com/komiljonmaksudov/wimg"
+private let site = "https://wimg.komiljonmaksudov.com"
 
+/// Über wimg (as Android's AboutScreen): the app, help, privacy, the project.
+/// The FAQ, privacy and licences are pages of their own.
+struct AboutView: View {
+    @Environment(\.openURL) private var openURL
+
+    private var version: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+    }
+
+    var body: some View {
+        BandScreen(title: L("Über wimg"), pushed: true) {
+            HStack(spacing: 16) {
+                Image("AppMark").resizable().scaledToFit().frame(width: 60, height: 60)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("wimg").wimgStyle(WimgType.title).foregroundStyle(.white)
+                    Text(L("Wo ist mein Geld?")).wimgStyle(WimgType.body).foregroundStyle(Wimg.bandSub)
+                }
+            }
+            .padding(.bottom, 4)
+        } sheet: {
+            GroupLabel(text: L("App"))
+            WimgGroup {
+                WimgRow(title: L("Version")) {
+                    IconTile(systemImage: "info.circle", tint: Wimg.text)
+                } trailing: {
+                    Text(version).wimgStyle(WimgType.body).foregroundStyle(Wimg.text2)
+                }
+                RowDivider()
+                link(L("Neuigkeiten"), desc: L("Auf GitHub"), icon: "gift", url: WimgConfig.releasesURL)
+            }
+            GroupLabel(text: L("Hilfe"))
+            WimgGroup {
+                NavigationLink(value: MorePage.faq) {
+                    WimgRow(title: L("Häufige Fragen"), chevron: true) { IconTile(systemImage: "questionmark.circle", tint: Wimg.text) }
+                }
+                .buttonStyle(.plain)
+                RowDivider()
+                link(L("Problem melden"), desc: L("Öffnet GitHub. Was du dort schreibst, ist öffentlich."), icon: "ladybug", url: repo + "/issues/new")
+            }
+            GroupLabel(text: L("Datenschutz"))
+            WimgGroup {
+                NavigationLink(value: MorePage.privacy) {
+                    WimgRow(title: L("So bleiben deine Daten bei dir"), chevron: true) { IconTile(systemImage: "shield", tint: Wimg.accent) }
+                }
+                .buttonStyle(.plain)
+                RowDivider()
+                link(L("Datenschutzerklärung"), desc: L("Auf der Website"), icon: "doc.text", url: site + "/datenschutz.html")
+            }
+            GroupLabel(text: L("Projekt"))
+            WimgGroup {
+                link(L("Quellcode auf GitHub"), icon: "chevron.left.forwardslash.chevron.right", url: repo)
+                RowDivider()
+                NavigationLink(value: MorePage.licenses) {
+                    WimgRow(title: L("Lizenzen"), desc: L("Offene Bibliotheken, die wimg nutzt"), chevron: true) {
+                        IconTile(systemImage: "building.columns", tint: Wimg.text)
+                    }
+                }
+                .buttonStyle(.plain)
+                RowDivider()
+                link(L("Website"), icon: "globe", url: site)
+            }
+            QuietLine(text: L("Kein Tracking, keine Werbung."))
+        }
+    }
+
+    private func link(_ title: String, desc: String? = nil, icon: String, url: String) -> some View {
+        WimgRow(title: title, desc: desc, action: { if let u = URL(string: url) { openURL(u) } }) {
+            IconTile(systemImage: icon, tint: Wimg.text)
+        } trailing: {
+            Image(systemName: "arrow.up.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(Wimg.text3)
+        }
+    }
+}
+
+/// Häufige Fragen: grouped and searchable, as on Android.
+struct AboutFAQView: View {
     /// The FAQ as on Android (AboutScreen.kt); bank PIN and lost phone in their iOS form.
-    private static let faqGroups: [(title: String, items: [(q: String, a: String)])] = [
+    static let faqGroups: [(title: String, items: [(q: String, a: String)])] = [
         ("Grundlagen", [
             ("Was ist wimg?", "Eine App, die zeigt, wohin dein Geld geht. Deine Umsätze liegen auf deinem Gerät, nicht in einer Cloud. wimg heißt „Wo ist mein Geld?“."),
             ("Kostet wimg etwas?", "Nein. wimg ist kostenlos, ohne Werbung, und der Quellcode ist offen auf GitHub."),
@@ -28,363 +105,155 @@ struct AboutView: View {
             ("Wie lösche ich alles?", "Einstellungen › Alle Daten löschen. Das löscht alles auf diesem Gerät und beendet wimg Sync hier. Andere verknüpfte Geräte behalten ihre Kopie."),
         ]),
     ]
-    @State private var faqQuery = ""
-
-    private var appVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
-    }
-
-    @State private var expandedFAQ: String?
+    @State private var query = ""
+    @State private var open: String?
 
     var body: some View {
-        ScrollViewReader { proxy in
-        ScrollView {
-            VStack(spacing: 24) {
-                // MARK: - Hero
-                VStack(spacing: 16) {
-                    ZStack(alignment: .bottomTrailing) {
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(Wimg.band)
-                            .frame(width: 80, height: 80)
-                            .overlay {
-                                Image(systemName: "creditcard")
-                                    .font(.system(size: 32, weight: .light))
-                                    .foregroundStyle(.white)
-                            }
-
-                        Circle()
-                            .fill(Wimg.pos)
-                            .frame(width: 28, height: 28)
-                            .overlay {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundStyle(.white)
-                            }
-                            .offset(x: 4, y: 4)
-                    }
-
-                    VStack(spacing: 4) {
-                        Text("wimg")
-                            .font(WimgFont.font(.manrope, .bold, 28, relativeTo: .title))
-                            .foregroundStyle(WimgTheme.text)
-
-                        Text(#L("Persönliche Finanzverwaltung.") + "\n" + #L("Lokal. Privat. Offen."))
-                            .font(.subheadline)
-                            .foregroundStyle(WimgTheme.textSecondary)
-                            .multilineTextAlignment(.center)
-                    }
-                }
-                .padding(.top, 8)
-
-                // MARK: - About Text
-                // LocalizedStringKey: the bold parts are Markdown.
-                Text(LocalizedStringKey(#L("Ein Open-Source-Projekt von **Komiljon Maksudov**. Gebaut mit **Zig**, **SwiftUI** und **SQLite**.")))
-                    .font(.subheadline)
-                    .foregroundStyle(WimgTheme.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 8)
-
-                // MARK: - Privacy Badge
-                HStack(spacing: 16) {
-                    Circle()
-                        .fill(.green)
-                        .frame(width: 44, height: 44)
-                        .overlay {
-                            Image(systemName: "checkmark.shield.fill")
-                                .font(.title3)
-                                .foregroundStyle(.white)
-                        }
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(#L("Privatsphäre zuerst"))
-                            .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
-                            .foregroundStyle(WimgTheme.text)
-                        Text(#L("Keine Werbung. Kein Tracking. Niemals."))
-                            .font(.caption)
-                            .foregroundStyle(WimgTheme.textSecondary)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-                .background(Color.green.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-
-                // MARK: - Privacy Details
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(#L("Datenschutz im Detail"))
-                        .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
-                        .foregroundStyle(WimgTheme.text)
-
-                    privacyRow("lock.fill", "Lokal gespeichert", "SQLite-Datenbank auf deinem Gerät. Kein Cloud-Konto nötig.")
-                    privacyRow("key.fill", "Ende-zu-Ende verschlüsselt", "Sync nutzt XChaCha20-Poly1305. Der Server sieht nur Chiffretext.")
-                    privacyRow("building.columns", "FinTS direkt zur Bank", "Kein Drittanbieter zwischen dir und deiner Bank.")
-                    privacyRow("eye.slash.fill", "Kein Tracking", "Keine Analytics, kein Sentry, kein Google. Null Telemetrie.")
-                    privacyRow("person.fill.xmark", "Kein Account", "Kein Passwort, keine E-Mail. Dein Sync-Schlüssel ist deine Identität.")
-                    privacyRow("brain.head.profile", "KI sieht keine Klarnamen", "MCP-Antworten werden von IBANs, BICs und Namen bereinigt.")
-                }
-                .padding(16)
-                .background(WimgTheme.cardBg)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
-
-                // MARK: - GitHub Button
-                Link(destination: URL(string: "https://github.com/komiljonmaksudov/wimg")!) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "chevron.left.forwardslash.chevron.right")
-                            .font(.subheadline)
-                        Text("GitHub")
-                            .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
-                    }
-                    .foregroundStyle(WimgTheme.text)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(WimgTheme.text, lineWidth: 2)
-                    }
-                }
-
-                // MARK: - MCP Connection Guide
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "link")
-                            .font(.title3)
-                            .foregroundStyle(.purple)
-                        Text(#L("MCP-Verbindung"))
-                            .font(WimgFont.font(.manrope, .bold, 20, relativeTo: .title3))
-                            .foregroundStyle(WimgTheme.text)
-                    }
-
-                    Text(#L("Mit aktivierter Sync kannst du KI-Assistenten (Claude, etc.) per MCP-Protokoll Zugriff auf deine Finanzdaten geben."))
-                        .font(.subheadline)
-                        .foregroundStyle(WimgTheme.textSecondary)
-
-                    // Steps
-                    VStack(spacing: 8) {
-                        mcpStep(number: 1, title: "Sync aktivieren", detail: "Unter Einstellungen einen Sync-Schlüssel erstellen.")
-                        mcpStep(number: 2, title: "MCP-Client konfigurieren", detail: "In Claude Desktop oder Claude Code die folgende Konfiguration hinzufügen:")
-                    }
-
-                    // Config code block
-                    Text("""
-                    {
-                      "mcpServers": {
-                        "wimg": {
-                          "command": "npx",
-                          "args": [
-                            "mcp-remote",
-                            "https://wimg-sync.komiljonmaksudov.com/mcp",
-                            "--header",
-                            "Authorization: Bearer DEIN-SYNC-SCHLÜSSEL"
-                          ]
-                        }
-                      }
-                    }
-                    """)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(WimgTheme.text)
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.gray.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                    mcpStep(number: 3, title: "Nutzen", detail: "Frage Claude z.B. \"Zeig mir meine Ausgaben diesen Monat\" oder \"Kategorisiere meine letzten Transaktionen\".")
-
-                    // Privacy warning
-                    HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                            .font(.subheadline)
-                            .padding(.top, 2)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(#L("Datenschutz-Hinweis"))
-                                .font(WimgFont.font(.inter, .bold, 15, relativeTo: .subheadline))
-                                .foregroundStyle(Color.orange.opacity(0.9))
-                            Text(#L("Wenn du wimg mit einem MCP-Client verbindest, werden deine Finanzdaten an diesen Client weitergegeben. Die Daten sind Ende-zu-Ende verschlüsselt zwischen deinen Geräten und dem Server, aber der MCP-Client selbst kann die entschlüsselten Daten lesen. Verwende nur vertrauenswürdige MCP-Clients und teile deinen Sync-Schlüssel niemals mit Dritten."))
-                                .font(.caption)
-                                .foregroundStyle(Color.orange.opacity(0.8))
-                        }
-                    }
-                    .padding(14)
-                    .background(Color.orange.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(Color.orange.opacity(0.2), lineWidth: 1)
-                    }
-                }
-
-                // MARK: - Credits
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "heart.circle")
-                            .font(.title3)
-                            .foregroundStyle(.pink)
-                        Text(#L("Mit Hilfe von"))
-                            .font(WimgFont.font(.manrope, .bold, 20, relativeTo: .title3))
-                            .foregroundStyle(WimgTheme.text)
-                    }
-
-                    creditRow(
-                        "swift",
-                        "Zig & SQLite",
-                        "libwimg ist ein Zig-Kern mit eingebetteter SQLite-Amalgamation. Inspiriert von libghostty: Die Bibliothek IS die App."
-                    )
-                    creditRow(
-                        "building.columns",
-                        "FinTS-Bankenliste",
-                        "Offizielle Bankenliste von www.fints.org / Die Deutsche Kreditwirtschaft."
-                    )
-                    creditRow(
-                        "cloud",
-                        "Eigener Server bei Hetzner",
-                        "Sync-Server und MCP-Endpunkt in Zig, ohne Cloud-Anbieter dazwischen."
-                    )
-                    creditRow(
-                        "swift",
-                        "SwiftUI · Kotlin Compose",
-                        "Zwei Plattform-Shells über einer Zig-Bibliothek."
-                    )
-                }
-                .padding(16)
-                .background(WimgTheme.cardBg)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
-
-                // MARK: - FAQ (grouped and searchable, as on Android)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(#L("Häufige Fragen")).wimgStyle(WimgType.section).foregroundStyle(Wimg.text)
-                        .padding(.bottom, 10)
-                    SearchField(text: $faqQuery, prompt: L("Frage suchen"))
-                    let q = faqQuery.trimmingCharacters(in: .whitespaces)
-                    let groups = Self.faqGroups.map { g in
-                        (g.title, g.items.filter { q.isEmpty || L($0.q).localizedCaseInsensitiveContains(q) || L($0.a).localizedCaseInsensitiveContains(q) })
-                    }.filter { !$0.1.isEmpty }
-                    ForEach(groups, id: \.0) { title, items in
-                        if q.isEmpty { GroupLabel(text: L(title)) } else { Spacer().frame(height: 10) }
-                        WimgGroup {
-                            ForEach(Array(items.enumerated()), id: \.element.q) { i, faq in
-                                if i > 0 { RowDivider() }
-                                let open = expandedFAQ == faq.q
-                                Button { withAnimation(WimgMotion.out(0.2)) { expandedFAQ = open ? nil : faq.q } } label: {
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        HStack(alignment: .top) {
-                                            Text(L(faq.q)).font(WimgFont.font(.inter, .bold, 15)).foregroundStyle(Wimg.text)
-                                                .multilineTextAlignment(.leading)
-                                            Spacer(minLength: 10)
-                                            Image(systemName: open ? "minus" : "plus").foregroundStyle(open ? Wimg.accent : Wimg.text2)
-                                        }
-                                        if open {
-                                            Text(L(faq.a)).wimgStyle(WimgType.body).foregroundStyle(Wimg.text)
-                                                .multilineTextAlignment(.leading)
-                                        }
-                                    }
-                                    .padding(.horizontal, 16).padding(.vertical, 14)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(open ? Wimg.accentSoft : .clear)
-                                    .contentShape(Rectangle())
+        BandScreen(title: L("Häufige Fragen"), pushed: true) {
+            Text(L("Über wimg")).wimgStyle(WimgType.bandOver).foregroundStyle(Wimg.bandSub)
+        } sheet: {
+            SearchField(text: $query, prompt: L("Frage suchen"))
+            let q = query.trimmingCharacters(in: .whitespaces)
+            let groups = Self.faqGroups.map { g in
+                (g.title, g.items.filter { q.isEmpty || L($0.q).localizedCaseInsensitiveContains(q) || L($0.a).localizedCaseInsensitiveContains(q) })
+            }.filter { !$0.1.isEmpty }
+            ForEach(groups, id: \.0) { title, items in
+                if q.isEmpty { GroupLabel(text: L(title)) } else { Spacer().frame(height: 10) }
+                WimgGroup {
+                    ForEach(Array(items.enumerated()), id: \.element.q) { i, faq in
+                        if i > 0 { RowDivider() }
+                        let isOpen = open == faq.q
+                        Button { withAnimation(WimgMotion.out(0.2)) { open = isOpen ? nil : faq.q } } label: {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(alignment: .top) {
+                                    Text(L(faq.q)).font(WimgFont.font(.inter, .bold, 15)).foregroundStyle(Wimg.text)
+                                        .multilineTextAlignment(.leading)
+                                    Spacer(minLength: 10)
+                                    Image(systemName: isOpen ? "minus" : "plus").foregroundStyle(isOpen ? Wimg.accent : Wimg.text2)
                                 }
-                                .buttonStyle(.plain)
-                                .id(faq.q)
-                                .accessibilityAddTraits(open ? .isSelected : [])
+                                if isOpen {
+                                    Text(L(faq.a)).wimgStyle(WimgType.body).foregroundStyle(Wimg.text)
+                                        .multilineTextAlignment(.leading)
+                                }
                             }
+                            .padding(.horizontal, 16).padding(.vertical, 14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(isOpen ? Wimg.accentSoft : .clear)
+                            .contentShape(Rectangle())
                         }
-                    }
-                    if !q.isEmpty && groups.isEmpty {
-                        Text(L("Keine Frage gefunden.")).wimgStyle(WimgType.body).foregroundStyle(Wimg.text2).padding(.top, 14)
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(isOpen ? .isSelected : [])
                     }
                 }
-
-                // MARK: - Footer
-                VStack(spacing: 8) {
-                    Link(destination: URL(string: WimgConfig.releasesURL)!) {
-                        Text(#L("Was ist neu?"))
-                            .font(WimgFont.font(.inter, .bold, 12, relativeTo: .caption))
-                            .foregroundStyle(.orange)
-                    }
-
-                    Text(#L("Version \(appVersion)"))
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(WimgTheme.textSecondary.opacity(0.6))
-                }
-                .padding(.top, 8)
-                .padding(.bottom, 24)
             }
-            .padding(.horizontal, 20)
-        }
-        .onAppear {
-            if let scrollToFAQ {
-                expandedFAQ = scrollToFAQ
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    withAnimation { proxy.scrollTo(scrollToFAQ, anchor: .top) }
-                }
+            if !q.isEmpty && groups.isEmpty {
+                Text(L("Keine Frage gefunden.")).wimgStyle(WimgType.body).foregroundStyle(Wimg.text2).padding(.top, 14)
             }
-        }
-        }
-        .background(WimgTheme.bg)
-        .navigationTitle(#L("Über wimg"))
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func creditRow(_ icon: String, _ title: String, _ detail: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 14))
-                .foregroundStyle(.pink)
-                .frame(width: 20, alignment: .center)
-                .padding(.top, 2)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L(title))
-                    .font(WimgFont.font(.inter, .semibold, 12, relativeTo: .caption))
-                    .foregroundStyle(WimgTheme.text)
-                Text(L(detail))
-                    .font(WimgFont.font(.inter, .regular, 11, relativeTo: .caption2))
-                    .foregroundStyle(WimgTheme.textSecondary)
-            }
+            QuietLine(text: L("Nicht dabei? Unter „Problem melden“ kannst du fragen. Das ist öffentlich auf GitHub, schreib also keine Kontodaten hinein."),
+                      systemImage: "questionmark.circle")
         }
     }
+}
 
-    private func privacyRow(_ icon: String, _ title: String, _ detail: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 14))
-                .foregroundStyle(.green)
-                .frame(width: 20, alignment: .center)
-                .padding(.top, 2)
+/// Where the data is, as Android's AboutPrivacyScreen.
+struct AboutPrivacyView: View {
+    @Environment(\.openURL) private var openURL
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L(title))
-                    .font(WimgFont.font(.inter, .semibold, 12, relativeTo: .caption))
-                    .foregroundStyle(WimgTheme.text)
-                Text(L(detail))
-                    .font(WimgFont.font(.inter, .regular, 11, relativeTo: .caption2))
-                    .foregroundStyle(WimgTheme.textSecondary)
+    private let places: [(icon: String, title: String, desc: String)] = [
+        ("iphone", "Auf diesem iPhone", "Alles: Umsätze, Kategorien, Regeln und, wenn du sie merkst, deine Bank-PIN im Schlüsselbund von iOS."),
+        ("cloud", "Auf dem Sync-Server", "Nur wenn du Sync nutzt, und nur verschlüsselt. Ohne deinen Schlüssel unlesbar. Verbindest du Claude per MCP, entschlüsselt der Server deine Daten für diese Anfrage."),
+        ("building.columns", "Bei deiner Bank", "Was sie ohnehin hat. wimg fragt direkt bei ihr an, ohne Dienst dazwischen."),
+        ("xmark", "Sonst nirgends", "Keine Kopie bei Dritten, kein Konto, das man hacken könnte."),
+    ]
+
+    var body: some View {
+        BandScreen(title: L("So bleiben deine Daten bei dir"), pushed: true) {
+            Text(L("Über wimg")).wimgStyle(WimgType.bandOver).foregroundStyle(Wimg.bandSub)
+        } sheet: {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(places.enumerated()), id: \.offset) { i, p in
+                    let last = i == places.count - 1
+                    let (bg, fg): (Color, Color) = i == 0 ? (Wimg.accentSoft, Wimg.accent) : last ? (Wimg.dangerBg, Wimg.danger) : (Wimg.neutralTint, Wimg.text)
+                    HStack(alignment: .top, spacing: 14) {
+                        VStack(spacing: 0) {
+                            Image(systemName: p.icon).font(.system(size: 18)).foregroundStyle(fg)
+                                .frame(width: 42, height: 42).background(bg, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            if !last { Rectangle().fill(Wimg.line).frame(width: 2).frame(maxHeight: .infinity) }
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L(p.title)).font(WimgFont.font(.inter, .bold, 16)).foregroundStyle(Wimg.text)
+                            Text(L(p.desc)).wimgStyle(WimgType.body).foregroundStyle(Wimg.text2).fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.bottom, last ? 0 : 18)
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                }
             }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Wimg.card, in: RoundedRectangle(cornerRadius: WimgShape.group, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: WimgShape.group, style: .continuous).stroke(Wimg.line, lineWidth: 1))
+
+            GroupLabel(text: L("Was wimg nie macht"))
+            ForEach([("Kein Konto", "Keine Werbung"), ("Kein Tracking", "Keine Daten an Dritte")], id: \.0) { a, b in
+                HStack(spacing: 10) { never(a); never(b) }.padding(.bottom, 10)
+            }
+            Button { if let u = URL(string: site + "/datenschutz.html") { openURL(u) } } label: {
+                HStack(spacing: 8) {
+                    Text(L("Ganze Datenschutzerklärung lesen")).wimgStyle(WimgType.button)
+                    Image(systemName: "arrow.up.right")
+                }
+                .foregroundStyle(Wimg.accent)
+                .padding(.vertical, 8).padding(.horizontal, 4)
+            }
+            .buttonStyle(.plain)
         }
     }
 
-    private func mcpStep(number: Int, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text("\(number)")
-                .font(WimgFont.font(.inter, .bold, 12, relativeTo: .caption))
-                .foregroundStyle(WimgTheme.heroText)
-                .frame(width: 28, height: 28)
-                .background(WimgTheme.accent)
-                .clipShape(Circle())
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L(title))
-                    .font(WimgFont.font(.inter, .semibold, 15, relativeTo: .subheadline))
-                    .foregroundStyle(WimgTheme.text)
-                Text(L(detail))
-                    .font(.caption)
-                    .foregroundStyle(WimgTheme.textSecondary)
-            }
+    private func never(_ text: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "xmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(Wimg.danger)
+            Text(L(text)).font(WimgFont.font(.inter, .semibold, 15)).foregroundStyle(Wimg.text)
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .wimgCard()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Wimg.card, in: RoundedRectangle(cornerRadius: WimgShape.group, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: WimgShape.group, style: .continuous).stroke(Wimg.line, lineWidth: 1))
+    }
+}
+
+/// What the iOS app ships, with links to the licence texts.
+struct AboutLicensesView: View {
+    @Environment(\.openURL) private var openURL
+    private let apache = "https://www.apache.org/licenses/LICENSE-2.0"
+    private let ofl = "https://openfontlicense.org/open-font-license-official-text/"
+
+    private var libs: [(String, String, String)] {[
+        ("wimg", "MIT", repo + "/blob/main/LICENSE"),
+        ("SQLite", "Public Domain", "https://sqlite.org/copyright.html"),
+        ("Zig Standardbibliothek", "MIT", "https://github.com/ziglang/zig/blob/master/LICENSE"),
+        ("Swift, SwiftUI", "Apache-2.0", apache),
+        ("Manrope", "SIL OFL 1.1", ofl),
+        ("Inter", "SIL OFL 1.1", ofl),
+        ("JetBrains Mono", "SIL OFL 1.1", ofl),
+    ]}
+
+    var body: some View {
+        BandScreen(title: L("Lizenzen"), pushed: true) {
+            Text(L("Über wimg")).wimgStyle(WimgType.bandOver).foregroundStyle(Wimg.bandSub)
+        } sheet: {
+            WimgGroup {
+                ForEach(Array(libs.enumerated()), id: \.offset) { i, lib in
+                    if i > 0 { RowDivider() }
+                    WimgRow(title: L(lib.0), desc: lib.1, action: { if let u = URL(string: lib.2) { openURL(u) } }) {
+                        EmptyView()
+                    } trailing: {
+                        Image(systemName: "arrow.up.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(Wimg.text3)
+                    }
+                }
+            }
+            QuietLine(text: L("Danke an alle, die diese Bibliotheken bauen. Die Lizenztexte öffnen sich im Browser."))
+        }
     }
 }

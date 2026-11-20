@@ -146,25 +146,33 @@ struct HomeView: View {
         let periodKey = selection.from
         let days = max(selection.daysLeft, 1)
         let hour = Calendar.current.component(.hour, from: Date())
-        var moment: (key: String, from: SquirrelPose, text: String)?
-        switch pose {
-        case .gehalt: moment = ("gehalt:\(periodKey)", .leer, L("Gehalt ist da. Neuer Gehaltsmonat."))
-        case .leer: moment = ("leer:\(periodKey)", .knapp, salaryMode
+        // As Android's pendingMoment: the first one not played yet, in this order.
+        typealias Moment = (key: String, from: SquirrelPose, text: String)
+        var candidates: [Moment] = []
+        if pose == .gehalt { candidates.append(("gehalt:\(periodKey)", .leer, L("Gehalt ist da. Neuer Gehaltsmonat."))) }
+        if pose == .leer { candidates.append(("leer:\(periodKey)", .knapp, salaryMode
             ? L("Leer. Die Motte findet's gemütlich. Gehalt kommt in ~%d Tagen.", days)
-            : L("Leer. Die Motte findet's gemütlich. Neuer Monat in %d Tagen.", days))
-        case .knapp: moment = ("knapp:\(periodKey)", .normal,
-            L("%s für %d Tage. Das sind %s am Tag. Geht.", amountText(available, showPlus: false), days, amountText(available / Double(days), showPlus: false)))
-        default:
-            if hour >= 20 && !(data?.spentToday ?? true) {
-                moment = ("nospend:\(WimgDates.todayIso())", .yawn, L("Heute kein Euro raus."))
-            }
+            : L("Leer. Die Motte findet's gemütlich. Neuer Monat in %d Tagen.", days))) }
+        if pose == .knapp { candidates.append(("knapp:\(periodKey)", .normal,
+            L("%s für %d Tage. Das sind %s am Tag. Geht.", amountText(available, showPlus: false), days, amountText(available / Double(days), showPlus: false)))) }
+        let rise = data?.priceRise
+        if let r = rise {
+            candidates.append(("price:\(r.id):\(Int((r.new * 100).rounded()))", .look,
+                               L("Hab dich. %s kostet jetzt %s statt %s.", r.name, amountText(r.new, showPlus: false), amountText(r.old, showPlus: false))))
         }
+        if hour >= 20 && !(data?.spentToday ?? true) && pose != .leer {
+            candidates.append(("nospend:\(WimgDates.todayIso())", .yawn, L("Heute kein Euro raus.")))
+        }
+        let played = Set(UserDefaults.standard.stringArray(forKey: "wimg_moments") ?? [])
+        let moment = candidates.first { !played.contains($0.key) }
+        let action: (label: String, run: () -> Void)? = moment?.key.hasPrefix("price:") == true
+            ? (L("Ansehen"), { if let id = rise?.id { path.append(RecRoute(id: id)) } }) : nil
         let shownPose: SquirrelPose = (moment?.key.hasPrefix("nospend") ?? false) ? .sleep : pose
         let past = max(selection.daysIn - 1, 0)
         let ring = SquirrelRingDays(total: selection.daysIn + selection.daysLeft - 1, past: past,
                                     noSpend: noSpendDays(past: past))
         let narrow = UIScreen.main.bounds.width < 380
-        return SquirrelView(pose: shownPose, line: line, moment: moment, size: narrow ? 99 : 112, ring: ring)
+        return SquirrelView(pose: shownPose, line: line, moment: moment, size: narrow ? 99 : 112, ring: ring, momentAction: action)
     }
 
     /// Past days (1-based) of the range without any spending (Android noSpendDays).
@@ -361,6 +369,8 @@ struct HomeData {
     /// The newest day in the range with bookings (up to six).
     var day: [Transaction] = []
     var spendDates: Set<String> = []
+    /// Newest unconfirmed price rise of a fixed cost in this range (the squirrel's moment).
+    var priceRise: HomePriceRise? = nil
     var hasAnyData = true
     /// For the squirrel: something was spent today; a salary came today.
     var spentToday = false
@@ -381,6 +391,7 @@ struct HomeData {
             pending: sel.isCurrent ? LibWimg.getPending(account: account) : [],
             day: last.map { d in Array(inRange.filter { $0.date == d }.prefix(6)) } ?? [],
             spendDates: Set(inRange.filter { $0.amount < 0 }.map(\.date)),
+            priceRise: sel.isCurrent ? HomePriceRise.latest(from: sel.from) : nil,
             hasAnyData: any,
             spentToday: all.contains { $0.date == today && $0.amount < 0 && !$0.isExcluded },
             salaryToday: all.contains { $0.date == today && $0.category == 10 && $0.amount > 0 }
@@ -389,6 +400,25 @@ struct HomeData {
 }
 
 struct RecRoute: Hashable { let id: String }
+
+/// A fixed cost booked at a higher price since `from`, not yet confirmed (Android latestPriceRise).
+struct HomePriceRise {
+    let id: String
+    let name: String
+    let old: Double
+    let new: Double
+
+    nonisolated static func latest(from: String) -> HomePriceRise? {
+        LibWimg.getRecurring()
+            .filter { p in
+                guard let prev = p.prev_amount else { return false }
+                return p.isActive && !p.isHidden && p.amount < 0 && p.price_change != nil
+                    && p.last_seen >= from && abs(p.amount) - abs(prev) > 0.5
+            }
+            .max { $0.last_seen < $1.last_seen }
+            .map { HomePriceRise(id: $0.id, name: $0.displayName, old: abs($0.prev_amount ?? 0), new: abs($0.amount)) }
+    }
+}
 
 // MARK: - Pieces
 
@@ -400,7 +430,7 @@ struct BandStat: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(label).wimgStyle(WimgType.caption).foregroundStyle(Wimg.bandSub).lineLimit(1)
+            Text(label).wimgStyle(WimgType.caption).foregroundStyle(Wimg.bandSub).lineLimit(1).minimumScaleFactor(0.8)
             Text(value).wimgStyle(WimgType.amountStat).foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
