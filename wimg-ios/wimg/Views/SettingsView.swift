@@ -342,7 +342,7 @@ struct SettingsView: View {
             KeychainService.deleteAll()
             UserDefaults.standard.removeObject(forKey: "wimg_sync_last_ts")
             DemoDataService.clearDemoFlag()
-            UserDefaults.standard.removeObject(forKey: "wimg_onboarding_completed")
+            UserDefaults.standard.removeObject(forKey: OnboardingKey.completed)
 
             try? LibWimg.initialize()
             LibWimg.isResetting = false

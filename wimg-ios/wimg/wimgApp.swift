@@ -49,6 +49,12 @@ struct wimgApp: App {
     }
 
     init() {
+        // App Review recording: start from nothing every run (its own files only).
+        if let file = ProcessInfo.processInfo.environment["WIMG_DB_FILE"] {
+            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(at: docs.appendingPathComponent(file + suffix)) }
+            UserDefaults.standard.removeObject(forKey: OnboardingKey.completed)
+        }
         // Migrate credentials from UserDefaults to Keychain (one-time on update)
         SyncService.shared.migrateIfNeeded()
 
@@ -86,7 +92,7 @@ struct wimgApp: App {
 struct ContentView: View {
     @State private var selectedAccount: String?
     @State private var accounts: [Account] = []
-    @AppStorage("wimg_onboarding_completed") private var onboardingCompleted = false
+    @AppStorage(OnboardingKey.completed) private var onboardingCompleted = false
     @AppStorage("wimg_locale") private var currentLocale = "de"
     @State private var popToRoot = UUID()
     private var nav: AppNav { AppNav.shared }

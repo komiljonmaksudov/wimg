@@ -738,7 +738,10 @@ final class LibWimg {
 
     private static func dbPath() -> String {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        return docs.appendingPathComponent("wimg.db").path
+        // The App Review recording (wimgUITests) runs on a phone with real data:
+        // it gets its own file, the real database is never opened.
+        let name = ProcessInfo.processInfo.environment["WIMG_DB_FILE"] ?? "wimg.db"
+        return docs.appendingPathComponent(name).path
     }
 
     private static func ensureInit() throws {

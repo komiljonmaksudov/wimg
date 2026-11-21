@@ -69,7 +69,10 @@ struct DemoDataService {
                 // starts with it, and the feature shows itself (as on Android).
                 try? LibWimg.setPeriodMode("salary")
                 if let key = LibWimg.getPeriods(count: 1)?.salary?.key { try? LibWimg.answerSalary(key: key, .yes) }
-                UserDefaults.standard.set(true, forKey: demoLoadedKey)
+                // Not during the App Review recording: its demo lives in its own database.
+                if ProcessInfo.processInfo.environment["WIMG_DB_FILE"] == nil {
+                    UserDefaults.standard.set(true, forKey: demoLoadedKey)
+                }
                 NotificationCenter.default.post(name: .wimgDataChanged, object: nil)
             }
         } catch {

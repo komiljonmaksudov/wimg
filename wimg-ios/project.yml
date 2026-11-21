@@ -87,6 +87,24 @@ targets:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
 
+  # Taps through the app for App Review's screen recording on a real iPhone
+  # (scripts/record-app-review.sh). Not part of the shipped app.
+  wimgUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: wimgUITests
+    dependencies:
+      - target: wimg
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.wimg.app.uitests
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: W5N395VNYH
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: wimg
+
   wimgWidget:
     type: app-extension
     platform: iOS
@@ -137,6 +155,15 @@ targets:
           - Fonts/JetBrainsMono-Medium.ttf
 
 schemes:
+  wimgUITests:
+    build:
+      targets:
+        wimg: all
+        wimgUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - wimgUITests
   wimg:
     build:
       targets:

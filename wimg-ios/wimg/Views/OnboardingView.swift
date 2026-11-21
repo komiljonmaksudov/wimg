@@ -103,7 +103,7 @@ struct OnboardingView: View {
     }
 
     private func complete() {
-        UserDefaults.standard.set(true, forKey: "wimg_onboarding_completed")
+        UserDefaults.standard.set(true, forKey: OnboardingKey.completed)
         dismiss()
     }
 }
@@ -217,4 +217,12 @@ struct OnboardingButton: View {
         }
         .buttonStyle(.wimgPress)
     }
+}
+
+/// Where "onboarding done" is kept. The App Review recording (wimgUITests, its own
+/// database via WIMG_DB_FILE) uses its own flag, so it starts with the onboarding
+/// and never touches the real app's.
+enum OnboardingKey {
+    static let completed = ProcessInfo.processInfo.environment["WIMG_DB_FILE"] == nil
+        ? "wimg_onboarding_completed" : "wimg_onboarding_completed_review"
 }

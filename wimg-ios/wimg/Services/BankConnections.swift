@@ -25,6 +25,8 @@ enum BankConnections {
 
     /// All logins. A login from before this list (only the Keychain slots) becomes the first entry.
     static func all() -> [BankConnection] {
+        // The App Review recording (own database) must not show the real logins.
+        if ProcessInfo.processInfo.environment["WIMG_DB_FILE"] != nil { return [] }
         if let data = UserDefaults.standard.data(forKey: listKey),
            let list = try? JSONDecoder().decode([BankConnection].self, from: data) {
             return list
