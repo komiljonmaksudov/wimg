@@ -1,6 +1,2 @@
-# 0.9.14
-• Bank fetches ask in the new CAMT format first, MT940 only when the bank needs it
-• The first fetch over many months now works with large answers too
-• PINs with characters like + or ' and TAN devices with umlauts work
-• The squirrel's speech bubble fits on narrow phones
-• "Done" in the account menu on Overview closes without a flicker
+# 1.0.2
+• Recommend wimg and rate it on Google Play, under About wimg

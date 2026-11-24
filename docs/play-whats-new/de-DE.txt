@@ -1,6 +1,2 @@
-# 0.9.14
-• Bankabruf fragt zuerst im neuen Format CAMT, MT940 nur noch, wenn die Bank es braucht
-• Der erste Abruf über viele Monate klappt jetzt auch bei großen Antworten
-• PINs mit Sonderzeichen wie + oder ' und TAN-Geräte mit Umlauten funktionieren
-• Die Sprechblase des Eichhörnchens passt auch auf schmale Telefone
-• „Fertig“ im Konto-Menü der Übersicht schließt ohne Flackern
+# 1.0.2
+• wimg weiterempfehlen und bei Google Play bewerten, unter Über wimg
