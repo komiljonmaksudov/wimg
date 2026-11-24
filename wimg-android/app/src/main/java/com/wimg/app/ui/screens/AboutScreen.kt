@@ -26,6 +26,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.AccountBalance
@@ -106,6 +108,19 @@ private const val SITE = "https://wimg.komiljonmaksudov.com"
 
 private fun open(context: Context, url: String) {
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+}
+
+private fun shareApp(context: Context) {
+    val send = Intent(Intent.ACTION_SEND).setType("text/plain")
+        .putExtra(Intent.EXTRA_TEXT, __t("wimg zeigt, wo dein Geld hingeht, und deine Daten bleiben auf dem Handy: %s").format(SITE))
+    runCatching { context.startActivity(Intent.createChooser(send, null)) }
+}
+
+/** The Play app's page for wimg, or the web page without the Play app. */
+private fun rateApp(context: Context) {
+    val pkg = context.packageName.removeSuffix(".tester")
+    val market = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg")).setPackage("com.android.vending")
+    runCatching { context.startActivity(market) }.onFailure { open(context, "https://play.google.com/store/apps/details?id=$pkg") }
 }
 
 /**
@@ -393,6 +408,15 @@ fun AboutScreen(navController: NavController? = null) {
                     leading = { IconTile(Icons.Outlined.Description, c.text) }, trailing = { ExternalArrow() },
                     onClick = { open(context, "$SITE/datenschutz.html") },
                 )
+            }
+
+            // Tester feedback (closed test, 2026-11): a way to recommend and rate wimg.
+            // Plain system share sheet and a Play link: no Google library, nothing tracked.
+            GroupLabel(L("Weitersagen"))
+            WimgGroup {
+                WimgRow(L("wimg empfehlen"), desc = L("Den Link mit jemandem teilen"), leading = { IconTile(Icons.Outlined.Share, c.text) }, onClick = { shareApp(context) })
+                RowDivider()
+                WimgRow(L("Bei Google Play bewerten"), leading = { IconTile(Icons.Outlined.StarOutline, c.text) }, trailing = { ExternalArrow() }, onClick = { rateApp(context) })
             }
 
             GroupLabel(L("Projekt"))

@@ -42,6 +42,7 @@ GitHub release, add on top: "This APK has a new permanent signature. Uninstall t
 | 2026-11-17 | Tester (friend, WhatsApp) | "Ich habe schon wimg" should read "Ich nutze wimg schon" | Button and Sync texts renamed (next update) |
 | 2026-11-17 | Tester (friend, WhatsApp) | Searching "ing" puts ING far down the bank list; sort by how common a bank is | Search ranks name start, then word start, then BLZ, then contains; big banks first, also with an empty search (next update) |
 | 2026-11-17 | Tester (friend, WhatsApp) | Wants to import Revolut ("Mit Revolut CSV") | Revolut CSV import built from the documented format, English and German headers (next update) |
+| 2026-11-24 | Testers Community (report, 15 testers) | No crashes or bugs on any device. Suggested: share and rate options, exit confirmation on Back, a walkthrough, a longer description | "wimg empfehlen" and "Bei Google Play bewerten" in Über wimg (also on iOS). No exit dialog (Android's back guidelines advise against it), no extra walkthrough (onboarding + demo data already), description kept (already full) |
 | 2026-11-17 | Developer | Learned rules "BELASTUNG"/"KARTENVERFÜGUNG" filed whole kinds of bookings into one category | Rules learned from the merchant only; bad rules removed on start (next update) |
 
 ## Pre-launch reports

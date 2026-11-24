@@ -3,6 +3,8 @@ import WimgI18n
 
 private let repo = "https://github.com/komiljonmaksudov/wimg"
 private let site = "https://wimg.komiljonmaksudov.com"
+/// Opens the App Store's "write a review" page for wimg (App Store Connect app id).
+private let appStoreReview = "https://apps.apple.com/app/id6760736406?action=write-review"
 
 /// Über wimg (as Android's AboutScreen): the app, help, privacy, the project.
 /// The FAQ, privacy and licences are pages of their own.
@@ -53,6 +55,20 @@ struct AboutView: View {
                 RowDivider()
                 link(L("Datenschutzerklärung"), desc: L("Auf der Website"), icon: "doc.text", url: site + "/datenschutz.html")
             }
+            // Tester feedback (closed test, 2026-11): recommend and rate wimg.
+            GroupLabel(text: L("Weitersagen"))
+            WimgGroup {
+                ShareLink(item: URL(string: site)!,
+                          message: Text(L("wimg zeigt, wo dein Geld hingeht, und deine Daten bleiben auf dem Handy: %s", site))) {
+                    WimgRow(title: L("wimg empfehlen"), desc: L("Den Link mit jemandem teilen")) {
+                        IconTile(systemImage: "square.and.arrow.up", tint: Wimg.text)
+                    }
+                }
+                .buttonStyle(.plain)
+                RowDivider()
+                link(L("Im App Store bewerten"), icon: "star", url: appStoreReview)
+            }
+
             GroupLabel(text: L("Projekt"))
             WimgGroup {
                 link(L("Quellcode auf GitHub"), icon: "chevron.left.forwardslash.chevron.right", url: repo)
