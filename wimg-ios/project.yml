@@ -29,7 +29,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.wimg.app
         # iPhone only for the first App Store version (no iPad screenshots or review).
         TARGETED_DEVICE_FAMILY: "1"
-        MARKETING_VERSION: "1.0.1"
+        MARKETING_VERSION: "1.0.2"
         CURRENT_PROJECT_VERSION: 1
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_IDENTITY: "Apple Development"
@@ -126,7 +126,7 @@ targets:
         SWIFT_VERSION: "5.10"
         PRODUCT_BUNDLE_IDENTIFIER: com.wimg.app.widget
         TARGETED_DEVICE_FAMILY: "1"
-        MARKETING_VERSION: "1.0.1"
+        MARKETING_VERSION: "1.0.2"
         CURRENT_PROJECT_VERSION: 1
         CODE_SIGN_IDENTITY: "Apple Development"
         CODE_SIGN_STYLE: Automatic

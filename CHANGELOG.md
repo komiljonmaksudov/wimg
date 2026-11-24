@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.2 (2026-11-24)
+
+- docs: Play notes for 1.0.2; iOS translation table for the share and rate rows
+- feat: recommend and rate wimg from Über wimg (tester feedback from the closed test)
+- chore(ios): a UI test that taps through the app for App Review's screen recording, with its own demo database (the phone's real data and bank logins stay out)
+
 ## v1.0.1 (2026-11-20)
 
 - fix(ios): leave the export-compliance key out, App Store Connect asks per build (true without a code failed the 1.0.0 upload)
